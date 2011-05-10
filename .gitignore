@@ -1,0 +1,10 @@
+*~
+dist/
+/TAGS
+*.swp
+.hpc/
+*.o
+*.hi
+*.dot
+*.html
+dist/

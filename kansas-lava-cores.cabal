@@ -1,0 +1,38 @@
+Name:               kansas-lava-cores
+Version:            0.1.0.20110510
+Synopsis:           IP Cores Written in Kansas Lava, including testing frameworks.
+Category:            Hardware
+License:             BSD3
+License-file:        LICENSE
+Author:              Andy Gill
+Maintainer:          Andy Gill <andygill@ku.edu>
+Copyright:           (c) 2011 The University of Kansas
+Homepage:            http://ittc.ku.edu/~andygill/kansas-lava.php
+Stability:	     alpha
+build-type: 	     Simple
+Cabal-Version:       >= 1.6
+
+Flag unit
+  Description: Enable unit tests for every core
+  Default:     True
+
+Library
+  Build-Depends: kansas-lava == 0.2.1.20100623, sized-types == 0.3.1.20110426
+  Exposed-modules:
+       Hardware.KansasLava.Rate
+  Other-modules:
+
+
+Executable kansas-lava-cores-rate
+    if flag(unit)
+      Build-Depends: base,  kansas-lava == 0.2.1.20100623, sized-types == 0.3.1.20110426
+      buildable: True
+      Other-modules:
+    else
+      Build-depends: base
+      buildable: False
+    Main-Is:        Main.hs
+    Hs-Source-Dirs: ., tests/Rate
+    Ghc-Options: -Wall  -Werror 
+                 -fno-warn-orphans -fcontext-stack=256
+
