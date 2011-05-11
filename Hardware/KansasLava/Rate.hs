@@ -24,6 +24,17 @@ rate Witness n
   | step * 2 > 2^sz = error $ "bit-size " ++ show sz ++ " too small for punctuate Witness " ++ show n
   | n <= 0 = error "can not have rate less than or equal zero"
   | n > 1 = error $ "can not have rate greater than 1, requesting " ++ show n
+
+  | num == 1 = runRTL $ do
+	count <- newReg (0 :: (Unsigned x))
+	CASE [ IF (reg count .<. (fromIntegral step - 1)) $
+		  count := reg count + 1
+	     , OTHERWISE $ do
+		  count := 0
+	     ]
+	return  (reg count .==. 0)
+
+  -- inexact reciprocal, so use Bresenham's to approximate things.
   | otherwise = runRTL $ do
 	count <- newReg (0 :: (Unsigned x))
 	cut   <- newReg (0 :: (Unsigned x))
