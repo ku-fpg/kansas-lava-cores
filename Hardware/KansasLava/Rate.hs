@@ -19,7 +19,7 @@ import Language.KansasLava.Seq
 -- output stream will be True. If 1/n is not a integer, then the function uses
 -- http://en.wikipedia.org/wiki/Bresenham%27s_line_algorithm to approximate the
 -- given rate.
-rate :: forall x clk . (Clock clk, Size x) => Witness x -> Rational -> CSeq clk Bool
+rate :: forall x clk . (Clock clk, Size x) => Witness x -> Rational -> (CSeq clk Bool)
 rate Witness n
   | step * 2 > 2^sz = error $ "bit-size " ++ show sz ++ " too small for punctuate Witness " ++ show n
   | n <= 0 = error "can not have rate less than or equal zero"
@@ -32,7 +32,7 @@ rate Witness n
 		  count := reg count + 1
 	     , OTHERWISE $ do
 		  count := 0
-		  CASE [ IF (reg err .>=. 0) $ do
+		  CASE [ IF (reg err .>. 0) $ do
 		            cut := 1
 			    err   := reg err + fromIntegral nerr
 		        , OTHERWISE $ do

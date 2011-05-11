@@ -23,16 +23,16 @@ Library
   Other-modules:
 
 
-Executable kansas-lava-cores-rate
+Executable kansas-lava-cores-tests
     if flag(unit)
-      Build-Depends: base,  kansas-lava == 0.2.1.20100623, sized-types == 0.3.1.20110426
+      Build-Depends: base, kansas-lava == 0.2.1.20100623, sized-types == 0.3.1.20110426, data-default
       buildable: True
       Other-modules:
     else
       Build-depends: base
       buildable: False
     Main-Is:        Main.hs
-    Hs-Source-Dirs: ., tests/Rate
+    Hs-Source-Dirs: ., tests
     Ghc-Options: -Wall  -Werror 
                  -fno-warn-orphans -fcontext-stack=256
 
