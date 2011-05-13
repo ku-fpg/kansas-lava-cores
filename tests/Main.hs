@@ -10,6 +10,7 @@ import FIFO as FIFO
 main :: IO ()
 main = do
         let opt = def { verboseOpt = 4  -- 4 == show cases that failed
+	    	      , genSim     = True
                       }
         testDriver opt
                 [ Rate.tests
