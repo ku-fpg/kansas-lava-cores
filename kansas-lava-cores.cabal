@@ -17,7 +17,7 @@ Flag unit
   Default:     True
 
 Library
-  Build-Depends: kansas-lava == 0.2.1.20100623, sized-types == 0.3.1.20110426
+  Build-Depends: base >= 4, kansas-lava == 0.2.1.20100623, sized-types == 0.3.1.20110426
   Exposed-modules:
         Hardware.KansasLava.FIFO
         Hardware.KansasLava.Rate
@@ -27,7 +27,7 @@ Library
 
 Executable kansas-lava-cores-tests
     if flag(unit)
-      Build-Depends: base, kansas-lava == 0.2.1.20100623, sized-types == 0.3.1.20110426, data-default,
+      Build-Depends: base >= 4, kansas-lava == 0.2.1.20100623, sized-types == 0.3.1.20110426, data-default,
                  containers, data-reify == 0.6, pretty,
                  dotgen  >= 0.4.1, array, template-haskell, sized-types == 0.3.1.20110426,
                  directory, random, netlist==0.3, netlist-to-vhdl==0.3, process,
