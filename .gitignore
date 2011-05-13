@@ -8,3 +8,4 @@ dist/
 *.dot
 *.html
 dist/
+tests/sims/
