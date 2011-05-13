@@ -19,20 +19,26 @@ Flag unit
 Library
   Build-Depends: kansas-lava == 0.2.1.20100623, sized-types == 0.3.1.20110426
   Exposed-modules:
-       Hardware.KansasLava.Rate
+        Hardware.KansasLava.FIFO
+        Hardware.KansasLava.Rate
+--        Hardware.KansasLava.RS232
   Other-modules:
 
 
 Executable kansas-lava-cores-tests
     if flag(unit)
-      Build-Depends: base, kansas-lava == 0.2.1.20100623, sized-types == 0.3.1.20110426, data-default
+      Build-Depends: base, kansas-lava == 0.2.1.20100623, sized-types == 0.3.1.20110426, data-default,
+                 containers, data-reify == 0.6, pretty,
+                 dotgen  >= 0.4.1, array, template-haskell, sized-types == 0.3.1.20110426,
+                 directory, random, netlist==0.3, netlist-to-vhdl==0.3, process,
+                 fgl, filepath, data-default, unix, bytestring, mtl, strict
       buildable: True
       Other-modules:
     else
       Build-depends: base
       buildable: False
     Main-Is:        Main.hs
-    Hs-Source-Dirs: ., tests
-    Ghc-Options: -Wall  -Werror 
-                 -fno-warn-orphans -fcontext-stack=256
+    Hs-Source-Dirs: ., tests, ../kansas-lava
+--    Ghc-Options: -Wall  -Werror 
+--                 -fno-warn-orphans -fcontext-stack=256
 
