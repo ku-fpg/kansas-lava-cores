@@ -7,8 +7,9 @@ import Hardware.KansasLava.FIFO (fifo)
 import Data.Sized.Unsigned
 import Data.Sized.Arith
 import Data.Sized.Ix
+import System.Random
 --import Data.Maybe 
---import Debug.Trace
+import Debug.Trace
 
 tests :: TestSeq -> IO ()
 tests test = do 
@@ -22,17 +23,17 @@ tests test = do
                   Size sz, Size sz1,
                   Rep sz, Rep sz1,
                   Num w, Num sz, Num sz1)
-                 => String -> Gen (Bool,Maybe w) -> Witness sz -> IO ()
-            t str arb = testFIFO test str (dubSeq arb)
+                 => String -> Gen (Maybe w) -> Witness sz -> IO ()
+            t str arb = testFIFO test str (dubGen arb)
 
-        t "U5"  (arbitrary :: Gen (Bool,Maybe U5)) (Witness :: Witness X1)
-        t "U5"  (arbitrary :: Gen (Bool,Maybe U5)) (Witness :: Witness X2)
-        t "U5"  (arbitrary :: Gen (Bool,Maybe U5)) (Witness :: Witness X3)
-        t "U5"  (arbitrary :: Gen (Bool,Maybe U5)) (Witness :: Witness X4)
-        t "U5"  (arbitrary :: Gen (Bool,Maybe U5)) (Witness :: Witness X5)
-        t "U5"  (arbitrary :: Gen (Bool,Maybe U5)) (Witness :: Witness X6)
-        t "U5"  (arbitrary :: Gen (Bool,Maybe U5)) (Witness :: Witness X7)
-        t "U5"  (arbitrary :: Gen (Bool,Maybe U5)) (Witness :: Witness X8)
+        t "U5"  (arbitrary :: Gen (Maybe U5)) (Witness :: Witness X1)
+        t "U5"  (arbitrary :: Gen (Maybe U5)) (Witness :: Witness X2)
+        t "U5"  (arbitrary :: Gen (Maybe U5)) (Witness :: Witness X3)
+        t "U5"  (arbitrary :: Gen (Maybe U5)) (Witness :: Witness X4)
+        t "U5"  (arbitrary :: Gen (Maybe U5)) (Witness :: Witness X5)
+        t "U5"  (arbitrary :: Gen (Maybe U5)) (Witness :: Witness X6)
+        t "U5"  (arbitrary :: Gen (Maybe U5)) (Witness :: Witness X7)
+        t "U5"  (arbitrary :: Gen (Maybe U5)) (Witness :: Witness X8)
 
 -- Need to fix memories first
 --        t "U1"  (arbitrary :: Gen (Bool,Maybe U1)) (Witness :: Witness X1)
@@ -46,26 +47,34 @@ testFIFO :: forall w sz sz1 . (Eq w, Rep w, Show w,
                                Size sz, Size sz1,
                                Rep sz, Rep sz1,                 Num w,
                                Num sz, Num sz1)
-        => TestSeq -> String -> Gen (Bool,Maybe w) -> Witness sz -> IO ()
-testFIFO (TestSeq test toL) tyName ws wit = do
-        let outBools :: [Bool]
-            vals    :: [Maybe w]
-            (outBools,vals) = unzip $ toL ws
+        => TestSeq -> String -> Gen (Maybe w) -> Witness sz -> IO ()
+testFIFO (TestSeq test _) tyName ws wit = do
+        let vals    :: [Maybe w]
+            vals = take 100000 $ genToRandom $ loop 10 $ ws
 
-        let
+        -- good enough for this sort of testing
+        let stdGen = mkStdGen 0
+
+        let (lhs_r,rhs_r) = split stdGen
             cir = fifo wit low :: (Seq (Enabled w), Seq Bool) -> (Seq Bool, Seq (Enabled w))
 
-            driver :: Fabric (Int -> Maybe String)
-            driver = do
+            driver :: ( Integer -> Float
+                      , Integer -> Float
+                      , Integer -> Float
+                      , Integer -> Float
+                      ) -> Fabric (Int -> Maybe String)
+            driver (a,b,c,d) = do
                 -- backedge output from DUT
                 ack <- inStdLogic "ack"
 
                 let vals' :: Seq (Enabled w)
-                    vals' = toHandShake (vals ++ repeat Nothing) ack
+                    vals' = toHandShake (vals ++ repeat Nothing) ack'
+
+                    (vals2,ack') = shallowHandShakeBridge lhs_r (a,b) (vals',ack)
 
                 -- sent to DUT
-                outStdLogicVector "vals"        (enabledVal vals')
-                outStdLogic       "vals_en"     (isEnabled vals')
+                outStdLogicVector "vals"        (enabledVal vals2)
+                outStdLogic       "vals_en"     (isEnabled vals2)
 
                 -- DUT does stuff
 
@@ -75,14 +84,20 @@ testFIFO (TestSeq test toL) tyName ws wit = do
 
                 let flag :: Seq Bool 
                     opt_as :: [Maybe w]
-                    (flag, opt_as) = fromHandShake (packEnabled res_en res)
+
+                    (res',flag) = shallowHandShakeBridge lhs_r (c,d) (packEnabled res_en res,flag')
+
+                    (flag', opt_as) = fromHandShake res'
+
+
 
                 outStdLogic "flag" flag
 
                 return $ \ n -> let ans = [ a | Just a <- take n opt_as ]
                                     inp = [ a | Just a <- take n vals ]
                                 in if ans == take (length ans) inp
-                                   then Nothing -- Just ("matched" ++ show (length ans))
+                                   && length inp > 1000
+                                   then Nothing -- ("matched" ++ show (length ans))
                                    else Just (show (ans,inp))
 
             dut :: Fabric ()
@@ -101,9 +116,9 @@ testFIFO (TestSeq test toL) tyName ws wit = do
 --            fifoSpec b c d | trace (show ("fifoSpec",take 10 b, take 10 c,d)) False = undefined
             fifoSpec :: [Maybe w] -> [Bool] -> [Maybe w] -> [(Bool,Maybe w)]
 
---            fifoSpec vx _ state |
+            fifoSpec vx _ state |
 --                         -- length [ () | Just _ <- state ] == fifoSize &&
---                             trace (show ("fifoLen",Prelude.head vx,state {- length [ () | Just _ <- state ] -})) False = undefined
+                             trace (show ("fifoLen",length [ () | Just _ <- state ])) False = undefined
 
             fifoSpec [] _ _ = error "fifoSpec: no value to enqueue"
             fifoSpec (val@(Just {}):vals') outs state
@@ -124,7 +139,15 @@ testFIFO (TestSeq test toL) tyName ws wit = do
             nextState state False = state
             nextState state True  = take 3 state ++ init [ Just x | Just x <- drop 3 state ]
 
-        test ("fifo/sz_" ++ show fifoSize ++ "/" ++ tyName) (length vals) dut driver
+        sequence_ 
+                [ test ("fifo/sz_" ++ show fifoSize ++ "/" ++ tyName) (length vals) dut (driver (a,b,c,d))
+                | let a = \ n -> [0.1,0.2 ..] !! fromIntegral (n `div` 10000) 
+                , let b = \ n -> [0.1,0.2 ..] !! fromIntegral (n `div` 10000) 
+                , let c = \ n -> [0.1,0.2 ..] !! fromIntegral (n `div` 10000) 
+                , let d = \ n -> [0.1,0.2 ..] !! fromIntegral (n `div` 10000) 
+                ]
+
+
 
 {-
         --------------------------------------------------------------------------------------------
