@@ -1,5 +1,5 @@
 {-# LANGUAGE ScopedTypeVariables, TypeFamilies, FlexibleContexts #-}
-module FIFO (tests) where
+module FIFO (tests, FIFO(..), testFIFO) where
 
 import Language.KansasLava
 import Hardware.KansasLava.FIFO (fifo)
@@ -12,8 +12,28 @@ import System.Random
 import Debug.Trace
 
 tests :: TestSeq -> IO ()
-tests test = do 
+tests test = do
         -- testing FIFOs
+
+
+        let fifoTest :: forall w sz . (Rep (ADD sz X1),
+                      Rep sz,
+                      Rep w,
+                      Eq w,
+                      Size sz,
+                      Size (ADD sz X1),
+                      Num sz,
+                      Num (ADD sz X1)) => Witness sz -> FIFO w w
+            fifoTest wit = FIFO
+                        { theFIFO = fifo wit low :: (Seq (Enabled w), Seq Bool) -> (Seq Bool, Seq (Enabled w))
+                        , correctnessCondition = \ ins outs -> trace (show ("cc",length ins,length outs)) $
+                                case () of
+                                  () | outs /= take (length outs) ins -> return "in/out differences"
+                                  () | length outs < 20000            -> return "to few transfers"
+                                  () | length ins - length outs > size (undefined :: sz) -> return "missing items?"
+                                     | otherwise -> Nothing
+                        , theFIFOName = "vanilla/" ++ show (size (error "witness" :: sz))
+                        }
 
         let t :: forall w sz sz1 .
                  (Eq w, Rep w, Show w,
@@ -24,7 +44,8 @@ tests test = do
                   Rep sz, Rep sz1,
                   Num w, Num sz, Num sz1)
                  => String -> Gen (Maybe w) -> Witness sz -> IO ()
-            t str arb = testFIFO test str (dubGen arb)
+            t str arb w = testFIFO test str (fifoTest w) (dubGen arb)
+
 
         t "U5"  (arbitrary :: Gen (Maybe U5)) (Witness :: Witness X1)
         t "U5"  (arbitrary :: Gen (Maybe U5)) (Witness :: Witness X2)
@@ -39,16 +60,18 @@ tests test = do
 --        t "U1"  (arbitrary :: Gen (Bool,Maybe U1)) (Witness :: Witness X1)
 --        t "Bool"  (arbitrary :: Gen (Bool,Maybe Bool)) (Witness :: Witness X1)
 
+data FIFO w1 w2 = FIFO
+            { theFIFO :: (Seq (Enabled w1), Seq Bool) -> (Seq Bool, Seq (Enabled w2))
+            , correctnessCondition :: [w1] -> [w2] -> Maybe String
+            , theFIFOName :: String
+            }
 
 testFIFO :: forall w sz sz1 . (Eq w, Rep w, Show w,
-                               sz1 ~ ADD sz X1,
                                Size (W w),
                                Size (ADD (W w) X1),     --- Hmm
-                               Size sz, Size sz1,
-                               Rep sz, Rep sz1,                 Num w,
-                               Num sz, Num sz1)
-        => TestSeq -> String -> Gen (Maybe w) -> Witness sz -> IO ()
-testFIFO (TestSeq test _) tyName ws wit = do
+                               Num w)
+        => TestSeq -> String -> FIFO w w -> Gen (Maybe w) -> IO ()
+testFIFO (TestSeq test _) tyName fifoTest ws = do
         let vals    :: [Maybe w]
             vals = take 100000 $ genToRandom $ loop 10 $ ws
 
@@ -56,7 +79,7 @@ testFIFO (TestSeq test _) tyName ws wit = do
         let stdGen = mkStdGen 0
 
         let (lhs_r,rhs_r) = split stdGen
-            cir = fifo wit low :: (Seq (Enabled w), Seq Bool) -> (Seq Bool, Seq (Enabled w))
+            cir = theFIFO fifoTest 
 
             driver :: ( Integer -> Float
                       , Integer -> Float
@@ -93,12 +116,18 @@ testFIFO (TestSeq test _) tyName ws wit = do
 
                 outStdLogic "flag" flag
 
-                return $ \ n -> let ans = [ a | Just a <- take n opt_as ]
+                return $ \ n -> correctnessCondition fifoTest 
+                                   [ x | (Just (Just x),Just True) <- take n $ zip (fromSeq vals') (fromSeq ack') ]
+                                   [ x | (Just (Just x),Just True) <- take n $ zip (fromSeq res')  (fromSeq flag') ]
+
+{-
+let ans = [ a | Just a <- take n opt_as ]
                                     inp = [ a | Just a <- take n vals ]
                                 in if ans == take (length ans) inp
                                    && length inp > 1000
                                    then Nothing -- ("matched" ++ show (length ans))
                                    else Just (show (ans,inp))
+-}
 
             dut :: Fabric ()
             dut = do
@@ -110,43 +139,13 @@ testFIFO (TestSeq test _) tyName ws wit = do
                 outStdLogic "res_en"     (isEnabled res')
                 outStdLogic "ack"        ack
 
-            fifoSize :: Int
-            fifoSize = size (error "witness" :: sz)
 
---            fifoSpec b c d | trace (show ("fifoSpec",take 10 b, take 10 c,d)) False = undefined
-            fifoSpec :: [Maybe w] -> [Bool] -> [Maybe w] -> [(Bool,Maybe w)]
+            a = \ n -> [0.1,0.2 ..] !! fromIntegral (n `div` 10000) 
+            b = \ n -> [0.1,0.2 ..] !! fromIntegral (n `div` 10000) 
+            c = \ n -> [0.1,0.2 ..] !! fromIntegral (n `div` 10000) 
+            d = \ n -> [0.1,0.2 ..] !! fromIntegral (n `div` 10000)  
 
-            fifoSpec vx _ state |
---                         -- length [ () | Just _ <- state ] == fifoSize &&
-                             trace (show ("fifoLen",length [ () | Just _ <- state ])) False = undefined
-
-            fifoSpec [] _ _ = error "fifoSpec: no value to enqueue"
-            fifoSpec (val@(Just {}):vals') outs state
-                        | length [ () | Just _ <- state ] < fifoSize
-                        = fifoSpec2 vals' outs (val:state) True
-                          -- FIFO is full, so do not accept
-            fifoSpec (Just val:vals') outs state
-                        = fifoSpec2  (Just val:vals') outs (Nothing:state) False
-            fifoSpec (Nothing:vals') outs state
-                        = fifoSpec2  vals' outs (Nothing:state) False
-
-            fifoSpec2 _ [] _ _ = error "fifoSpec2: no ready/output signal"
-            fifoSpec2 vals' (ready:outs) state ack =
-                    case [ x | Just x <- reverse $ drop 3 state ] of
-                        []    -> (ack,Nothing) : fifoSpec vals' outs state
-                        (x:_) -> (ack,Just x)   : fifoSpec  vals' outs (nextState state ready)
-
-            nextState state False = state
-            nextState state True  = take 3 state ++ init [ Just x | Just x <- drop 3 state ]
-
-        sequence_ 
-                [ test ("fifo/sz_" ++ show fifoSize ++ "/" ++ tyName) (length vals) dut (driver (a,b,c,d))
-                | let a = \ n -> [0.1,0.2 ..] !! fromIntegral (n `div` 10000) 
-                , let b = \ n -> [0.1,0.2 ..] !! fromIntegral (n `div` 10000) 
-                , let c = \ n -> [0.1,0.2 ..] !! fromIntegral (n `div` 10000) 
-                , let d = \ n -> [0.1,0.2 ..] !! fromIntegral (n `div` 10000) 
-                ]
-
+        test ("fifo/" ++ theFIFOName fifoTest ++ "/" ++ tyName) (length vals) dut (driver (a,b,c,d))
 
 
 {-
