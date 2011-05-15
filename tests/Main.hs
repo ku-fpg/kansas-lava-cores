@@ -6,15 +6,17 @@ import Data.Default
 
 import Rate as Rate
 import FIFO as FIFO
+import RS232 as RS232
 
 main :: IO ()
 main = do
         let opt = def { verboseOpt = 4  -- 4 == show cases that failed
 	    	      , genSim     = True
---                      , testOnly = return ["fifo/sz_5/"]
+--                      , testOnly = return ["fifo/rs232"]
                       }
         testDriver opt
                 [ Rate.tests
                 , FIFO.tests
+                , RS232.tests
                 ]
 

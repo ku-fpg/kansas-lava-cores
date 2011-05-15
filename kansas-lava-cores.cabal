@@ -21,7 +21,7 @@ Library
   Exposed-modules:
         Hardware.KansasLava.FIFO
         Hardware.KansasLava.Rate
---        Hardware.KansasLava.RS232
+        Hardware.KansasLava.RS232
   Other-modules:
 
 
