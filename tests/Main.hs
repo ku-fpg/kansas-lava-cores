@@ -11,8 +11,8 @@ import RS232 as RS232
 main :: IO ()
 main = do
         let opt = def { verboseOpt = 4  -- 4 == show cases that failed
-	    	      , genSim     = True
---                      , testOnly = return ["fifo/rs232"]
+--	    	      , genSim     = True
+                      , testOnly = return ["fifo/rs232"]
                       }
         testDriver opt
                 [ Rate.tests
