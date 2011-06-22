@@ -26,7 +26,8 @@ tests test = do
             rs232Test baud scale = FIFO
                         { theFIFO = \ (en_w,ackOut) ->
                                   let (ackIn,wire) = rs232out baud clockRate en_w
-                                      en_wdOut     = rs232in baud (floor (toRational clockRate * scale)) (wire,ackOut)
+                                      wire'        = noise wire
+                                      en_wdOut     = rs232in baud (floor (toRational clockRate * scale)) (wire',ackOut)
                                   in (ackIn,en_wdOut)
                         , correctnessCondition = \ ins outs -> 
 --                                 trace (show ("cc",length ins,length outs)) $
@@ -38,6 +39,9 @@ tests test = do
                                      | otherwise -> Nothing
                         , theFIFOName = "rs232"
                         }
+
+            noise = id
+
 
         let t :: String -> Integer -> IO ()
             t str baud = sequence_

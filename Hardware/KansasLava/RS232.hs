@@ -83,6 +83,7 @@ rs232out baudRate clkRate inp0 = (accept,out)
 
     	(in_en,in_val) 	= unpack inp0
 
+
     	(accept,out) = runRTL $ do
 --		readVal <- newArr (Witness :: Witness X10)
 		state  <- newReg (TX_Idle       :: RS232_TX)
@@ -126,18 +127,22 @@ rs232in :: forall clk sig a . (Eq clk, Clock clk, sig a ~ Clocked clk a)
 	-> (sig Bool, sig Bool) 	-- ^ signal input x back edge for FIFO
         -> sig (Enabled U8)
 					-- ^ output
-rs232in baudRate clkRate (inp',accept) = out
+rs232in baudRate clkRate (in_val0,accept) = out
   where
 	-- 16 times the baud rate for transmission,
 	-- so we can spot the start bit's edge.
 	fastTick :: CSeq clk Bool 
 	fastTick = rate (Witness :: Witness X16) (16 * fromIntegral baudRate / fromIntegral clkRate)
 	
-	inp :: sig Bool
-	inp = 
-		id
---		observeAloud "inp" 
-			inp'
+
+        -- the filter, currently length 4
+        in_vals = in_val0 : map delay (take 0 in_vals)
+        
+        inp = register True 
+                        (cASE [ (foldr1 (.&&.) in_vals, high)
+                              , (foldr1 (.&&.) (map bitNot in_vals), low)
+                              ]
+                         inp)
 
 	findByte :: [sig Bool] -> sig U8
 	findByte xs = coerce (pack (matrix xs :: M.Matrix X8 (sig Bool)) :: sig (M.Matrix X8 Bool))
@@ -156,6 +161,10 @@ rs232in baudRate clkRate (inp',accept) = out
 	 		CASE [ IF ((reg reading .==. low) .&&. (inp .==. low)) $ do
 				counter := 0
 				reading := high
+                                        -- check to see the edge *is* an edge
+                             , IF ((reg counter .>. 0) .&&. (reg counter .<. 4) .&&. (inp .==. high)) $ do
+				counter := 0
+				reading := low
 			     , OTHERWISE $ do
 				counter := reg counter + 1
 			     ]
@@ -163,7 +172,7 @@ rs232in baudRate clkRate (inp',accept) = out
 			-- We have a 3 sample average, so we wait an aditional 5
 			-- to be in the middle of the 16-times super-sample.
 			-- So, 5 is 16 / 2 - 3
-			WHEN ((reg reading .==. high) .&&. (lowCounter .==. 7)) $ CASE 
+			WHEN ((reg reading .==. high) .&&. (lowCounter .==. 6)) $ CASE 
 			     [ IF (highCounter .<. 9) $ do
 				theByte ((unsigned) highCounter) := inp
 			     , IF ((highCounter .==. 9) .&&.
@@ -175,16 +184,18 @@ rs232in baudRate clkRate (inp',accept) = out
 					$ findByte [ reg (theByte (fromIntegral i))
 						   | i <- [1..8]
 						   ]
-
---			     , OTHERWISE $ do
---				-- restart; should never happen
---				reading := low
+                                -- start looking for the start bit now
+                                counter := 0
+                                reading := low
+			     , OTHERWISE $ do
+				-- restart; should never happen with good signals
+                                counter := 0
+				reading := low
 			     ]
 
 		-- If you can accept something, and you have something to accept
 		WHEN ((accept .==. high) .&&. (isEnabled (reg outVal))) $ do
 			outVal := pureS Nothing
-			reading := low
 
 		return $ (reg outVal)
 
