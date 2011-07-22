@@ -2,6 +2,7 @@
 module RS232 (tests) where
 
 import Language.KansasLava
+import Hardware.KansasLava.FIFO (fifo)
 import Hardware.KansasLava.RS232 (rs232in,rs232out)
 
 import FIFO hiding (tests)-- reuse the FIFO tester                            
@@ -27,8 +28,9 @@ tests test = do
                         { theFIFO = \ (en_w,ackOut) ->
                                   let (ackIn,wire) = rs232out baud clockRate en_w
                                       wire'        = noise wire
-                                      en_wdOut     = rs232in baud (floor (toRational clockRate * scale)) (wire',ackOut)
-                                  in (ackIn,en_wdOut)
+                                      en_wdOut     = rs232in baud (floor (toRational clockRate * scale)) (wire')
+				      (_,en_wdOut') = fifo (Witness :: Witness X16) low (en_wdOut,ackOut)
+                                  in (ackIn,en_wdOut')
                         , correctnessCondition = \ ins outs -> 
 --                                 trace (show ("cc",length ins,length outs)) $
 --                                 trace (show ("ins",map show (take 100 ins))) $

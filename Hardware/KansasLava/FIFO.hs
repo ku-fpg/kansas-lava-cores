@@ -15,6 +15,29 @@ import Language.KansasLava
 
 import System.IO
 
+------------------------------------------------------------------------------
+
+
+{-
+-- We could derive this automatically for newtype.
+instance IsoRep Ack where
+   type R Ack = Bool
+   toIso       = Ack
+   fromIso     = unAck
+
+instance IsoRep (X Ack) where
+      type R (X Ack) = X Bool
+      toIso       = XAckRep
+      fromIso     = unXAckRep
+-}
+
+-- A Ready is a commitment to accept a packet/message
+newtype Ready = Ready Bool
+
+
+
+------------------------------------------------------------------------------
+
 incGroup :: (Rep x, Num x, Bounded x) => Comb x -> Comb x
 incGroup x = mux2 (x .==. maxBound) (0,x + 1)
 
@@ -39,9 +62,9 @@ fifoFE :: forall c a counter ix .
          -- ^ hard reset option
       -> (CSeq c (Enabled a), CSeq c counter)
          -- ^ input, and Seq trigger of how much to decrement the counter
-      -> (CSeq c Bool, CSeq c (Enabled (ix,a)), CSeq c counter)
+      -> (CSeq c Ack, CSeq c (Enabled (ix,a)), CSeq c counter)
          -- ^ backedge for input, and write request for memory, and internal counter.
-fifoFE Witness rst (inp,dec_by) = (inp_done0,wr,in_counter1)
+fifoFE Witness rst (inp,dec_by) = (toAck inp_done0,wr,in_counter1)
   where
 --      mem :: Seq ix -> Seq a
 --      mem = pipeToMemory env env wr
@@ -93,7 +116,7 @@ fifoBE :: forall a c counter ix .
       -> (CSeq c counter,CSeq c (Enabled a))
         -- inc from FE
         -- input from Memory read
-      -> CSeq c Bool
+      -> CSeq c Ack
       -> ((CSeq c ix, CSeq c Bool, CSeq c counter), CSeq c (Enabled a))
         -- address for Memory read
         -- dec to FE
@@ -108,8 +131,9 @@ fifoBE Witness rst (inc_by,mem_rd) out_ready =
         rd_addr1 = register 0
                  $ rd_addr0
 
+	-- technically, ack should never happen if isEnabled out is not set
         out_done0 :: CSeq c Bool
-        out_done0 = out_ready `and2` (isEnabled out)
+        out_done0 = fromAck out_ready `and2` (isEnabled out)
 
         out :: CSeq c (Enabled a)
         out = packEnabled ((out_counter1 .>. 0) `and2` bitNot rst `and2` isEnabled mem_rd) (enabledVal mem_rd)
@@ -159,12 +183,12 @@ fifo :: forall a c counter ix .
         )
       => Witness ix
       -> CSeq c Bool
-      -> I (CSeq c (Enabled a)) (CSeq c Bool)
-      -> O (CSeq c Bool) (CSeq c (Enabled a))
+      -> I (CSeq c (Enabled a)) (CSeq c Ack)
+      -> O (CSeq c Ack) (CSeq c (Enabled a))
 fifo w_ix rst (inp,out_ready) =
     let
         wr :: CSeq c (Maybe (ix, a))
-        inp_ready :: CSeq c Bool
+        inp_ready :: CSeq c Ack
         (inp_ready, wr, _) = fifoFE w_ix rst (inp,dec_by)
 
         inp_done2 :: CSeq c Bool
@@ -193,12 +217,12 @@ fifoZ :: forall a c counter ix .
         )
       => Witness ix
       -> CSeq c Bool
-      -> I (CSeq c (Enabled a)) (CSeq c Bool)
-      -> O (CSeq c Bool) (CSeq c (Enabled a),CSeq c counter)
+      -> I (CSeq c (Enabled a)) (CSeq c Ack)
+      -> O (CSeq c Ack) (CSeq c (Enabled a),CSeq c counter)
 fifoZ w_ix rst (inp,out_ready) =
     let
         wr :: CSeq c (Maybe (ix, a))
-        inp_ready :: CSeq c Bool
+        inp_ready :: CSeq c Ack
         (inp_ready, wr, counter) = fifoFE w_ix rst (inp,dec_by)
 
         inp_done2 :: CSeq c Bool

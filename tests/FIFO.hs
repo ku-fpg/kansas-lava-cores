@@ -25,7 +25,7 @@ tests test = do
                       Num sz,
                       Num (ADD sz X1)) => Witness sz -> FIFO w w
             fifoTest wit = FIFO
-                        { theFIFO = fifo wit low :: (Seq (Enabled w), Seq Bool) -> (Seq Bool, Seq (Enabled w))
+                        { theFIFO = fifo wit low :: (Seq (Enabled w), Seq Ack) -> (Seq Ack, Seq (Enabled w))
                         , correctnessCondition = \ ins outs -> trace (show ("cc",length ins,length outs)) $
                                 case () of
                                   () | outs /= take (length outs) ins -> return "in/out differences"
@@ -61,7 +61,7 @@ tests test = do
 --        t "Bool"  (arbitrary :: Gen (Bool,Maybe Bool)) (Witness :: Witness X1)
 
 data FIFO w1 w2 = FIFO
-            { theFIFO :: (Seq (Enabled w1), Seq Bool) -> (Seq Bool, Seq (Enabled w2))
+            { theFIFO :: (Seq (Enabled w1), Seq Ack) -> (Seq Ack, Seq (Enabled w2))
             , correctnessCondition :: [w1] -> [w2] -> Maybe String
             , theFIFOName :: String
             }
@@ -91,9 +91,9 @@ testFIFO (TestSeq test _) tyName fifoTest ws = do
                 ack <- inStdLogic "ack"
 
                 let vals' :: Seq (Enabled w)
-                    vals' = toHandShake (vals ++ repeat Nothing) ack'
+                    vals' = toHandShake (vals ++ Prelude.repeat Nothing) ack'
 
-                    (vals2,ack') = shallowHandShakeBridge lhs_r (a,b) (vals',ack)
+                    (vals2,ack') = shallowHandShakeBridge lhs_r (a,b) (vals',toAck ack)
 
                 -- sent to DUT
                 outStdLogicVector "vals"        (enabledVal vals2)
@@ -105,7 +105,7 @@ testFIFO (TestSeq test _) tyName fifoTest ws = do
                 res     <- inStdLogicVector "res" 
                 res_en  <- inStdLogic       "res_en"
 
-                let flag :: Seq Bool 
+                let flag :: Seq Ack 
                     opt_as :: [Maybe w]
 
                     (res',flag) = shallowHandShakeBridge lhs_r (c,d) (packEnabled res_en res,flag')
@@ -117,8 +117,8 @@ testFIFO (TestSeq test _) tyName fifoTest ws = do
                 outStdLogic "flag" flag
 
                 return $ \ n -> correctnessCondition fifoTest 
-                                   [ x | (Just (Just x),Just True) <- take n $ zip (fromSeq vals') (fromSeq ack') ]
-                                   [ x | (Just (Just x),Just True) <- take n $ zip (fromSeq res')  (fromSeq flag') ]
+                                   [ x | (Just (Just x),Just (Ack True)) <- take n $ zip (fromSeq vals') (fromSeq ack') ]
+                                   [ x | (Just (Just x),Just (Ack True)) <- take n $ zip (fromSeq res')  (fromSeq flag') ]
 
 {-
 let ans = [ a | Just a <- take n opt_as ]

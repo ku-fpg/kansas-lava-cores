@@ -68,14 +68,14 @@ resize :: (Signal sig, Integral x, Rep x, Num y, Rep y) => sig x -> sig y
 resize = funMap $ \ x -> return (fromIntegral x)
 
 findBit :: forall sig . (Signal sig) => (Num (sig X10)) => sig U8 -> sig X10 -> sig Bool
-findBit byte x = (coerce) byte .!. ((unsigned) (x - 1) :: sig X8)
+findBit byte x = (bitwise) byte .!. ((unsigned) (x - 1) :: sig X8)
 
 rs232out :: forall clk sig a . (Eq clk, Clock clk, sig a ~ Clocked clk a, clk ~ ()) 
 	=> Integer			-- ^ Baud Rate.
 	-> Integer			-- ^ Clock rate, in Hz.
         -> sig (Enabled U8)
-        -> (sig Bool, sig Bool)
-rs232out baudRate clkRate inp0 = (accept,out)
+        -> (sig Ack, sig Bool)
+rs232out baudRate clkRate inp0 = (toAck accept,out)
   where
 	-- at the baud rate for transmission
 	fastTick :: CSeq clk Bool 
@@ -120,14 +120,16 @@ rs232out baudRate clkRate inp0 = (accept,out)
 
 
 
+-- | rs232in accepts data from UART line, and turns it into bytes.
+--   There is no Ack, because there is no way to pause the 232.
 
 rs232in :: forall clk sig a . (Eq clk, Clock clk, sig a ~ Clocked clk a) 
 	=> Integer			-- ^ Baud Rate.
 	-> Integer			-- ^ Clock rate, in Hz.
-	-> (sig Bool, sig Bool) 	-- ^ signal input x back edge for FIFO
+	-> sig Bool	    		-- ^ signal input x back edge for FIFO
         -> sig (Enabled U8)
 					-- ^ output
-rs232in baudRate clkRate (in_val0,accept) = out
+rs232in baudRate clkRate (in_val0) = out
   where
 	-- 16 times the baud rate for transmission,
 	-- so we can spot the start bit's edge.
@@ -145,7 +147,7 @@ rs232in baudRate clkRate (in_val0,accept) = out
                          inp)
 
 	findByte :: [sig Bool] -> sig U8
-	findByte xs = coerce (pack (matrix xs :: M.Matrix X8 (sig Bool)) :: sig (M.Matrix X8 Bool))
+	findByte xs = bitwise (pack (matrix xs :: M.Matrix X8 (sig Bool)) :: sig (M.Matrix X8 Bool))
 
 	out = runRTL $ do
 		reading <- newReg False
@@ -155,7 +157,7 @@ rs232in baudRate clkRate (in_val0,accept) = out
 		counter <- newReg (0 :: U8)
 
 		let lowCounter, highCounter :: sig U4
-		    (lowCounter,highCounter) = unpack (coerce (reg counter) :: sig (U4,U4))
+		    (lowCounter,highCounter) = factor (reg counter)
 
 		WHEN fastTick $ do
 	 		CASE [ IF ((reg reading .==. low) .&&. (inp .==. low)) $ do
@@ -193,8 +195,8 @@ rs232in baudRate clkRate (in_val0,accept) = out
 				reading := low
 			     ]
 
-		-- If you can accept something, and you have something to accept
-		WHEN ((accept .==. high) .&&. (isEnabled (reg outVal))) $ do
+		-- If you send something out, then do not do so on the next cycle.
+		WHEN (isEnabled (reg outVal)) $ do
 			outVal := pureS Nothing
 
 		return $ (reg outVal)
