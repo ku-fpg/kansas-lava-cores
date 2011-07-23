@@ -1,13 +1,15 @@
 DIR := sims
+KANSAS_LAVA_ROOT := ../../kansas-lava
+RUN := env KANSAS_LAVA_ROOT=$(KANSAS_LAVA_ROOT)
 
 test:
-	../dist/build/kansas-lava-cores-tests/kansas-lava-cores-tests
+	$(RUN) ../dist/build/kansas-lava-cores-tests/kansas-lava-cores-tests
 
 simulate:
 	$(DIR)/runsims
 
 report:
-	./KansasLava/dist/build/kansas-lava-testreport/kansas-lava-testreport $(DIR)
+	$(RUN) ./KansasLava/dist/build/kansas-lava-testreport/kansas-lava-testreport $(DIR)
 
 clean:
 	mv sims sims.X

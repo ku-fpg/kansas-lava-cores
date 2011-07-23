@@ -8,6 +8,7 @@ import Data.Sized.Unsigned
 import Data.Sized.Arith
 import Data.Sized.Ix
 import System.Random
+import Data.Ratio
 --import Data.Maybe 
 import Debug.Trace
 
@@ -26,14 +27,24 @@ tests test = do
                       Num (ADD sz X1)) => Witness sz -> FIFO w w
             fifoTest wit = FIFO
                         { theFIFO = fifo wit low :: (Seq (Enabled w), Seq Ack) -> (Seq Ack, Seq (Enabled w))
-                        , correctnessCondition = \ ins outs -> trace (show ("cc",length ins,length outs)) $
+                        , correctnessCondition = \ ins outs -> -- trace (show ("cc",length ins,length outs)) $
                                 case () of
                                   () | outs /= take (length outs) ins -> return "in/out differences"
-                                  () | length outs < 20000            -> return "to few transfers"
-                                  () | length ins - length outs > size (undefined :: sz) -> return "missing items?"
+                                  () | length outs < fromIntegral count 
+     								      -> return ("to few transfers: " ++ show (length outs))
+                                  () | length ins - length outs > size (undefined :: sz) 
+								      -> return ("missing items?" ++ show (length ins,length outs,size (undefined :: sz)))
                                      | otherwise -> Nothing
+
+	    		, theFIFOTestCount  = count
+	    		, theFIFOTestCycles = 
+				if size (undefined :: sz) <= 2
+				then 30000
+				else 20000
                         , theFIFOName = "vanilla/" ++ show (size (error "witness" :: sz))
                         }
+	   	where
+			count = 1000
 
         let t :: forall w sz sz1 .
                  (Eq w, Rep w, Show w,
@@ -46,7 +57,6 @@ tests test = do
                  => String -> Gen (Maybe w) -> Witness sz -> IO ()
             t str arb w = testFIFO test str (fifoTest w) (dubGen arb)
 
-
         t "U5"  (arbitrary :: Gen (Maybe U5)) (Witness :: Witness X1)
         t "U5"  (arbitrary :: Gen (Maybe U5)) (Witness :: Witness X2)
         t "U5"  (arbitrary :: Gen (Maybe U5)) (Witness :: Witness X3)
@@ -56,14 +66,17 @@ tests test = do
         t "U5"  (arbitrary :: Gen (Maybe U5)) (Witness :: Witness X7)
         t "U5"  (arbitrary :: Gen (Maybe U5)) (Witness :: Witness X8)
 
+	return ()
 -- Need to fix memories first
 --        t "U1"  (arbitrary :: Gen (Bool,Maybe U1)) (Witness :: Witness X1)
 --        t "Bool"  (arbitrary :: Gen (Bool,Maybe Bool)) (Witness :: Witness X1)
 
 data FIFO w1 w2 = FIFO
-            { theFIFO :: (Seq (Enabled w1), Seq Ack) -> (Seq Ack, Seq (Enabled w2))
+            { theFIFO              :: (Seq (Enabled w1), Seq Ack) -> (Seq Ack, Seq (Enabled w2))
             , correctnessCondition :: [w1] -> [w2] -> Maybe String
-            , theFIFOName :: String
+	    , theFIFOTestCount     :: Int
+	    , theFIFOTestCycles    :: Int
+            , theFIFOName          :: String
             }
 
 testFIFO :: forall w sz sz1 . (Eq w, Rep w, Show w,
@@ -72,9 +85,30 @@ testFIFO :: forall w sz sz1 . (Eq w, Rep w, Show w,
                                Num w)
         => TestSeq -> String -> FIFO w w -> Gen (Maybe w) -> IO ()
 testFIFO (TestSeq test _) tyName fifoTest ws = do
-        let vals    :: [Maybe w]
-            vals = take 100000 $ genToRandom $ loop 10 $ ws
 
+        let vals0 :: [Maybe w]
+	    vals0 = take (fromIntegral (theFIFOTestCycles fifoTest))
+			 (genToRandom $ loop 10 $ ws)
+
+	    vals1 :: [Int]
+	    vals1 = drop (fromIntegral (theFIFOTestCount fifoTest))
+		    [ n
+	  	    | (Just _,n) <- zip vals0 [0..]
+	            ]
+
+	    vals :: [Maybe w]
+	    vals = case vals1 of
+		     [] -> vals0
+		     (n:_) -> [ if i < n then v else Nothing
+			      | (v,i) <- zip vals0 [0..]
+			      ]
+
+{-
+	print (theFIFOTestCount fifoTest,theFIFOTestCycles fifoTest)
+	print vals0
+	print vals1
+	print vals
+-}
         -- good enough for this sort of testing
         let stdGen = mkStdGen 0
 

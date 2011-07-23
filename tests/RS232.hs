@@ -10,6 +10,7 @@ import FIFO hiding (tests)-- reuse the FIFO tester
 import Data.Sized.Unsigned
 import Data.Sized.Arith
 import Data.Sized.Ix
+import Data.Ratio
 import System.Random
 --import Data.Maybe 
 import Debug.Trace
@@ -37,10 +38,13 @@ tests test = do
 --                                 trace (show ("outs",map show (take 100 outs))) $
                                 case () of
                                   () | outs /= take (length outs) ins -> return "in/out differences"
-                                  () | length outs < (fromIntegral baud `div` 10) -> return $ "to few transfers (" ++ show (length outs) ++ ")"
+                                  () | length outs < count -> return $ "to few transfers (" ++ show (length outs) ++ ")"
                                      | otherwise -> Nothing
+			, theFIFOTestCount  = count
+			, theFIFOTestCycles = floor (100000 * (1000 / fromIntegral baud))
                         , theFIFOName = "rs232"
                         }
+	    count = 100
 
             noise = id
 
@@ -54,3 +58,5 @@ tests test = do
         t "1000"  1000
         t "2000"  2000
         t "3000"  3000
+
+	return ()
