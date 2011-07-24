@@ -27,8 +27,12 @@ tests test = do
         	, Num ix
         	) => Witness ix
 		  -> (Seq (Enabled a), Seq Full) -> (Seq Ack, Seq (Enabled a))
-	    fifo' w = handShakeMailBox `connect` fifo w low `connect` handShakeMailBox
-
+	    fifo' w (inp,b) = (b1,out)
+	      where
+		(b1,r1)  = bridge	(inp,b2)
+		(b2,r2)  = fifo w low 	(r1,b3)
+		(b3,out) = bridge 	(r2,b)
+		
         let fifoTest :: forall w sz . (Rep (ADD sz X1),
                       Rep sz,
                       Rep w,

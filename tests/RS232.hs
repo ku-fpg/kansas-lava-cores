@@ -34,7 +34,7 @@ tests test = do
 				      (fullOut,en_wdOut') 
 						   = fifo (Witness :: Witness X16) low (en_wdOut,ackIn' :: Seq Ack)
 				      (ackIn',en_wdOut'') 
-				  		  = handShakeMailBox (en_wdOut',fullIn)
+				  		  = bridge (en_wdOut',fullIn)
                                   in (ackIn :: Seq Ack,en_wdOut'')
                         , correctnessCondition = \ ins outs -> 
 --                                 trace (show ("cc",length ins,length outs)) $
