@@ -74,8 +74,8 @@ rs232out :: forall clk sig a . (Eq clk, Clock clk, sig a ~ Clocked clk a, clk ~ 
 	=> Integer			-- ^ Baud Rate.
 	-> Integer			-- ^ Clock rate, in Hz.
         -> sig (Enabled U8)
-        -> (sig Ack, sig Bool)
-rs232out baudRate clkRate inp0 = (toAck accept,out)
+        -> (sig Ready, sig Bool)
+rs232out baudRate clkRate inp0 = (toReady ready,out)
   where
 	-- at the baud rate for transmission
 	fastTick :: CSeq clk Bool 
@@ -83,20 +83,23 @@ rs232out baudRate clkRate inp0 = (toAck accept,out)
 
     	(in_en,in_val) 	= unpack inp0
 
-
-    	(accept,out) = runRTL $ do
+    	(ready,out) = runRTL $ do
 --		readVal <- newArr (Witness :: Witness X10)
 		state  <- newReg (TX_Idle       :: RS232_TX)
-		accept <- newReg (False  	:: Bool)
 		char   <- newReg (0     	:: U8)
 		output <- newReg (True		:: Bool)	-- RS232, SPACE => high
-					
+
+--		DEBUG "state" state
+
+		let ready = isTX_Idle (reg state)
+
+		CASE [ IF (ready .&&. in_en) $ do
+			state := pureS (TX_Send 0)	-- causes full to be set on next clock
+			char  := in_val
+		     ]
+
 		WHEN fastTick $ CASE
-		     [ IF (isTX_Idle (reg state) .&&. in_en) $ do
-			state := pureS (TX_Send 0)
-			accept := high
-			char   := in_val
-		     , match (withTX_Send (reg state)) $ \ ix -> do
+		     [ match (withTX_Send (reg state)) $ \ ix -> do
 			CASE [ IF (ix .==. maxBound) $ do
 				state  := pureS TX_Idle
 			     , OTHERWISE $ do
@@ -110,25 +113,20 @@ rs232out baudRate clkRate inp0 = (toAck accept,out)
 				output := findBit (reg char) ix
 			     ]
 		     ]
-		-- accept a value for 1 cycle only, independent of the fastTick
-		WHEN (reg accept) $ do
-		   accept := low
 
 		-- We need to use 'var accept', because we need to accept the
 		-- the on *this* cycle, not next cycle.
-		return (var accept,reg output)
-
+		return (ready,reg output)
 
 
 -- | rs232in accepts data from UART line, and turns it into bytes.
---   There is no Ack or Full, because there is no way to pause the 232.
+--   There is no Ack or Ready, because there is no way to pause the 232.
 
 rs232in :: forall clk sig a . (Eq clk, Clock clk, sig a ~ Clocked clk a) 
 	=> Integer			-- ^ Baud Rate.
 	-> Integer			-- ^ Clock rate, in Hz.
 	-> sig Bool	    		-- ^ signal input x back edge for FIFO
-        -> sig (Enabled U8)
-					-- ^ output
+        -> sig (Enabled U8)		-- ^ output; must be captured in a single cycle
 rs232in baudRate clkRate (in_val0) = out
   where
 	-- 16 times the baud rate for transmission,
@@ -138,8 +136,9 @@ rs232in baudRate clkRate (in_val0) = out
 	
 
         -- the filter, currently length 4
-        in_vals = in_val0 : map delay (take 0 in_vals)
+        in_vals = in_val0 : map (register True) (take 4 in_vals)
         
+	-- if 4 highs (lows) then go high (low), otherwise as you were.
         inp = register True 
                         (cASE [ (foldr1 (.&&.) in_vals, high)
                               , (foldr1 (.&&.) (map bitNot in_vals), low)
@@ -164,7 +163,7 @@ rs232in baudRate clkRate (in_val0) = out
 				counter := 0
 				reading := high
                                         -- check to see the edge *is* an edge
-                             , IF ((reg counter .>. 0) .&&. (reg counter .<. 4) .&&. (inp .==. high)) $ do
+                             , IF ((reg counter .>. 0) .&&. (reg counter .<. 8) .&&. (inp .==. high)) $ do
 				counter := 0
 				reading := low
 			     , OTHERWISE $ do

@@ -16,26 +16,6 @@ import Language.KansasLava
 
 import System.IO
 
-------------------------------------------------------------------------------
-
-
-{-
--- We could derive this automatically for newtype.
-instance IsoRep Ack where
-   type R Ack = Bool
-   toIso       = Ack
-   fromIso     = unAck
-
-instance IsoRep (X Ack) where
-      type R (X Ack) = X Bool
-      toIso       = XAckRep
-      fromIso     = unXAckRep
--}
-
--- A Ready is a commitment to accept a packet/message
-newtype Ready = Ready Bool
-
-
 
 ------------------------------------------------------------------------------
 
@@ -68,9 +48,9 @@ fifoFE :: forall c a counter ix .
          -- ^ hard reset option
       -> (CSeq c (Enabled a), CSeq c counter) -- , CSeq c Ready)
          -- ^ input, and Seq trigger of how much to decrement the counter
-      -> (CSeq c Full, CSeq c counter, CSeq c (Enabled (ix,a)))
+      -> (CSeq c Ready, CSeq c counter, CSeq c (Enabled (ix,a)))
          -- ^ backedge for input, internal counter, and write request for memory.
-fifoFE Witness rst (inp,dec_by{-,wt_ready-}) = (toFull (bitNot inp_ready), in_counter1, wr)
+fifoFE Witness rst (inp,dec_by{-,wt_ready-}) = (toReady inp_ready, in_counter1, wr)
   where
 --      mem :: Seq ix -> Seq a
 --      mem = pipeToMemory env env wr
@@ -190,11 +170,11 @@ fifo :: forall a c counter ix .
       => Witness ix
       -> CSeq c Bool
       -> I (CSeq c (Enabled a)) (CSeq c Ack)
-      -> O (CSeq c Full) (CSeq c (Enabled a))
+      -> O (CSeq c Ready) (CSeq c (Enabled a))
 fifo w_ix rst (inp,out_ready) =
     let
         wr :: CSeq c (Maybe (ix, a))
-        inp_ready :: CSeq c Full
+        inp_ready :: CSeq c Ready
         (inp_ready, _, wr) = fifoFE w_ix rst (inp,dec_by)
 
         inp_done2 :: CSeq c Bool
@@ -224,11 +204,11 @@ fifoZ :: forall a c counter ix .
       => Witness ix
       -> CSeq c Bool
       -> I (CSeq c (Enabled a)) (CSeq c Ack)
-      -> O (CSeq c Full) (CSeq c (Enabled a),CSeq c counter)
+      -> O (CSeq c Ready) (CSeq c (Enabled a),CSeq c counter)
 fifoZ w_ix rst (inp,out_ready) =
     let
         wr :: CSeq c (Maybe (ix, a))
-        inp_ready :: CSeq c Full
+        inp_ready :: CSeq c Ready
         (inp_ready, counter, wr) = fifoFE w_ix rst (inp,dec_by)
 
         inp_done2 :: CSeq c Bool

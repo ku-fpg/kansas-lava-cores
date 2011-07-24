@@ -26,7 +26,7 @@ tests test = do
         	, Num counter
         	, Num ix
         	) => Witness ix
-		  -> (Seq (Enabled a), Seq Full) -> (Seq Ack, Seq (Enabled a))
+		  -> (Seq (Enabled a), Seq Ready) -> (Seq Ack, Seq (Enabled a))
 	    fifo' w (inp,b) = (b1,out)
 	      where
 		(b1,r1)  = bridge	(inp,b2)
@@ -42,7 +42,7 @@ tests test = do
                       Num sz,
                       Num (ADD sz X1)) => Witness sz -> StreamTest w w
             fifoTest wit = StreamTest
-                        { theStream = fifo' wit :: (Seq (Enabled w), Seq Full) -> (Seq Ack, Seq (Enabled w))
+                        { theStream = fifo' wit :: (Seq (Enabled w), Seq Ready) -> (Seq Ack, Seq (Enabled w))
                         , correctnessCondition = \ ins outs -> -- trace (show ("cc",length ins,length outs)) $
                                 case () of
                                   () | outs /= take (length outs) ins -> return "in/out differences"

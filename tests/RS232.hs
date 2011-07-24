@@ -5,8 +5,6 @@ import Language.KansasLava
 import Hardware.KansasLava.FIFO (fifo)
 import Hardware.KansasLava.RS232 (rs232in,rs232out)
 
-import FIFO hiding (tests)-- reuse the FIFO tester                            
-
 import Data.Sized.Unsigned
 import Data.Sized.Arith
 import Data.Sized.Ix
@@ -26,22 +24,24 @@ tests test = do
 
         let rs232Test :: Integer -> Rational -> StreamTest U8 U8
             rs232Test baud scale = StreamTest
-                        { theStream = \ (en_w,fullIn) ->
+                        { theStream = \ (en_w,fullOut) ->
                                   let 
-				      (ackIn,wire) = rs232out baud clockRate en_w
+				      (ackIn,en_w') = bridge (en_w,fullIn)
+				      (fullIn,wire) = rs232out baud clockRate en_w'
                                       wire'        = noise wire
                                       en_wdOut     = rs232in baud (floor (toRational clockRate * scale)) (wire')
 				      (fullOut,en_wdOut') 
 						   = fifo (Witness :: Witness X16) low (en_wdOut,ackIn' :: Seq Ack)
-				      (ackIn',en_wdOut'') 
-				  		  = bridge (en_wdOut',fullIn)
+				      (ackIn',en_wdOut'')
+				  		  = bridge (en_wdOut',fullOut)
                                   in (ackIn :: Seq Ack,en_wdOut'')
                         , correctnessCondition = \ ins outs -> 
 --                                 trace (show ("cc",length ins,length outs)) $
 --                                 trace (show ("ins",map show (take 100 ins))) $
 --                                 trace (show ("outs",map show (take 100 outs))) $
                                 case () of
-                                  () | outs /= take (length outs) ins -> return "in/out differences"
+                                  () | outs /= take (length outs) ins -> return ("in/out differences: "  
+											++ show (zip outs ins))
                                   () | length outs < count -> return $ "to few transfers (" ++ show (length outs) ++ ")"
                                      | otherwise -> Nothing
 			, theStreamTestCount  = count
@@ -51,6 +51,8 @@ tests test = do
 	    count = 100
 
             noise = id
+--		  . fromSeq 
+--		  . toSeq
 
 
         let t :: String -> Integer -> IO ()
