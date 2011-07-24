@@ -10,6 +10,7 @@ import Data.Maybe as Maybe
 import Data.Sized.Arith as Arith
 import Data.Sized.Ix as X
 import Data.Word
+import Data.Sized.Unsigned
 
 import Language.KansasLava
 
@@ -38,12 +39,17 @@ newtype Ready = Ready Bool
 
 ------------------------------------------------------------------------------
 
+toCount :: (Signal sig, Size x) => sig Bool -> sig (Unsigned x)
+toCount = liftS1 (\ b -> mux2 b (1,0))
+
 incGroup :: (Rep x, Num x, Bounded x) => Comb x -> Comb x
 incGroup x = mux2 (x .==. maxBound) (0,x + 1)
 
 -- | Make a sequence obey the given reset signal, returning given value on a reset.
 resetable :: forall a c. (Clock c, Rep a) => CSeq c Bool -> Comb a -> CSeq c a -> CSeq c a
 resetable rst val x = mux2 rst (liftS0 val,x)
+
+
 
 fifoFE :: forall c a counter ix .
          (Size counter
@@ -60,17 +66,17 @@ fifoFE :: forall c a counter ix .
          -- ^ depth of FIFO
       -> CSeq c Bool
          -- ^ hard reset option
-      -> (CSeq c (Enabled a), CSeq c counter)
+      -> (CSeq c (Enabled a), CSeq c counter) -- , CSeq c Ready)
          -- ^ input, and Seq trigger of how much to decrement the counter
-      -> (CSeq c Ack, CSeq c (Enabled (ix,a)), CSeq c counter)
-         -- ^ backedge for input, and write request for memory, and internal counter.
-fifoFE Witness rst (inp,dec_by) = (toAck inp_done0,wr,in_counter1)
+      -> (CSeq c Full, CSeq c counter, CSeq c (Enabled (ix,a)))
+         -- ^ backedge for input, internal counter, and write request for memory.
+fifoFE Witness rst (inp,dec_by{-,wt_ready-}) = (toFull (bitNot inp_ready), in_counter1, wr)
   where
 --      mem :: Seq ix -> Seq a
 --      mem = pipeToMemory env env wr
 
         inp_done0 :: CSeq c Bool
-        inp_done0 = inp_ready `and2` isEnabled inp
+        inp_done0 = inp_ready `and2` isEnabled inp -- `and2` wt_ready
 
         wr :: CSeq c (Enabled (ix,a))
         wr = packEnabled (inp_done0)
@@ -84,7 +90,7 @@ fifoFE Witness rst (inp,dec_by) = (toAck inp_done0,wr,in_counter1)
         in_counter0 :: CSeq c counter
         in_counter0 = resetable rst 0
                     $ in_counter1
-                        + mux2 inp_done0 (1,0)
+                        + (unsigned) inp_done0
                         - dec_by
 
         in_counter1 :: CSeq c counter
@@ -142,7 +148,7 @@ fifoBE Witness rst (inc_by,mem_rd) out_ready =
         out_counter0 = resetable rst 0
                      $ out_counter1
                         + inc_by
-                        - mux2 out_done0 (1,0)
+                        - (unsigned) out_done0 
 
         out_counter1 = register 0 out_counter0
     in
@@ -154,8 +160,8 @@ fifoCounter rst inc dec = counter1
         counter0 :: Seq counter
         counter0 = resetable rst 0
                  $ counter1
-                        + mux2 inc (1,0)
-                        - mux2 dec (1,0)
+                        + (unsigned) inc
+                        - (unsigned) dec
 
         counter1 = register 0 counter0
 
@@ -184,12 +190,12 @@ fifo :: forall a c counter ix .
       => Witness ix
       -> CSeq c Bool
       -> I (CSeq c (Enabled a)) (CSeq c Ack)
-      -> O (CSeq c Ack) (CSeq c (Enabled a))
+      -> O (CSeq c Full) (CSeq c (Enabled a))
 fifo w_ix rst (inp,out_ready) =
     let
         wr :: CSeq c (Maybe (ix, a))
-        inp_ready :: CSeq c Ack
-        (inp_ready, wr, _) = fifoFE w_ix rst (inp,dec_by)
+        inp_ready :: CSeq c Full
+        (inp_ready, _, wr) = fifoFE w_ix rst (inp,dec_by)
 
         inp_done2 :: CSeq c Bool
         inp_done2 = resetable rst low $ register False $ resetable rst low $ register False $ resetable rst low $ isEnabled wr
@@ -199,8 +205,8 @@ fifo w_ix rst (inp,out_ready) =
 
         ((rd_addr0,out_done0,_),out) = fifoBE w_ix rst (inc_by,mem rd_addr0) out_ready
 
-        dec_by = liftS1 (\ b -> mux2 b (1,0)) out_done0
-        inc_by = liftS1 (\ b -> mux2 b (1,0)) inp_done2
+        dec_by = (unsigned) out_done0
+        inc_by = (unsigned) inp_done2
     in
         (inp_ready, out)
 
@@ -218,12 +224,12 @@ fifoZ :: forall a c counter ix .
       => Witness ix
       -> CSeq c Bool
       -> I (CSeq c (Enabled a)) (CSeq c Ack)
-      -> O (CSeq c Ack) (CSeq c (Enabled a),CSeq c counter)
+      -> O (CSeq c Full) (CSeq c (Enabled a),CSeq c counter)
 fifoZ w_ix rst (inp,out_ready) =
     let
         wr :: CSeq c (Maybe (ix, a))
-        inp_ready :: CSeq c Ack
-        (inp_ready, wr, counter) = fifoFE w_ix rst (inp,dec_by)
+        inp_ready :: CSeq c Full
+        (inp_ready, counter, wr) = fifoFE w_ix rst (inp,dec_by)
 
         inp_done2 :: CSeq c Bool
         inp_done2 = resetable rst low $ register False $ resetable rst low $ register False $ resetable rst low $ isEnabled wr

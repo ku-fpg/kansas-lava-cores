@@ -24,14 +24,18 @@ tests test = do
         
         let baudRate = 1000
 
-        let rs232Test :: Integer -> Rational -> FIFO U8 U8
-            rs232Test baud scale = FIFO
-                        { theFIFO = \ (en_w,ackOut) ->
-                                  let (ackIn,wire) = rs232out baud clockRate en_w
+        let rs232Test :: Integer -> Rational -> StreamTest U8 U8
+            rs232Test baud scale = StreamTest
+                        { theStream = \ (en_w,fullIn) ->
+                                  let 
+				      (ackIn,wire) = rs232out baud clockRate en_w
                                       wire'        = noise wire
                                       en_wdOut     = rs232in baud (floor (toRational clockRate * scale)) (wire')
-				      (_,en_wdOut') = fifo (Witness :: Witness X16) low (en_wdOut,ackOut)
-                                  in (ackIn,en_wdOut')
+				      (fullOut,en_wdOut') 
+						   = fifo (Witness :: Witness X16) low (en_wdOut,ackIn' :: Seq Ack)
+				      (ackIn',en_wdOut'') 
+				  		  = handShakeMailBox (en_wdOut',fullIn)
+                                  in (ackIn :: Seq Ack,en_wdOut'')
                         , correctnessCondition = \ ins outs -> 
 --                                 trace (show ("cc",length ins,length outs)) $
 --                                 trace (show ("ins",map show (take 100 ins))) $
@@ -40,9 +44,9 @@ tests test = do
                                   () | outs /= take (length outs) ins -> return "in/out differences"
                                   () | length outs < count -> return $ "to few transfers (" ++ show (length outs) ++ ")"
                                      | otherwise -> Nothing
-			, theFIFOTestCount  = count
-			, theFIFOTestCycles = floor (100000 * (1000 / fromIntegral baud))
-                        , theFIFOName = "rs232"
+			, theStreamTestCount  = count
+			, theStreamTestCycles = floor (100000 * (1000 / fromIntegral baud))
+                        , theStreamName = "rs232"
                         }
 	    count = 100
 
@@ -51,7 +55,7 @@ tests test = do
 
         let t :: String -> Integer -> IO ()
             t str baud = sequence_
-                [ testFIFO test (str ++ "/" ++ wib) (rs232Test baud scale) (dubGen arbitrary :: Gen (Maybe U8))
+                [ testStream test (str ++ "/" ++ wib) (rs232Test baud scale) (dubGen arbitrary :: Gen (Maybe U8))
                 | (wib,scale) <- [ ("1",1), ("0.99",0.99), ("1.01",1.01) ]
                 ]
 

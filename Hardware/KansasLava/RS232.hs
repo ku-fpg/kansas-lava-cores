@@ -121,7 +121,7 @@ rs232out baudRate clkRate inp0 = (toAck accept,out)
 
 
 -- | rs232in accepts data from UART line, and turns it into bytes.
---   There is no Ack, because there is no way to pause the 232.
+--   There is no Ack or Full, because there is no way to pause the 232.
 
 rs232in :: forall clk sig a . (Eq clk, Clock clk, sig a ~ Clocked clk a) 
 	=> Integer			-- ^ Baud Rate.
