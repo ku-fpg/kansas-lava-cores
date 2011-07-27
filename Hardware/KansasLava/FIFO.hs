@@ -1,6 +1,6 @@
 {-# LANGUAGE TypeFamilies, ExistentialQuantification, FlexibleInstances, UndecidableInstances, FlexibleContexts,
     ScopedTypeVariables, MultiParamTypeClasses, FunctionalDependencies,ParallelListComp,
-    RankNTypes  #-}
+    RankNTypes, TypeOperators  #-}
 
 module Hardware.KansasLava.FIFO where
 
@@ -31,7 +31,7 @@ resetable rst val x = mux2 rst (liftS0 val,x)
 
 
 
-fifoFE :: forall c a counter ix .
+fifoFE :: forall c a counter ix sig .
          (Size counter
         , Size ix
         , counter ~ ADD ix X1
@@ -41,14 +41,15 @@ fifoFE :: forall c a counter ix .
         , Num counter
         , Num ix
         , Clock c
+	, sig ~ CSeq c
         )
       => Witness ix
          -- ^ depth of FIFO
       -> CSeq c Bool
          -- ^ hard reset option
-      -> (CSeq c (Enabled a), CSeq c counter) -- , CSeq c Ready)
-         -- ^ input, and Seq trigger of how much to decrement the counter
-      -> (CSeq c Ready, CSeq c counter, CSeq c (Enabled (ix,a)))
+      -> Patch (sig (Enabled a))			(sig (Enabled (ix,a)))
+	       (sig Ready)	 (sig counter)		(sig counter)
+         -- ^ input, and Seq trigger of how much to decrement the counter,
          -- ^ backedge for input, internal counter, and write request for memory.
 fifoFE Witness rst (inp,dec_by{-,wt_ready-}) = (toReady inp_ready, in_counter1, wr)
   where
@@ -84,7 +85,7 @@ fifoFE Witness rst (inp,dec_by{-,wt_ready-}) = (toReady inp_ready, in_counter1, 
                         `and2`
                     (bitNot rst)
 
-fifoBE :: forall a c counter ix .
+fifoBE :: forall a c counter ix sig .
          (Size counter
         , Size ix
         , counter ~ ADD ix X1
@@ -94,21 +95,27 @@ fifoBE :: forall a c counter ix .
         , Num counter
         , Num ix
         , Clock c
+	, sig ~ CSeq c
         )
       => Witness ix
       -> CSeq c Bool    -- ^ reset
 --      -> (Comb Bool -> Comb counter -> Comb counter)
 --      -> Seq (counter -> counter)
+      -> Patch (sig (Enabled a)  :> sig counter)		(sig (Enabled a))
+	       (sig ix 		 :> sig Bool)	 (sig counter)	(sig Ack)
+
+{-
       -> (CSeq c counter,CSeq c (Enabled a))
         -- inc from FE
         -- input from Memory read
       -> CSeq c Ack
       -> ((CSeq c ix, CSeq c Bool, CSeq c counter), CSeq c (Enabled a))
+-}
         -- address for Memory read
         -- dec to FE
         -- internal counter, and
         -- output for HandShaken
-fifoBE Witness rst (inc_by,mem_rd) out_ready =
+fifoBE Witness rst (mem_rd :> inc_by, out_ready) = 
     let
         rd_addr0 :: CSeq c ix
         rd_addr0 = resetable rst 0
@@ -132,7 +139,8 @@ fifoBE Witness rst (inc_by,mem_rd) out_ready =
 
         out_counter1 = register 0 out_counter0
     in
-        ((rd_addr0, out_done0,out_counter1) , out)
+	(rd_addr0 :> out_done0, out_counter1, out)
+
 
 fifoCounter :: forall counter . (Num counter, Rep counter) => Seq Bool -> Seq Bool -> Seq Bool -> Seq counter
 fifoCounter rst inc dec = counter1
@@ -175,7 +183,7 @@ fifo w_ix rst (inp,out_ready) =
     let
         wr :: CSeq c (Maybe (ix, a))
         inp_ready :: CSeq c Ready
-        (inp_ready, counter, wr) = fifoFE w_ix rst (inp,dec_by)
+        (inp_ready, counter_fe, wr) = fifoFE w_ix rst (inp,dec_by)
 
         inp_done2 :: CSeq c Bool
         inp_done2 = resetable rst low $ register False $ resetable rst low $ register False $ resetable rst low $ isEnabled wr
@@ -183,12 +191,12 @@ fifo w_ix rst (inp,out_ready) =
         mem :: CSeq c ix -> CSeq c (Enabled a)
         mem = enabledS . pipeToMemory wr
 
-        ((rd_addr0,out_done0,_),out) = fifoBE w_ix rst (inc_by,mem rd_addr0) out_ready
+        (rd_addr0 :> out_done0,counter_be,out) = fifoBE w_ix rst (mem rd_addr0 :> inc_by, out_ready)
 
         dec_by = (unsigned) out_done0
         inc_by = (unsigned) inp_done2
     in
-        (inp_ready, counter, out)
+        (inp_ready, counter_fe, out)
 {-
 fifoZ :: forall a c counter ix .
          (Size counter
