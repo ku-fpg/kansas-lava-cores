@@ -27,7 +27,7 @@ tests test = do
                         { theStream = \ (en_w,fullOut) ->
                                   let 
 				      (ackIn,_,en_w') = bridge (en_w,fullIn)
-				      (fullIn,wire) = rs232out baud clockRate en_w'
+				      (fullIn,wire,_) = rs232out baud clockRate (en_w',())
                                       wire'        = noise wire
                                       en_wdOut     = rs232in baud (floor (toRational clockRate * scale)) (wire')
 				      (fullOut,_,en_wdOut') 
