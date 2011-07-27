@@ -169,13 +169,13 @@ fifo :: forall a c counter ix .
         )
       => Witness ix
       -> CSeq c Bool
-      -> I (CSeq c (Enabled a)) (CSeq c Ack)
-      -> O (CSeq c Ready) (CSeq c (Enabled a))
+      -> Patch 	(CSeq c (Enabled a)) 				(CSeq c (Enabled a))
+		(CSeq c Ready)		(CSeq c counter)	(CSeq c Ack)
 fifo w_ix rst (inp,out_ready) =
     let
         wr :: CSeq c (Maybe (ix, a))
         inp_ready :: CSeq c Ready
-        (inp_ready, _, wr) = fifoFE w_ix rst (inp,dec_by)
+        (inp_ready, counter, wr) = fifoFE w_ix rst (inp,dec_by)
 
         inp_done2 :: CSeq c Bool
         inp_done2 = resetable rst low $ register False $ resetable rst low $ register False $ resetable rst low $ isEnabled wr
@@ -188,8 +188,8 @@ fifo w_ix rst (inp,out_ready) =
         dec_by = (unsigned) out_done0
         inc_by = (unsigned) inp_done2
     in
-        (inp_ready, out)
-
+        (inp_ready, counter, out)
+{-
 fifoZ :: forall a c counter ix .
          (Size counter
         , Size ix
@@ -223,6 +223,7 @@ fifoZ w_ix rst (inp,out_ready) =
         inc_by = liftS1 (\ b -> mux2 b (1,0)) inp_done2
     in
         (inp_ready, (out,counter))
+-}
 
 {-
 fifoToMatrix :: forall a counter counter2 ix iy iz c .

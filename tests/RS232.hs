@@ -26,15 +26,15 @@ tests test = do
             rs232Test baud scale = StreamTest
                         { theStream = \ (en_w,fullOut) ->
                                   let 
-				      (ackIn,en_w') = bridge (en_w,fullIn)
+				      (ackIn,_,en_w') = bridge (en_w,fullIn)
 				      (fullIn,wire) = rs232out baud clockRate en_w'
                                       wire'        = noise wire
                                       en_wdOut     = rs232in baud (floor (toRational clockRate * scale)) (wire')
-				      (fullOut,en_wdOut') 
+				      (fullOut,_,en_wdOut') 
 						   = fifo (Witness :: Witness X16) low (en_wdOut,ackIn' :: Seq Ack)
-				      (ackIn',en_wdOut'')
+				      (ackIn',_,en_wdOut'')
 				  		  = bridge (en_wdOut',fullOut)
-                                  in (ackIn :: Seq Ack,en_wdOut'')
+                                  in (ackIn :: Seq Ack,(),en_wdOut'')
                         , correctnessCondition = \ ins outs -> 
 --                                 trace (show ("cc",length ins,length outs)) $
 --                                 trace (show ("ins",map show (take 100 ins))) $
