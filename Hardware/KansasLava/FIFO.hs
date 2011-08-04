@@ -103,7 +103,7 @@ fifoBE :: forall a c counter ix sig .
 --      -> (Comb Bool -> Comb counter -> Comb counter)
 --      -> Seq (counter -> counter)
       -> Patch (sig (Enabled a)  :> sig counter)		(sig (Enabled a))
-	       (sig ix 		 :> sig Bool)	 (sig counter)	(sig Ack)
+	       (sig (Enabled ix) :> sig Bool)	 (sig counter)	(sig Ack)
 
 {-
       -> (CSeq c counter,CSeq c (Enabled a))
@@ -140,7 +140,7 @@ fifoBE Witness rst (mem_rd :> inc_by, out_ready) =
 
         out_counter1 = register 0 out_counter0
     in
-	(rd_addr0 :> out_done0, out_counter1, out)
+	(enabledS rd_addr0 :> out_done0, out_counter1, out)
 
 fifoMem :: forall a c1 c2 counter ix sig1 sig2 .
          (Size counter
@@ -158,12 +158,14 @@ fifoMem :: forall a c1 c2 counter ix sig1 sig2 .
 	, c1 ~ c2
         )
       => Witness ix
-      -> Patch (sig1 (Enabled (ix,a))	:> sig1 Bool)					(sig2 (Enabled a) :> sig2 counter)
-	       (sig1 Ack 		:> sig1 counter)	 	()		(sig2 ix 	  :> sig2 Bool)
+      -> Patch (sig1 (Enabled (ix,a))	:> sig1 Bool)					(sig2 (Enabled a)  :> sig2 counter)
+	       (sig1 Ack 		:> sig1 counter)	 	()		(sig2 (Enabled ix) :> sig2 Bool)
 fifoMem Witness ~(~(wr_in :> wr_in_done),~(rd_addr :> sent)) = (toAck (isEnabled wr_in) :> dec_fe,(),mem_val :> inc_be)
   where
 	-- This is the memory.
-	mem_val = enabledS $ syncRead (writeMemory wr_in) rd_addr
+	mem_val = packEnabled (register False (isEnabled rd_addr))
+	 	$ syncRead (writeMemory wr_in) 
+			   (enabledVal rd_addr)
 
 	-- Saying Here is some space to write to.
 	dec_fe = (unsigned) sent
