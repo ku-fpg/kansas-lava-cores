@@ -141,6 +141,36 @@ fifoBE Witness rst (mem_rd :> inc_by, out_ready) =
     in
 	(rd_addr0 :> out_done0, out_counter1, out)
 
+fifoMem :: forall a c1 c2 counter ix sig1 sig2 .
+         (Size counter
+        , Size ix
+        , counter ~ ADD ix X1
+        , Rep a
+        , Rep counter
+        , Rep ix
+        , Num counter
+        , Num ix
+        , Clock c1
+        , Clock c2
+	, sig1 ~ CSeq c1
+	, sig2 ~ CSeq c2
+	, c1 ~ c2
+        )
+      => Witness ix
+      -> Patch (sig1 (Enabled (ix,a)))			(sig2 (Enabled a) :> sig2 counter)
+	       (sig1 counter)	 	()		(sig2 ix 	  :> sig2 Bool)
+fifoMem Witness ~(wr_in,~(rd_addr :> sent)) = (dec_fe,(),mem_val :> inc_be)
+  where
+	-- This is the memory.
+	-- TODO: why the delay here?
+	mem_val = enabledS $ syncRead (writeMemory (wr_in)) rd_addr
+
+	-- Saying Here is some space to write to.
+	dec_fe = (unsigned) sent
+
+	-- This needs a two-cycle delay, to provide time for the memory read
+	inc_be = (unsigned) $ register False $ register False $ isEnabled wr_in
+
 
 fifoCounter :: forall counter . (Num counter, Rep counter) => Seq Bool -> Seq Bool -> Seq Bool -> Seq counter
 fifoCounter rst inc dec = counter1
@@ -179,6 +209,14 @@ fifo :: forall a c counter ix .
       -> CSeq c Bool
       -> Patch 	(CSeq c (Enabled a)) 				(CSeq c (Enabled a))
 		(CSeq c Ready)		(CSeq c counter)	(CSeq c Ack)
+
+fifo w_ix rst = mapStatus fnCounter fifo_patch
+   where
+	fifo_patch = fifoFE w_ix rst `bus` fifoMem w_ix `bus` fifoBE w_ix rst 
+
+	fnCounter ~(counter_fe :> () :> _counter_be) = counter_fe
+
+{-
 fifo w_ix rst (inp,out_ready) =
     let
         wr :: CSeq c (Maybe (ix, a))
@@ -197,6 +235,7 @@ fifo w_ix rst (inp,out_ready) =
         inc_by = (unsigned) inp_done2
     in
         (inp_ready, counter_fe, out)
+-}
 {-
 fifoZ :: forall a c counter ix .
          (Size counter
