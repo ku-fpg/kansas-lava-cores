@@ -47,21 +47,22 @@ fifoFE :: forall c a counter ix sig .
          -- ^ depth of FIFO
       -> CSeq c Bool
          -- ^ hard reset option
-      -> Patch (sig (Enabled a))			(sig (Enabled (ix,a)))
-	       (sig Ready)	 (sig counter)		(sig counter)
+      -> Patch (sig (Enabled a))			(sig (Enabled (ix,a)) :> sig Bool)
+	       (sig Ready)	 (sig counter)		(sig Ack              :> sig counter)
          -- ^ input, and Seq trigger of how much to decrement the counter,
          -- ^ backedge for input, internal counter, and write request for memory.
-fifoFE Witness rst (inp,dec_by{-,wt_ready-}) = (toReady inp_ready, in_counter1, wr)
+fifoFE Witness rst ~(inp,mem_ack :> dec_by) = (toReady inp_ready, in_counter1, wr :> inp_done0)
   where
---      mem :: Seq ix -> Seq a
---      mem = pipeToMemory env env wr
+        inp_try0 :: CSeq c Bool
+        inp_try0 = inp_ready `and2` isEnabled inp -- `and2` fromReady mem_ready
 
-        inp_done0 :: CSeq c Bool
-        inp_done0 = inp_ready `and2` isEnabled inp -- `and2` wt_ready
 
         wr :: CSeq c (Enabled (ix,a))
-        wr = packEnabled (inp_done0)
+        wr = packEnabled (inp_try0)
                          (pack (wr_addr,enabledVal inp))
+
+        inp_done0 :: CSeq c Bool
+        inp_done0 = isEnabled wr `and2` fromAck mem_ack
 
         wr_addr :: CSeq c ix
         wr_addr = resetable rst 0
@@ -157,19 +158,18 @@ fifoMem :: forall a c1 c2 counter ix sig1 sig2 .
 	, c1 ~ c2
         )
       => Witness ix
-      -> Patch (sig1 (Enabled (ix,a)))			(sig2 (Enabled a) :> sig2 counter)
-	       (sig1 counter)	 	()		(sig2 ix 	  :> sig2 Bool)
-fifoMem Witness ~(wr_in,~(rd_addr :> sent)) = (dec_fe,(),mem_val :> inc_be)
+      -> Patch (sig1 (Enabled (ix,a))	:> sig1 Bool)					(sig2 (Enabled a) :> sig2 counter)
+	       (sig1 Ack 		:> sig1 counter)	 	()		(sig2 ix 	  :> sig2 Bool)
+fifoMem Witness ~(~(wr_in :> wr_in_done),~(rd_addr :> sent)) = (toAck (isEnabled wr_in) :> dec_fe,(),mem_val :> inc_be)
   where
 	-- This is the memory.
-	-- TODO: why the delay here?
-	mem_val = enabledS $ syncRead (writeMemory (wr_in)) rd_addr
+	mem_val = enabledS $ syncRead (writeMemory wr_in) rd_addr
 
 	-- Saying Here is some space to write to.
 	dec_fe = (unsigned) sent
 
 	-- This needs a two-cycle delay, to provide time for the memory read
-	inc_be = (unsigned) $ register False $ register False $ isEnabled wr_in
+	inc_be = (unsigned) $ register False $ register False $ wr_in_done
 
 
 fifoCounter :: forall counter . (Num counter, Rep counter) => Seq Bool -> Seq Bool -> Seq Bool -> Seq counter
