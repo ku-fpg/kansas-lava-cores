@@ -48,21 +48,20 @@ fifoFE :: forall c a counter ix sig .
       -> CSeq c Bool
          -- ^ hard reset option
       -> Patch (sig (Enabled a))			(sig (Enabled (ix,a)) :> sig Bool)
-	       (sig Ready)	 (sig counter)		(sig Ack              :> sig counter)
+	       (sig Ready)	 (sig counter)		(sig Ready            :> sig counter)
          -- ^ input, and Seq trigger of how much to decrement the counter,
          -- ^ backedge for input, internal counter, and write request for memory.
-fifoFE Witness rst ~(inp,mem_ack :> dec_by) = (toReady inp_ready, in_counter1, wr :> inp_done0)
+fifoFE Witness rst ~(inp,mem_ready :> dec_by) = (toReady inp_ready, in_counter1, wr :> inp_done0)
   where
         inp_try0 :: CSeq c Bool
         inp_try0 = inp_ready `and2` isEnabled inp -- `and2` fromReady mem_ready
-
 
         wr :: CSeq c (Enabled (ix,a))
         wr = packEnabled (inp_try0)
                          (pack (wr_addr,enabledVal inp))
 
         inp_done0 :: CSeq c Bool
-        inp_done0 = isEnabled wr `and2` fromAck mem_ack
+        inp_done0 = isEnabled wr `and2` fromReady mem_ready
 
         wr_addr :: CSeq c ix
         wr_addr = resetable rst 0
@@ -78,13 +77,13 @@ fifoFE Witness rst ~(inp,mem_ack :> dec_by) = (toReady inp_ready, in_counter1, w
         in_counter1 :: CSeq c counter
         in_counter1 = register 0 in_counter0
 
---      out :: Seq (Enabled a)
---      out = packEnabled (out_counter1 .>. 0) (mem rd_addr0)
-
+	-- TODO: make this happen on the clock edge
         inp_ready :: CSeq c Bool
         inp_ready = (in_counter1 .<. fromIntegral (size (error "witness" :: ix)))
                         `and2`
                     (bitNot rst)
+			`and2`
+		    (fromReady mem_ready)
 
 fifoBE :: forall a c counter ix sig .
          (Size counter
@@ -159,8 +158,8 @@ fifoMem :: forall a c1 c2 counter ix sig1 sig2 .
         )
       => Witness ix
       -> Patch (sig1 (Enabled (ix,a))	:> sig1 Bool)					(sig2 (Enabled a)  :> sig2 counter)
-	       (sig1 Ack 		:> sig1 counter)	 	()		(sig2 (Enabled ix) :> sig2 Bool)
-fifoMem Witness ~(~(wr_in :> wr_in_done),~(rd_addr :> sent)) = (toAck (isEnabled wr_in) :> dec_fe,(),mem_val :> inc_be)
+	       (sig1 Ready 		:> sig1 counter)	 	()		(sig2 (Enabled ix) :> sig2 Bool)
+fifoMem Witness ~(~(wr_in :> wr_in_done),~(rd_addr :> sent)) = (toReady high :> dec_fe,(),mem_val :> inc_be)
   where
 	-- This is the memory.
 	mem_val = packEnabled (register False (isEnabled rd_addr))
@@ -215,8 +214,8 @@ fifo :: forall a c counter ix .
 fifo w_ix rst = mapStatus fnCounter fifo_patch
    where
 	fifo_patch = fifoFE w_ix rst `bus` fifoMem w_ix `bus` fifoBE w_ix rst 
-
-	fnCounter ~(counter_fe :> () :> _counter_be) = counter_fe
+	
+	fnCounter ~(counter_fe :> _ :> _counter_be) = counter_fe
 
 {-
 fifo w_ix rst (inp,out_ready) =
