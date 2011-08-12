@@ -25,6 +25,8 @@ Library
         Hardware.KansasLava.Random
         Hardware.KansasLava.Rate
         Hardware.KansasLava.RS232
+        Hardware.KansasLava.Chunker
+
   Hs-Source-Dirs: ., ../kansas-lava
   Other-modules:
 
