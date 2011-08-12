@@ -126,7 +126,7 @@ rs232out baudRate clkRate ~(inp0,()) = (toReady ready,out,())
 rs232in :: forall clk sig a . (Eq clk, Clock clk, sig a ~ Clocked clk a) 
 	=> Integer			-- ^ Baud Rate.
 	-> Integer			-- ^ Clock rate, in Hz.
-	-> sig Bool	    		-- ^ signal input x back edge for FIFO
+	-> sig Bool	    		-- ^ signal input
         -> sig (Enabled U8)		-- ^ output; must be captured in a single cycle
 rs232in baudRate clkRate (in_val0) = out
   where
