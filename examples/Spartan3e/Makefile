@@ -1,5 +1,5 @@
 boot::
-	echo main | ghci -i../.. -i../../../kansas-lava Main.hs  
+	echo main | ghci -i../.. -i../../../kansas-lava Main.hs  -fcontext-stack=100
 
 copy::
 
