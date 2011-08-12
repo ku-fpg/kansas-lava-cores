@@ -57,7 +57,7 @@ tests test = do
 				if size (undefined :: sz) <= 2
 				then 40000
 				else 30000
-                        , theStreamName = "vanilla/" ++ show (size (error "witness" :: sz))
+                        , theStreamName = "fifo/" ++ show (size (error "witness" :: sz))
                         }
 	   	where
 			count = 1000
