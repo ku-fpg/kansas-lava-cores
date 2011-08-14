@@ -1,6 +1,6 @@
 {-# LANGUAGE TypeFamilies, ScopedTypeVariables, NoMonomorphismRestriction, Rank2Types #-}
 
-module Hardware.KansasLava.Chunker (chunker, dechunker) where 
+module Hardware.KansasLava.Chunker where -- (chunker, dechunker) where 
 
 import Data.Sized.Unsigned
 import Data.Sized.Signed
@@ -77,40 +77,56 @@ waitForIt ~(inp,outReady) = (toReady ready,(),out)
 		     ] timer
 
 
-conditional :: forall c sig . (Clock c, sig ~ CSeq c, c ~ ())
-	    => Patch (sig (Enabled U8))				(sig (Enabled Bool))
+-- | Count a (fixed-sized) header with 1's, and a payload with 0's.
+-- The fixed sized header counting is done before reading the payload size.
+chunkCounter :: forall c sig x y . (Clock c, sig ~ CSeq c, Size x, Num x, Rep x, Size y, Rep y, Num y, c ~ ())
+	    => Witness x			-- number of 1's on the front
+	    -> Patch (sig (Enabled (Unsigned y)))		(sig (Enabled Bool))
 		     (sig Ready)	 ()		        (sig Ready)
-conditional ~(inp,outReady) = (toReady ready,(),control)
+chunkCounter Witness ~(inp,outReady) = (toReady ready,(),control)
   where
-	ready :: sig Bool
-	ready = state .==. 0
+	-- triggers
+	send_one  = state .==. 0 .&&. fromReady outReady
+	recv_count = state .==. 1 .&&. isEnabled inp
+	
 
 	state :: sig X3
 	state = register 0
-	      $ cASE [ (state .==. 0 .&&. isEnabled inp, 	1)
-		     , (state .==. 1 .&&. fromReady outReady,	2)
+	      $ cASE [ (send_one .&&. ones0 .==. 0, 		1)
+		     , (recv_count,	2)
 		     , (state .==. 2 .&&. counter0 .==. 0,	0)
 		      ] state
 
-	counter0 :: sig U8
-	counter0 = cASE [ (state .==. 0 .&&. isEnabled inp, 	 enabledVal inp)
+	-- send out x 1's.
+	ones0 :: sig x
+	ones0 = cASE [ (send_one, ones1 - 1) ]
+		     ones1
+		
+	ones1 = register (0 :: x) ones0
+	
+	ready :: sig Bool
+	ready = state .==. 1
+
+	counter0 :: sig (Unsigned y)
+	counter0 = cASE [ (recv_count, 				 enabledVal inp)
 		        , (state .==. 2 .&&. fromReady outReady, counter1 - 1)
 		        ] counter1
 
 	counter1 = register 0 counter0
 
 	control :: sig (Enabled Bool)
-	control = cASE [ (state .==. 1 .&&. fromReady outReady, enabledS high)
+	control = cASE [ (state .==. 0 .&&. fromReady outReady, enabledS high)
 		       , (state .==. 2 .&&. fromReady outReady, enabledS low)
 		       ] disabledS
 
+{-
 chunker :: forall c sig . (Clock c, sig ~ CSeq c, c ~ ())
 	 => Patch (sig (Enabled U8))			(sig (Enabled U8))
 		  (sig Ready)	 ()		        (sig Ready)
 
 chunker = noStatus $ patch1 `bus` patch2 `bus` patch3 `bus` patch4	
   where
-	patch1 = dupPatch `bus` fstPatch (waitForIt `bus` dupPatch `bus` fstPatch conditional)
+	patch1 = dupPatch `bus` fstPatch (
 	patch2 = forwardPatch (\ ((a :> b) :> c) -> a :> b :> c) `bus`
 		 backwardPatch (\ (a :> b :> c) -> (a :> b) :> c) 
 	patch3 = fifo (Witness :: Witness X4)  low `stack`
@@ -119,3 +135,23 @@ chunker = noStatus $ patch1 `bus` patch2 `bus` patch3 `bus` patch4
 	patch4 = muxPatch
 
 dechunker = undefined
+-}
+
+{-
+chunkJoinHeader :: forall c sig . (Clock c, sig ~ CSeq c, c ~ ())
+  => Patch (sig (Enabled (sig (Unsigned (MUL x X8)))) :> sig (Enabled U8))	(sig (Enabled Bool))
+	   (sig Ready 				      :> sig Ready)	()      (sig Ready)
+-}
+chunkJoinHeader = noStatus $ patch1 `bus` patch2
+   where
+	patch1 = fstPatch (dupPatch `bus` fstPatch (chunkCounter (Witness :: Witness X2)))
+	patch2 = forwardPatch (\ ((a :> b) :> c) -> a :> b :> c) `bus`
+		 backwardPatch (\ (a :> b :> c) -> (a :> b) :> c) 
+
+{-
+	a	
+	~(hdr :> inp, readyOut) = (readyhdr :> readyInp,(),out)
+   where
+-}	
+	
+	
