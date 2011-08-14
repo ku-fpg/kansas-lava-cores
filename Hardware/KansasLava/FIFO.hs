@@ -362,6 +362,39 @@ mkPacketFIFO ::
 
 -}
 
+liftSeqToHandShake :: forall sig c a b . (Rep a, Rep b, Clock c, sig ~ CSeq c, a ~ b)
+        => (forall sig' c' . (Clock c', sig' ~ CSeq c') => sig' a -> sig' b)
+        -> Patch (sig (Enabled a))		(sig (Enabled b))
+ 	         (sig (Ready))		()	(sig (Ack))
+liftSeqToHandShake f = noStatus $ fifoFE w low `bus` liftedMem `bus` fifoBE w low
+  where
+	w :: Witness X1
+	w = Witness
+
+	liftedMem ~(~(wr_in :> wr_in_done),~(rd_addr :> sent)) = (toReady high :> dec_fe,(),mem_val :> inc_be)
+	   where
+		(en,wt) = unpack wr_in
+		(addr,val) = unpack wt
+
+		-- assumes flux takes one cycle delays
+		(en',val')
+		       = unpackEnabled
+		       $ fluxCapacitor 
+				f
+				(packEnabled en val)
+
+		wr_in' = packEnabled (register False en')
+		                     (pack (delay addr,val') :: sig (X1,b))
+
+		mem_val = packEnabled (register False (isEnabled rd_addr))
+	 		$ syncRead (writeMemory wr_in) 
+			   	   (enabledVal rd_addr)
+
+		-- Saying Here is some space to write to.
+		dec_fe = (unsigned) sent
+
+		-- This needs a two-cycle delay, to provide time for the memory read
+		inc_be = (unsigned) $ registers 3 False $ wr_in_done
 
 
 
