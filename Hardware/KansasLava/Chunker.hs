@@ -33,8 +33,8 @@ import Hardware.KansasLava.FIFO
 
 waitForIt :: forall c sig a . (Clock c, sig ~ CSeq c, c ~ (), Rep a)
 	    => Patch (sig (Enabled a))     (sig (Enabled U8))	
-	   	     (sig Ready)        ()  (sig Ready       )
-waitForIt ~(inp,outReady) = (toReady ready,(),out)
+	   	     (sig Ready)           (sig Ready       )
+waitForIt ~(inp,outReady) = (toReady ready,out)
   where
 	maxCounter :: U8
 	maxCounter = 15
@@ -82,8 +82,8 @@ waitForIt ~(inp,outReady) = (toReady ready,(),out)
 chunkCounter :: forall c sig x y . (Clock c, sig ~ CSeq c, Size x, Num x, Rep x, Size y, Rep y, Num y, c ~ ())
 	    => Witness x			-- number of 1's on the front
 	    -> Patch (sig (Enabled (Unsigned y)))		(sig (Enabled Bool))
-		     (sig Ready)	 ()		        (sig Ready)
-chunkCounter Witness ~(inp,outReady) = (toReady ready,(),control)
+		     (sig Ready)	 		        (sig Ready)
+chunkCounter Witness ~(inp,outReady) = (toReady ready,control)
   where
 	-- triggers
 	send_one  = state .==. 0 .&&. fromReady outReady
@@ -142,7 +142,7 @@ chunkJoinHeader :: forall c sig . (Clock c, sig ~ CSeq c, c ~ ())
   => Patch (sig (Enabled (sig (Unsigned (MUL x X8)))) :> sig (Enabled U8))	(sig (Enabled Bool))
 	   (sig Ready 				      :> sig Ready)	()      (sig Ready)
 -}
-chunkJoinHeader = noStatus $ patch1 `bus` patch2
+chunkJoinHeader = patch1 `bus` patch2
    where
 	patch1 = fstPatch (dupPatch `bus` fstPatch (chunkCounter (Witness :: Witness X2)))
 	patch2 = forwardPatch (\ ((a :> b) :> c) -> a :> b :> c) `bus`

@@ -73,9 +73,9 @@ findBit byte x = (bitwise) byte .!. ((unsigned) (x - 1) :: sig X8)
 rs232out :: forall clk sig a . (Eq clk, Clock clk, sig a ~ Clocked clk a, clk ~ ()) 
 	=> Integer			-- ^ Baud Rate.
 	-> Integer			-- ^ Clock rate, in Hz.
-        -> Patch (sig (Enabled U8)) 				()
-		 (sig Ready)		 (sig Bool)		()
-rs232out baudRate clkRate ~(inp0,()) = (toReady ready,out,())
+        -> Patch (sig (Enabled U8)) 	(sig Bool)
+		 (sig Ready)		()
+rs232out baudRate clkRate ~(inp0,()) = (toReady ready,out)
   where
 	-- at the baud rate for transmission
 	fastTick :: CSeq clk Bool 
