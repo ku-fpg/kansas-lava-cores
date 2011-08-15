@@ -1,9 +1,10 @@
-{-# LANGUAGE TypeFamilies, ScopedTypeVariables, NoMonomorphismRestriction, Rank2Types #-}
+{-# LANGUAGE TypeFamilies, ScopedTypeVariables, NoMonomorphismRestriction, Rank2Types, TypeOperators #-}
 
 module Hardware.KansasLava.Chunker where -- (chunker, dechunker) where 
 
 import Data.Sized.Unsigned
 import Data.Sized.Signed
+import Data.Sized.Arith
 import Data.Sized.Ix
 import Data.Sized.Matrix as M
 
@@ -89,11 +90,10 @@ chunkCounter Witness ~(inp,outReady) = (toReady ready,control)
 	send_one  = state .==. 0 .&&. fromReady outReady
 	recv_count = state .==. 1 .&&. isEnabled inp
 	
-
 	state :: sig X3
 	state = register 0
 	      $ cASE [ (send_one .&&. ones0 .==. 0, 		1)
-		     , (recv_count,	2)
+		     , (recv_count,				2)
 		     , (state .==. 2 .&&. counter0 .==. 0,	0)
 		      ] state
 
@@ -137,16 +137,28 @@ chunker = noStatus $ patch1 `bus` patch2 `bus` patch3 `bus` patch4
 dechunker = undefined
 -}
 
-{-
-chunkJoinHeader :: forall c sig . (Clock c, sig ~ CSeq c, c ~ ())
-  => Patch (sig (Enabled (sig (Unsigned (MUL x X8)))) :> sig (Enabled U8))	(sig (Enabled Bool))
-	   (sig Ready 				      :> sig Ready)	()      (sig Ready)
--}
-chunkJoinHeader = patch1 `bus` patch2
+
+
+chunkJoinHeader :: forall c sig x y a . 
+   (Clock c, sig ~ CSeq c, Rep a, Rep x, Size x, Num x, Enum x, Rep y, Size y, Num y, c ~ ())
+  => (Comb (Matrix x a) -> Comb (Unsigned y))
+  -> Patch (sig (Enabled (Matrix x a))  :> sig (Enabled a))	(sig (Enabled a))
+	   (sig Ready 		        :> sig Ready)	        (sig Ready)
+
+chunkJoinHeader f = patch1 $$ patch2 $$ patch3
    where
-	patch1 = fstPatch (dupPatch `bus` fstPatch (chunkCounter (Witness :: Witness X2)))
+	patch1 = stack (dupPatch $$ 
+				stack (forwardPatch (mapEnabled f) $$ 
+				       fifo1 $$ bridge $$
+				       chunkCounter (Witness :: Witness x) $$
+				       fifo1)
+				      (fifo1 $$ matrixExpandPatch $$ fifo1)
+		          )
+			fifo1
 	patch2 = forwardPatch (\ ((a :> b) :> c) -> a :> b :> c) `bus`
 		 backwardPatch (\ (a :> b :> c) -> (a :> b) :> c) 
+	patch3 = muxPatch
+
 
 {-
 	a	
