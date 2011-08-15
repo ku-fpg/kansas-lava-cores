@@ -160,10 +160,11 @@ chunkJoinHeader f = patch1 $$ patch2 $$ patch3
 	patch3 = muxPatch
 
 
-{-
-	a	
-	~(hdr :> inp, readyOut) = (readyhdr :> readyInp,(),out)
-   where
--}	
-	
-	
+chunkSplitHeader :: forall c sig x y a . 
+   (Clock c, sig ~ CSeq c, Rep a, Rep x, Size x, Num x, Enum x, Rep y, Size y, Num y, c ~ ())
+  => (Comb (Matrix x a) -> Comb (Unsigned y))
+  -> Patch (sig (Enabled a))	(sig (Enabled (Matrix x a))  :> sig (Enabled a))
+	   (sig Ready)		(sig Ready 		     :> sig Ready)	        
+chunkSplitHeader = 
+	-- To Be written
+	undefined	
