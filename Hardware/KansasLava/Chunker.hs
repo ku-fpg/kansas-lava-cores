@@ -165,6 +165,17 @@ chunkSplitHeader :: forall c sig x y a .
   => (Comb (Matrix x a) -> Comb (Unsigned y))
   -> Patch (sig (Enabled a))	(sig (Enabled (Matrix x a))  :> sig (Enabled a))
 	   (sig Ready)		(sig Ready 		     :> sig Ready)	        
-chunkSplitHeader = 
-	-- To Be written
-	undefined	
+chunkSplitHeader f = 
+	loopPatch $
+		(fifo1 `stack` fifo1) $$
+		deMuxPatch $$
+		(fstPatch (fifo1 $$ matrixContractPatch $$ dupPatch $$ fstPatch clicker)) $$
+		reorg
+  where
+      clicker = forwardPatch (mapEnabled f) $$ 
+ 		fifo1 $$ bridge $$
+		chunkCounter (Witness :: Witness x)
+      reorg = forwardPatch (\ ((a :> b) :> c) -> a :> b :> c) `bus`
+	      backwardPatch (\ (a :> b :> c) -> (a :> b) :> c) 
+
+
