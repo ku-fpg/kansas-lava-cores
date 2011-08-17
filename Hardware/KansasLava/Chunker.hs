@@ -38,7 +38,7 @@ waitForIt :: forall c sig a b t x y .
 	, b ~ Unsigned x, Size x
 	, Size t
 	)   => b		-- ^ The maximum size of chunk
-	    -> Witness t
+	    -> Witness t	-- ^ 2^t is the timeout time between elements
 	    -> Patch (sig (Enabled a))     (sig (Enabled b))	
 	   	     (sig Ack)             (sig Ack)
 waitForIt maxCounter Witness ~(inp,outAck) = (toAck tick,out)
@@ -77,15 +77,16 @@ waitForIt maxCounter Witness ~(inp,outAck) = (toAck tick,out)
 			-- only dec if there *is* some data
 		     , (counter1 .>. 0, timer + 1)
 		     ] timer
-{-
+
 
 -- | Count a (fixed-sized) header with 1's, and a payload with 0's.
 -- The fixed sized header counting is done before reading the payload size.
 chunkCounter :: forall c sig x y . (Clock c, sig ~ CSeq c, Size x, Num x, Rep x, Size y, Rep y, Num y, c ~ ())
 	    => Witness x			-- number of 1's on the front
 	    -> Patch (sig (Enabled (Unsigned y)))		(sig (Enabled Bool))
-		     (sig Ready)	 		        (sig Ready)
-chunkCounter Witness ~(inp,outReady) = (toReady ready,control)
+		     (sig Ack)	 			        (sig Ack)
+chunkCounter w = ackToReadyBridge $$ chunkCounter' w $$ readyToAckBridge where
+ chunkCounter' Witness ~(inp,outReady) = (toReady ready,control)
   where
 	-- triggers
 	send_one  = state .==. 0 .&&. fromReady outReady
@@ -121,23 +122,6 @@ chunkCounter Witness ~(inp,outReady) = (toReady ready,control)
 		       ] disabledS
 
 {-
-chunker :: forall c sig . (Clock c, sig ~ CSeq c, c ~ ())
-	 => Patch (sig (Enabled U8))			(sig (Enabled U8))
-		  (sig Ready)	 ()		        (sig Ready)
-
-chunker = noStatus $ patch1 `bus` patch2 `bus` patch3 `bus` patch4	
-  where
-	patch1 = dupPatch `bus` fstPatch (
-	patch2 = forwardPatch (\ ((a :> b) :> c) -> a :> b :> c) `bus`
-		 backwardPatch (\ (a :> b :> c) -> (a :> b) :> c) 
-	patch3 = fifo (Witness :: Witness X4)  low `stack`
-	         fifo (Witness :: Witness X1)  low `stack`
-		 fifo (Witness :: Witness X10) low 
-	patch4 = muxPatch
-
-dechunker = undefined
--}
-
 
 
 chunkJoinHeader :: forall c sig x y a . 
