@@ -21,20 +21,16 @@ tests test = do
         let clockRate = 50 * 1000
         
         let baudRate = 1000
-{-
+
         let rs232Test :: Integer -> Rational -> StreamTest U8 U8
             rs232Test baud scale = StreamTest
-                        { theStream = \ (en_w,fullOut) ->
-                                  let 
-				      (ackIn,en_w') = bridge (en_w,fullIn)
-				      (fullIn,wire) = rs232out baud clockRate (en_w',())
-                                      wire'        = noise wire
-                                      en_wdOut     = rs232in baud (floor (toRational clockRate * scale)) (wire')
-				      (fullOut,en_wdOut') 
-						   = fifo (Witness :: Witness X16) low (en_wdOut,ackIn' :: Seq Ack)
-				      (ackIn',en_wdOut'')
-				  		  = bridge (en_wdOut',fullOut)
-                                  in (ackIn :: Seq Ack,en_wdOut'')
+                        { theStream = 
+				  rs232out baud clockRate $$ 
+				  forwardPatch noise $$
+				  rs232in baud (floor (toRational clockRate * scale)) $$
+				  enableToAckBox $$
+				  fifo (Witness :: Witness X16) low $$
+				  ackToReadyBridge
                         , correctnessCondition = \ ins outs -> 
 --                                 trace (show ("cc",length ins,length outs)) $
 --                                 trace (show ("ins",map show (take 100 ins))) $
@@ -64,5 +60,5 @@ tests test = do
         t "1000"  1000
         t "2000"  2000
         t "3000"  3000
--}
+
 	return ()
