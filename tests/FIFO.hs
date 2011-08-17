@@ -26,9 +26,7 @@ tests test = do
                       Num sz,
                       Num (ADD sz X1)) => Witness sz -> StreamTest w w
             fifoTest wit = StreamTest
-                        { theStream = fifo wit low $$ ackToReadyBridge
-				:: Patch (Seq (Enabled w)) (Seq (Enabled w))
-				         (Seq Ack)	      (Seq Ready)
+                        { theStream = fifo wit low 
                         , correctnessCondition = \ ins outs -> -- trace (show ("cc",length ins,length outs)) $
                                 case () of
                                   () | outs /= take (length outs) ins -> return "in/out differences"

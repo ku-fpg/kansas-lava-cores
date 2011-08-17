@@ -29,8 +29,7 @@ tests test = do
 				  forwardPatch noise $$
 				  rs232in baud (floor (toRational clockRate * scale)) $$
 				  enableToAckBox $$
-				  fifo (Witness :: Witness X16) low $$
-				  ackToReadyBridge
+				  fifo (Witness :: Witness X16) low
                         , correctnessCondition = \ ins outs -> 
 --                                 trace (show ("cc",length ins,length outs)) $
 --                                 trace (show ("ins",map show (take 100 ins))) $
