@@ -31,24 +31,24 @@ import Hardware.KansasLava.FIFO
   Like an atomic unit of data.
 
 -}
-{-
-waitForIt :: forall c sig a . (Clock c, sig ~ CSeq c, c ~ (), Rep a)
-	    => Patch (sig (Enabled a))     (sig (Enabled U8))	
-	   	     (sig Ready)           (sig Ready       )
-waitForIt ~(inp,outReady) = (toReady ready,out)
+
+waitForIt :: forall c sig a b t x y . 
+	( Clock c, sig ~ CSeq c, c ~ ()
+	, Rep a
+	, b ~ Unsigned x, Size x
+	, Size t
+	)   => b		-- ^ The maximum size of chunk
+	    -> Witness t
+	    -> Patch (sig (Enabled a))     (sig (Enabled b))	
+	   	     (sig Ack)             (sig Ack)
+waitForIt maxCounter Witness ~(inp,outAck) = (toAck tick,out)
   where
-	maxCounter :: U8
-	maxCounter = 15
-
-	maxTime :: U16
-	maxTime = 50
-
 	-- triggers
 	ready :: sig Bool
 	ready = state .==. 0
 
 	send :: sig Bool
-	send = state .==. 1 .&&. fromReady outReady
+	send = state .==. 1 .&&. fromAck outAck
 
 	tick :: sig Bool
 	tick = state .==. 0 .&&. isEnabled inp
@@ -57,26 +57,27 @@ waitForIt ~(inp,outReady) = (toReady ready,out)
 	state :: sig X2
 	state = register 0
 	      $ cASE [ (tick .&&. counter0 .==. fromIntegral maxCounter, 1)
-		     , (timer .==. 0,1)
-		     , (send, 0)
+							-- if reached max, then tick
+		     , (timer .==. 0,1)			-- please send the size next time round
+		     , (send .&&. fromAck outAck, 0)	-- sent the size out
 		     ] state
 
-	counter0, counter1 :: sig U8
+	counter0, counter1 :: sig b
 	counter0 = cASE [ (tick, counter1 + 1)
 			, (send, 0)
 			] counter1
 	counter1 = register 0 counter0
 
-	out = packEnabled send counter1
+	out = packEnabled (state .==. 1) counter1
 
-	timer :: sig U16
-	timer = register (fromIntegral maxTime)
-	      $ cASE [ (state .==. 1, fromIntegral maxTime)
-			-- only dec if someone is waiting
-			-- and there is some data
-		     , (fromReady outReady .&&. counter1 .>. 0, timer - 1)	
+	-- in the background, we wait for a timeout event.
+	timer :: sig (Unsigned t)
+	timer = register 1
+	      $ cASE [ (state .==. 1, 1)
+			-- only dec if there *is* some data
+		     , (counter1 .>. 0, timer + 1)
 		     ] timer
-
+{-
 
 -- | Count a (fixed-sized) header with 1's, and a payload with 0's.
 -- The fixed sized header counting is done before reading the payload size.

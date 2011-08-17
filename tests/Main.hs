@@ -7,6 +7,7 @@ import Data.Default
 import Rate as Rate
 import FIFO as FIFO
 import RS232 as RS232
+import Chunker as Chunker
 
 main :: IO ()
 main = do
@@ -18,6 +19,7 @@ main = do
         testDriver opt
                 [ Rate.tests
                 , FIFO.tests
-                , RS232.tests
+                , RS232.tests 
+                , Chunker.tests
                 ]
 
