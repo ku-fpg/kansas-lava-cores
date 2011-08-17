@@ -2,7 +2,7 @@
 module Chunker (tests) where
 
 import Language.KansasLava
-import Hardware.KansasLava.Chunker (waitForIt)
+import Hardware.KansasLava.Chunker
 
 import Data.Sized.Unsigned
 import Data.Sized.Signed
@@ -13,6 +13,7 @@ import System.Random
 --import Data.Maybe 
 import Debug.Trace
 import Data.Word
+import Data.List as L
 
 tests :: TestSeq -> IO ()
 tests test = do
@@ -52,5 +53,37 @@ tests test = do
 	t (Witness :: Witness X5)
 	t (Witness :: Witness X10)
 
+        let chunkCounterTest :: forall x y .
+				(Size x, Size y, Rep y, Rep x, Num y, Num x)
+			     => Witness x -> StreamTest (Unsigned y) Bool
+            chunkCounterTest w = StreamTest
+                        { theStream = chunkCounter w
+                        , correctnessCondition = \ ins outs -> 
+				let xs = L.group outs
+				    hds = map length $ filter (\ (x:_) -> x) xs
+			     	    tls = map length $ filter (\ (x:_) -> not x) xs
+				in case () of
+				     _ | not (L.all (== (size (undefined :: x))) hds) ->
+						Just $ "header length error " ++ show hds
+				     _ | tls /= map fromIntegral ins -> Just $
+						"bad length of lows " ++ show (tls,ins)
+				     _ | otherwise -> Nothing
+			, theStreamTestCount  = count
+			, theStreamTestCycles = count * 500
+                        , theStreamName = "chunker/chunkCounter"
+                        }
+	    count = 10
+
+	let t :: forall x . (Rep x, Size x, Num x) => Witness x -> IO ()
+	    t w = testStream test ("U8/" ++ show (size (undefined :: x)))
+			    	  (chunkCounterTest w)
+			          (dubGen arbitrary :: Gen (Maybe U8))
+
+	t (Witness :: Witness X1)
+	t (Witness :: Witness X2)
+	t (Witness :: Witness X3)
+	t (Witness :: Witness X4)
+	t (Witness :: Witness X5)
+	t (Witness :: Witness X6)
 
 	return ()
