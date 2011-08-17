@@ -57,9 +57,9 @@ waitForIt maxCounter Witness ~(inp,outAck) = (toAck tick,out)
 	state :: sig X2
 	state = register 0
 	      $ cASE [ (tick .&&. counter0 .==. fromIntegral maxCounter, 1)
-							-- if reached max, then tick
-		     , (timer .==. 0,1)			-- please send the size next time round
-		     , (send .&&. fromAck outAck, 0)	-- sent the size out
+							    -- if reached max, then tick
+		     , (timer .==. 0 .&&. counter0 .>. 0,1) -- please send the size next time round
+		     , (send .&&. fromAck outAck, 0)	   -- sent the size out
 		     ] state
 
 	counter0, counter1 :: sig b
@@ -95,6 +95,7 @@ chunkCounter w = ackToReadyBridge $$ chunkCounter' w $$ readyToAckBridge where
 	state :: sig X3
 	state = register 0
 	      $ cASE [ (send_one .&&. ones0 .==. 0, 		1)
+		     , (recv_count .&&. enabledVal inp .==. 0,	0)	-- do not issue *any* zeros for '0'.
 		     , (recv_count,				2)
 		     , (state .==. 2 .&&. counter0 .==. 0,	0)
 		      ] state
@@ -121,22 +122,19 @@ chunkCounter w = ackToReadyBridge $$ chunkCounter' w $$ readyToAckBridge where
 		       , (state .==. 2 .&&. fromReady outReady, enabledS low)
 		       ] disabledS
 
-{-
-
 
 chunkJoinHeader :: forall c sig x y a . 
    (Clock c, sig ~ CSeq c, Rep a, Rep x, Size x, Num x, Enum x, Rep y, Size y, Num y, c ~ ())
   => (Comb (Matrix x a) -> Comb (Unsigned y))
   -> Patch (sig (Enabled (Matrix x a))  :> sig (Enabled a))	(sig (Enabled a))
-	   (sig Ready 		        :> sig Ready)	        (sig Ready)
+	   (sig Ack 		        :> sig Ack)	        (sig Ack)
 
 chunkJoinHeader f = patch1 $$ patch2 $$ patch3
    where
 	patch1 = stack (dupPatch $$ 
 				stack (forwardPatch (mapEnabled f) $$ 
-				       fifo1 $$ bridge $$
-				       chunkCounter (Witness :: Witness x) $$
-				       fifo1)
+				       fifo1 $$
+				       chunkCounter (Witness :: Witness x))
 				      (fifo1 $$ matrixExpandPatch $$ fifo1)
 		          )
 			fifo1
@@ -144,12 +142,11 @@ chunkJoinHeader f = patch1 $$ patch2 $$ patch3
 		 backwardPatch (\ (a :> b :> c) -> (a :> b) :> c) 
 	patch3 = muxPatch
 
-
 chunkSplitHeader :: forall c sig x y a . 
    (Clock c, sig ~ CSeq c, Rep a, Rep x, Size x, Num x, Enum x, Rep y, Size y, Num y, c ~ ())
   => (Comb (Matrix x a) -> Comb (Unsigned y))
   -> Patch (sig (Enabled a))	(sig (Enabled (Matrix x a))  :> sig (Enabled a))
-	   (sig Ready)		(sig Ready 		     :> sig Ready)	        
+	   (sig Ack)		(sig Ack 		     :> sig Ack)	        
 chunkSplitHeader f = 
 	loopPatch $
 		(fifo1 `stack` fifo1) $$
@@ -158,10 +155,8 @@ chunkSplitHeader f =
 		reorg
   where
       clicker = forwardPatch (mapEnabled f) $$ 
- 		fifo1 $$ bridge $$
+ 		fifo1 $$ 
 		chunkCounter (Witness :: Witness x)
       reorg = forwardPatch (\ ((a :> b) :> c) -> a :> b :> c) `bus`
 	      backwardPatch (\ (a :> b :> c) -> (a :> b) :> c) 
 
-
--}
