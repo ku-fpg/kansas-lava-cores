@@ -31,7 +31,7 @@ import Hardware.KansasLava.FIFO
   Like an atomic unit of data.
 
 -}
-
+{-
 waitForIt :: forall c sig a . (Clock c, sig ~ CSeq c, c ~ (), Rep a)
 	    => Patch (sig (Enabled a))     (sig (Enabled U8))	
 	   	     (sig Ready)           (sig Ready       )
@@ -179,3 +179,4 @@ chunkSplitHeader f =
 	      backwardPatch (\ (a :> b :> c) -> (a :> b) :> c) 
 
 
+-}

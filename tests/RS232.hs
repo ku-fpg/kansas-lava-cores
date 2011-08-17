@@ -21,7 +21,7 @@ tests test = do
         let clockRate = 50 * 1000
         
         let baudRate = 1000
-
+{-
         let rs232Test :: Integer -> Rational -> StreamTest U8 U8
             rs232Test baud scale = StreamTest
                         { theStream = \ (en_w,fullOut) ->
@@ -64,5 +64,5 @@ tests test = do
         t "1000"  1000
         t "2000"  2000
         t "3000"  3000
-
+-}
 	return ()

@@ -16,23 +16,7 @@ tests :: TestSeq -> IO ()
 tests test = do
         -- testing FIFOs
 
-	let fifo' :: 
-		(Size counter
-        	, Size ix
-        	, counter ~ ADD ix X1
-        	, Rep a
-        	, Rep counter
-        	, Rep ix
-        	, Num counter
-        	, Num ix
-        	) => Witness ix
-		  -> (Seq (Enabled a), Seq Ready) -> (Seq Ack, Seq (Enabled a))
-	    fifo' w (inp,b) = (b1,out)
-	      where
-		(b1,r1)  = bridge	(inp,b2)
-		(b2,r2)  = fifo w low   (r1,b3)
-		(b3,out) = bridge 	(r2,b)
-		
+
         let fifoTest :: forall w sz . (Rep (ADD sz X1),
                       Rep sz,
                       Rep w,
@@ -42,7 +26,9 @@ tests test = do
                       Num sz,
                       Num (ADD sz X1)) => Witness sz -> StreamTest w w
             fifoTest wit = StreamTest
-                        { theStream = fifo' wit :: (Seq (Enabled w), Seq Ready) -> (Seq Ack, Seq (Enabled w))
+                        { theStream = fifo wit low $$ ackToReadyBridge
+				:: Patch (Seq (Enabled w)) (Seq (Enabled w))
+				         (Seq Ack)	      (Seq Ready)
                         , correctnessCondition = \ ins outs -> -- trace (show ("cc",length ins,length outs)) $
                                 case () of
                                   () | outs /= take (length outs) ins -> return "in/out differences"
