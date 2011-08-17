@@ -5,6 +5,7 @@ import Language.KansasLava
 import Hardware.KansasLava.Chunker (waitForIt)
 
 import Data.Sized.Unsigned
+import Data.Sized.Signed
 import Data.Sized.Arith
 import Data.Sized.Ix
 import Data.Ratio
@@ -17,11 +18,11 @@ tests :: TestSeq -> IO ()
 tests test = do
         -- testing Chunker
 
-        let waitForItTest :: (Size x, Size y) => Unsigned x -> Witness y -> StreamTest U8 (Unsigned x)
+        let waitForItTest :: (Size x, Size y, Rep w, Show w) => Unsigned x -> Witness y -> StreamTest w (Unsigned x)
             waitForItTest mx w = StreamTest
                         { theStream = waitForIt mx w
                         , correctnessCondition = \ ins outs -> 
-                                 trace (show ("cc",length ins,length outs)) $
+--                                 trace (show ("cc",length ins,length outs)) $
 --                                 trace (show ("ins",map show (take 100 ins))) $
 --                                 trace (show ("outs",map show (take 100 outs))) $
 				case (length ins, sum $ map fromIntegral outs) of
@@ -42,7 +43,7 @@ tests test = do
 	    t w = sequence_ [ 
 		testStream test ("U8/" ++ show n ++ "/" ++ show (size (undefined :: w)))
 			    	  (waitForItTest (n :: U8) w) 
-			          (dubGen arbitrary :: Gen (Maybe U8)) | n <- [1,10,16,100,255] ]
+			          (dubGen arbitrary :: Gen (Maybe S11)) | n <- [1,10,16,100,255] ]
 			
 	t (Witness :: Witness X1)
 	t (Witness :: Witness X2)
