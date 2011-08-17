@@ -74,8 +74,8 @@ rs232out :: forall clk sig a . (Eq clk, Clock clk, sig a ~ Clocked clk a, clk ~ 
 	=> Integer			-- ^ Baud Rate.
 	-> Integer			-- ^ Clock rate, in Hz.
         -> Patch (sig (Enabled U8)) 	(sig Bool)
-		 (sig Ready)		()
-rs232out baudRate clkRate ~(inp0,()) = (toReady ready,out)
+		 (sig Ack)		()
+rs232out baudRate clkRate ~(inp0,()) = (toAck (ready .&&. in_en),out)
   where
 	-- at the baud rate for transmission
 	fastTick :: CSeq clk Bool 
@@ -126,9 +126,9 @@ rs232out baudRate clkRate ~(inp0,()) = (toReady ready,out)
 rs232in :: forall clk sig a . (Eq clk, Clock clk, sig a ~ Clocked clk a) 
 	=> Integer			-- ^ Baud Rate.
 	-> Integer			-- ^ Clock rate, in Hz.
-	-> sig Bool	    		-- ^ signal input
-        -> sig (Enabled U8)		-- ^ output; must be captured in a single cycle
-rs232in baudRate clkRate (in_val0) = out
+	-> Patch (sig Bool)  (sig (Enabled U8))
+		 ()	     ()
+rs232in baudRate clkRate ~(in_val0,()) = ((),out)
   where
 	-- 16 times the baud rate for transmission,
 	-- so we can spot the start bit's edge.
