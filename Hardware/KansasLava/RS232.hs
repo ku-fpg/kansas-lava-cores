@@ -70,7 +70,7 @@ resize = funMap $ \ x -> return (fromIntegral x)
 findBit :: forall sig . (Signal sig) => (Num (sig X10)) => sig U8 -> sig X10 -> sig Bool
 findBit byte x = (bitwise) byte .!. ((unsigned) (x - 1) :: sig X8)
 
-rs232out :: forall clk sig a . (Eq clk, Clock clk, sig a ~ Clocked clk a, clk ~ ()) 
+rs232out :: forall clk sig a . (Eq clk, Clock clk, sig a ~ CSeq clk a, clk ~ ()) 
 	=> Integer			-- ^ Baud Rate.
 	-> Integer			-- ^ Clock rate, in Hz.
         -> Patch (sig (Enabled U8)) 	(sig Bool)
@@ -123,7 +123,7 @@ rs232out baudRate clkRate ~(inp0,()) = (toAck (ready .&&. in_en),out)
 --   There is no Ack or Ready, because there is no way to pause the 232.
 --   For the same reason, this does not use a Patch.
 
-rs232in :: forall clk sig a . (Eq clk, Clock clk, sig a ~ Clocked clk a) 
+rs232in :: forall clk sig a . (Eq clk, Clock clk, sig a ~ CSeq clk a) 
 	=> Integer			-- ^ Baud Rate.
 	-> Integer			-- ^ Clock rate, in Hz.
 	-> Patch (sig Bool)  (sig (Enabled U8))
