@@ -7,6 +7,7 @@ import Data.Ratio
 import Data.Sized.Unsigned
 import Data.Sized.Signed
 import Data.Sized.Ix
+import Data.Sized.Unsigned as U
 import Data.Sized.Matrix as M
 
 import Hardware.KansasLava.Rate(rate)
@@ -39,6 +40,14 @@ withTX_Send = funMap $ \ tx -> return $ case tx of
 		TX_Send i -> Just i
 		_         -> Nothing
 
+
+class Rep a => BitRep a where
+   bitRep :: [(a, Unsigned (W a))]
+
+instance BitRep RS232_TX where
+    bitRep = 
+	[ (TX_Idle, 	0 :: U4) ] ++
+	[ (TX_Send v, 	fromIntegral v + 1) | v <- [0..9] ]
 
 -- Template Haskell would help here.
 fromRS232_TX :: RS232_TX -> X11
