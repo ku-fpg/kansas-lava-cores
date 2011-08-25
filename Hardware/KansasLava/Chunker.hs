@@ -160,3 +160,26 @@ chunkSplitHeader f =
       reorg = forwardPatch (\ ((a :> b) :> c) -> a :> b :> c) `bus`
 	      backwardPatch (\ (a :> b :> c) -> (a :> b) :> c) 
 
+-- TODO: generalize to Non-X1 headers, and use witness for max chunk size (so that the fifo size can be driven).
+chunker :: forall c sig t w . (Size t, Clock c, sig ~ CSeq c, c ~ ())
+        => Unsigned X8					-- max chunk size
+	-> Witness t					-- 2^t is the timeout for a chunk
+	-> (Comb (Matrix X1 U8) -> Comb U8)		-- interprete the header
+	-> (Comb (Unsigned X8) -> Comb (Matrix X1 U8))	-- constructing the header
+	-> Patch (sig (Enabled U8))                    (sig (Enabled U8))
+                 (sig Ack)                             (sig Ack)
+chunker mx wit f g = dupPatch $$ stack waiting stalling $$ chunkJoinHeader f
+  where 
+	waiting = waitForIt mx wit $$ 
+		  mapPatch g
+
+	stalling = fifo (Witness :: Witness X256) low
+
+rdByteHeader :: Comb (Matrix X1 U8) -> Comb U8
+rdByteHeader sz = unpack sz ! 0
+
+mkByteHeader :: Comb U8 -> Comb (Matrix X1 U8)
+mkByteHeader sz = pack (matrix [sz] :: Matrix X1 (Comb U8))
+
+--twoByteHeader :: Comb U16 -> Comb (Matrix X2 U8)
+--twoByteHeader sz = pack (matrix [sz] :: Matrix X2 U8)
