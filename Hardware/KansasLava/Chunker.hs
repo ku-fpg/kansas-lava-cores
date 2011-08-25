@@ -58,8 +58,8 @@ waitForIt maxCounter Witness ~(inp,outAck) = (toAck tick,out)
 	state = register 0
 	      $ cASE [ (tick .&&. counter0 .==. fromIntegral maxCounter, 1)
 							    -- if reached max, then tick
-		     , (timer .==. 0 .&&. counter0 .>. 0,1) -- please send the size next time round
-		     , (send .&&. fromAck outAck, 0)	   -- sent the size out
+		     , (timer .==. 0 .&&. counter0 .>. 0, 1) -- please send the size next time round
+		     , (send .&&. fromAck outAck, 0)	     -- sent the size out
 		     ] state
 
 	counter0, counter1 :: sig b
