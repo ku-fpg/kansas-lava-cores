@@ -17,7 +17,7 @@ main = do
 --                      , testOnly = return ["fifo/rs232"]
 --		      , testOnly = return ["fifo/vanilla/1/U5"]
                       }
-        testDriver opt $ take 5 $ drop 4
+        testDriver opt $ take 5 $ drop 0
                 [ Rate.tests
                 , FIFO.tests
                 , RS232.tests 
