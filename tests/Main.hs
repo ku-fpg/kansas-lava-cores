@@ -8,6 +8,7 @@ import Rate as Rate
 import FIFO as FIFO
 import RS232 as RS232
 import Chunker as Chunker
+import LCD as LCD
 
 main :: IO ()
 main = do
@@ -16,10 +17,11 @@ main = do
 --                      , testOnly = return ["fifo/rs232"]
 --		      , testOnly = return ["fifo/vanilla/1/U5"]
                       }
-        testDriver opt
+        testDriver opt $ take 5 $ drop 4
                 [ Rate.tests
                 , FIFO.tests
                 , RS232.tests 
                 , Chunker.tests
+		, LCD.tests
                 ]
 
