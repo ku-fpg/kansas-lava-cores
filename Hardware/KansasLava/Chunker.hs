@@ -102,7 +102,7 @@ chunkCounter w = ackToReadyBridge $$ chunkCounter' w $$ readyToAckBridge where
 
 	-- send out x 1's.
 	ones0 :: sig x
-	ones0 = cASE [ (send_one, ones1 - 1) ]
+	ones0 = cASE [ (send_one, loopingDec ones1) ]
 		     ones1
 		
 	ones1 = register (0 :: x) ones0
