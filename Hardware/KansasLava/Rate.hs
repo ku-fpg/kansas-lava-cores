@@ -21,7 +21,7 @@ import Language.KansasLava.Seq
 -- given rate.
 rate :: forall x clk . (Clock clk, Size x) => Witness x -> Rational -> (CSeq clk Bool)
 rate Witness n
-  | step * 2 > 2^sz = error $ "bit-size " ++ show sz ++ " too small for punctuate Witness " ++ show n
+  | step > 2^sz = error $ "bit-size " ++ show sz ++ " too small for punctuate Witness " ++ show n
   | n <= 0 = error "can not have rate less than or equal zero"
   | n > 1 = error $ "can not have rate greater than 1, requesting " ++ show n
 
