@@ -1,11 +1,16 @@
 {-# LANGUAGE TypeFamilies, ScopedTypeVariables #-}
-module Hardware.KansasLava.LCD where
+module Hardware.KansasLava.Spartan3e.LCD
+	( lcdDriver
+	-- * For testing only
+	, lcdBootPatch
+	) where
 
 import Language.KansasLava as KL
 import Data.Sized.Unsigned
 import Data.Sized.Ix
 import Data.Sized.Matrix
 
+-- | 'lcdDriver' turns 9-bit commands into bus signals for the 16x2 LCD on the Spartan3e.
 lcdDriver :: (Clock c, sig ~ CSeq c)
 	  => Patch (sig (Enabled U9))	(sig (U1,U4,Bool))
 	 	   (sig Ack)		()
@@ -15,7 +20,6 @@ waitFor :: (Rep b, Num b) => Reg s c b -> CSeq c b -> RTL s c () -> RTL s c ()
 waitFor counter count nextOp = do
 	CASE [ IF (reg counter ./=. count) $ do
 			counter := reg counter + 1
-  	-- wait for 15ms (750,000 cycles)
              , OTHERWISE $ do
 			counter := 0
 			nextOp
