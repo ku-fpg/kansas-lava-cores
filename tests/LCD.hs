@@ -3,7 +3,7 @@ module LCD (tests) where
 
 import Language.KansasLava
 import Hardware.KansasLava.FIFO (fifo)
-import Hardware.KansasLava.LCD (lcdBootPatch)
+import Hardware.Spartan3e.LCD (lcdBootPatch)
 
 import Data.Sized.Unsigned
 import Data.Sized.Arith
