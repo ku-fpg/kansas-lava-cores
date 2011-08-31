@@ -1,41 +1,125 @@
+{-# LANGUAGE TypeFamilies #-}
 module Main where
 
-import Language.KansasLava
+import Language.KansasLava as KL
 import Hardware.KansasLava.RS232
 import Hardware.KansasLava.FIFO
+import Hardware.KansasLava.Spartan3e.LCD
+import Hardware.KansasLava.Rate
+
 import Data.Sized.Ix
 import Data.Sized.Unsigned
 import Data.Sized.Arith
+import Data.Sized.Matrix
+import Data.Default
+import System.CPUTime
+import Data.Char as C
+
 
 type X512 = ADD X256 X256
 type X1024 = ADD X512 X512
 type X16K   = MUL X1024 X16
 
---rs232in >==> fifoZ >~~> bridge >==> rs232out
 
-fabric :: Fabric ()
-fabric = do
-        in_rs  <- inStdLogic "rs_in" 
-        let in_val                     = rs232in baudRate clockRate in_rs
-	    rs232in_patch	       = enableToHandShake in_val
-	    fifo_patch		       = fifo (Witness :: Witness X16) low 
-	    rs232out_patch	       = rs232out (baudRate {- + 2000 -}) clockRate 
-	    main_patch		       = rs232in_patch >~=> fifo_patch >~=> rs232out_patch
+circuit :: (sig ~ CSeq c, Clock c, c ~ ())
+	=> Patch () 	(sig (U1,U4,Bool))
+	         ()	()
+circuit = pulse $$ appendPatch msg $$ lcdDriver
+  where
+	msg :: Matrix X38 U9
+	msg = matrix
+	    [ 0x80	-- set write address to start
+	    , 0x06	-- cursor, no blinking
 
-	    ((),_ :> counter :> out_rs,())  = main_patch ((),())
+	    , 0x40	-- set CG addr to 0
+	    , 0x10a	-- 
+	    , 0x41	-- set CG addr to 0
+	    , 0x115	-- 
+	    , 0x42	-- set CG addr to 0
+	    , 0x10a	-- 
+	    , 0x43	-- set CG addr to 0
+	    , 0x115	-- 
+	    , 0x44	-- set CG addr to 0
+	    , 0x10a	-- 
+	    , 0x45	-- set CG addr to 0
+	    , 0x115	-- 
+	    , 0x46	-- set CG addr to 0
+	    , 0x10a	-- 
+	    , 0x47	-- set CG addr to 0
+	    , 0x100	--
 
-        outStdLogic "rs_out" (out_rs :: Seq Bool)
-----        outStdLogicVector "leds" (latch out_val)
-        outStdLogicVector "leds" $ 
---			((unsigned) counter :: Seq U8)
-			(0xa6 :: Seq U8)
-	return ()
+	    , 0x80	-- write into DD ram
 
-baudRate = 115200
---baudRate   = 117000
-clockRate = 50 * 1000 * 1000
+	    , 0x100	-- write the special char
+
+	    , 0x40	-- set CG addr to 0
+	    , 0x10f	-- 
+	    , 0x41	-- set CG addr to 0
+	    , 0x115	-- 
+	    , 0x42	-- set CG addr to 0
+	    , 0x10f	-- 
+	    , 0x43	-- set CG addr to 0
+	    , 0x115	-- 
+	    , 0x44	-- set CG addr to 0
+	    , 0x10f	-- 
+	    , 0x45	-- set CG addr to 0
+	    , 0x115	-- 
+	    , 0x46	-- set CG addr to 0
+	    , 0x10a	-- 
+	    , 0x47	-- set CG addr to 0
+	    , 0x100	--
+
+	    , 0x82	-- write into DD ram
+
+	    , 0x100	-- write the special char
+
+
+--	    , 0x07	-- move display
+--	    , 0x18	-- shift to the *LEFT*
+	    ]
+
+pulse :: (sig ~ CSeq c, Clock c)
+      => Patch () (sig (Enabled U9))
+	       () (sig Ack)
+pulse = openPatch $$
+	(top `stack` bottom) $$ 
+	zipPatch $$
+	mapPatch (\ ab -> snd (unpack ab))
+   where
+	top = unitPatch (packEnabled (powerOfTwoRate (Witness :: Witness X25)) (pureS ())) $$
+	      enabledToAckBox
+	bottom = cyclePatch (matrix (map ((+ 0x100) . fromIntegral . C.ord) msg) :: Matrix X19 U9)
+
+	msg = "Kansas Lava rocks! "
+
+
+diff :: (Eq a) => [a] -> [(Integer,a)]
+diff (x:xs) = f 0 x xs
+  where
+	f n x (x':xs)
+	  | x /= x' = (n,x') : f (n+1) x' xs
+	  | otherwise = f (n+1) x xs
+	f _ _ [] = []
 
 main = do
-        kleg <- reifyFabric fabric
-        writeVhdlCircuit "main" "main.vhd" kleg
-        
+	let (_,res) = execPatch circuit ((),())
+
+	let (rs,sf_d,e) = unpack res
+
+
+	let fabric = do
+		theClk "CLK_50MHZ"
+		theRst "ROT_CENTER"
+
+		outStdLogic "LCD_RS" rs
+		outStdLogicVector "SF_D" (KL.append (0 :: Seq (U8)) sf_d  :: Seq U12)
+		outStdLogic "LCD_E"  e
+
+		outStdLogic "LCD_RW" low
+		outStdLogic "SF_CE0" high
+		return ()
+
+	kleg <- reifyFabric fabric
+
+	kleg' <- optimizeCircuit def kleg
+	writeVhdlCircuit "main" "main.vhd" kleg

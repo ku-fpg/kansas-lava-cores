@@ -4,5 +4,5 @@ boot::
 copy::
 
 
-	scp main.vhd andygill@rome:xilinx/test3/main.vhd
-	scp ../../../kansas-lava/Prelude/VHDL/Lava.vhd andygill@rome:xilinx/test3/Lava.vhd
+	scp main.vhd andygill@rome:xilinx/test4/main.vhd
+	scp ../../../kansas-lava/Prelude/VHDL/Lava.vhd andygill@rome:xilinx/test4/Lava.vhd
