@@ -34,8 +34,6 @@ tests test = do
 		, (0x2, 2000)
 		] ++ concatMap f 
 		          [ 0x28, 0x06, 0x0C, 0x1
-                          , 0x80
-                          , 0x131, 0x132, 0x133, 0x134
                           ]
 
 	-- Test boot sequence generator
