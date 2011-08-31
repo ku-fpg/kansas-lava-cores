@@ -6,17 +6,11 @@ import Data.Sized.Unsigned
 import Data.Sized.Ix
 import Data.Sized.Matrix
 
-{-
-data LCD =
-	LCD
-	
+lcdDriver :: (Clock c, sig ~ CSeq c)
+	  => Patch (sig (Enabled U9))	(sig (U1,U4,Bool))
+	 	   (sig Ack)		()
+lcdDriver = lcdBootPatch $$ phyLCDPatch
 
-
-data State
-	= Waiting
-	|  
-	
--}
 waitFor :: (Rep b, Num b) => Reg s c b -> CSeq c b -> RTL s c () -> RTL s c ()
 waitFor counter count nextOp = do
 	CASE [ IF (reg counter ./=. count) $ do
@@ -60,10 +54,8 @@ lcdBootPatch = appendPatch initCmds $$ toCmds $$ appendPatch bootCmds
 		, (0x2, 2000)
 		] 
 
-	initCmds :: Matrix X9 U9
+	initCmds :: Matrix X4 U9
 	initCmds = matrix [ 0x28, 0x06, 0x0C, 0x1
-			  , 0x80
-			  , 0x131, 0x132, 0x133, 0x134
 	 		  ]
 
 -- The physical driver for the LCD patch
