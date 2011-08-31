@@ -56,7 +56,7 @@ fromRS232_TX (TX_Send n) = fromIntegral n + 1
 
 toRS232_TX :: X11 -> RS232_TX
 toRS232_TX 0 = TX_Idle
-toRS232_TX n = TX_Send (fromIntegral n - 1)
+toRS232_TX n = TX_Send (fromIntegral (n - 1))
 
 instance Rep RS232_TX where
     data X RS232_TX    		= X_RS232_TX (Maybe RS232_TX)
@@ -77,7 +77,7 @@ resize :: (Signal sig, Integral x, Rep x, Num y, Rep y) => sig x -> sig y
 resize = funMap $ \ x -> return (fromIntegral x)
 
 findBit :: forall sig . (Signal sig) => (Num (sig X10)) => sig U8 -> sig X10 -> sig Bool
-findBit byte x = (bitwise) byte .!. ((unsigned) (x - 1) :: sig X8)
+findBit byte x = (bitwise) byte .!. ((unsigned) (loopingDec x) :: sig X8)
 
 rs232out :: forall clk sig a . (Eq clk, Clock clk, sig a ~ CSeq clk a, clk ~ ()) 
 	=> Integer			-- ^ Baud Rate.
@@ -112,7 +112,9 @@ rs232out baudRate clkRate ~(inp0,()) = (toAck (ready .&&. in_en),out)
 			CASE [ IF (ix .==. maxBound) $ do
 				state  := pureS TX_Idle
 			     , OTHERWISE $ do
-				state := funMap (\ x -> return (TX_Send (x + 1))) ix
+				state := funMap (\ x -> if x == maxBound 
+							then return (TX_Send 0)
+							else return (TX_Send (x + 1))) ix
 			     ]
 			CASE [ IF (ix .==. 0) $ do
 				output := low	-- start bit
