@@ -27,6 +27,8 @@ Library
         Hardware.KansasLava.RS232
         Hardware.KansasLava.Chunker
 
+        Hardware.KansasLava.Spartan3e.LCD
+
   Hs-Source-Dirs: ., ../kansas-lava
   Other-modules:
 
