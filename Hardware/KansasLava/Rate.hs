@@ -1,7 +1,7 @@
 {-# LANGUAGE RankNTypes, TypeFamilies, ScopedTypeVariables #-}
 -- | The 'Clock' module provides a utility function for simulating clock rate
 -- downsampling.
-module Hardware.KansasLava.Rate(rate) where
+module Hardware.KansasLava.Rate(rate, powerOfTwoRate) where
 
 import Data.Ratio
 
@@ -24,6 +24,12 @@ rate Witness n
   | step > 2^sz = error $ "bit-size " ++ show sz ++ " too small for punctuate Witness " ++ show n
   | n <= 0 = error "can not have rate less than or equal zero"
   | n > 1 = error $ "can not have rate greater than 1, requesting " ++ show n
+
+    -- for power of two, a simple counter works
+  | num == 1 && step == 2^sz = runRTL $ do
+	count <- newReg (0 :: (Unsigned x))
+	count := reg count + 1
+	return  (reg count .==. 0)
 
   | num == 1 = runRTL $ do
 	count <- newReg (0 :: (Unsigned x))
@@ -62,4 +68,6 @@ rate Witness n
 	 perr = dom - step       * num
 	 nerr = dom - (step + 1) * num
 
-
+-- | 'powerOfTwoRate' generates a pulse every 2^n cycles.
+powerOfTwoRate :: forall x clk . (Clock clk, Size x) => Witness x -> CSeq clk Bool
+powerOfTwoRate Witness = rate (Witness :: Witness x) (1/(2^(fromIntegral (size (error "Witness" :: x)))))
