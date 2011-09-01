@@ -44,9 +44,9 @@ tests test = do
 	let t :: forall w . (Size w) => Witness w -> IO ()
 	    t w = sequence_ [ 
 		testStream test ("U4/" ++ show n ++ "/" ++ show (size (undefined :: w)))
-			    	  (waitForItTest (n :: U4) w) 
-			          (dubGen arbitrary :: Gen (Maybe S11)) | n <- [1,2,3,4,8,15] ]
-			
+			    	  (waitForItTest n w :: StreamTest S11 U4) 
+			     | n <- [1,2,3,4,8,15] ]
+
 	t (Witness :: Witness X1)
 	t (Witness :: Witness X2)
 	t (Witness :: Witness X3)
@@ -83,9 +83,8 @@ tests test = do
 
 	let t :: forall x . (Rep x, Size x, Num x) => Witness x -> IO ()
 	    t w = testStream test ("U4/" ++ show (size (undefined :: x)))
-			    	  (chunkCounterTest w)
-			          (dubGen arbitrary :: Gen (Maybe U4))
-
+			    	  (chunkCounterTest w :: StreamTest U4 Bool)
+			
 	t (Witness :: Witness X1)
 	t (Witness :: Witness X2)
 	t (Witness :: Witness X3)
@@ -135,8 +134,5 @@ tests test = do
 
 	testStream test ("U4")
 			(chunkSplitJoinTest)
-			(dubGen arbitrary :: Gen (Maybe U4))
-
-
 
 	return ()

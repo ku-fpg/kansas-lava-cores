@@ -54,17 +54,19 @@ tests test = do
                   Size sz, Size sz1,
                   Rep sz, Rep sz1,
                   Num w, Num sz, Num sz1)
-                 => String -> Gen (Maybe w) -> Witness sz -> IO ()
-            t str arb w = testStream test str (fifoTest w) (dubGen arb)
+                 => String -> Witness w -> Witness sz -> IO ()
+            t str arb w = testStream test str (fifoTest w :: StreamTest w w) 
 
-        t "U5"  (arbitrary :: Gen (Maybe U5)) (Witness :: Witness X1)
-        t "U5"  (arbitrary :: Gen (Maybe U5)) (Witness :: Witness X2)
-        t "U5"  (arbitrary :: Gen (Maybe U5)) (Witness :: Witness X3)
-        t "U5"  (arbitrary :: Gen (Maybe U5)) (Witness :: Witness X4)
-        t "U5"  (arbitrary :: Gen (Maybe U5)) (Witness :: Witness X5)
-        t "U5"  (arbitrary :: Gen (Maybe U5)) (Witness :: Witness X6)
-        t "U5"  (arbitrary :: Gen (Maybe U5)) (Witness :: Witness X7)
-        t "U5"  (arbitrary :: Gen (Maybe U5)) (Witness :: Witness X8)
+        t "U5"  (Witness :: Witness U5) (Witness :: Witness X1)
+        t "U5"  (Witness :: Witness U5) (Witness :: Witness X2)
+        t "U5"  (Witness :: Witness U5) (Witness :: Witness X3)
+        t "U5"  (Witness :: Witness U5) (Witness :: Witness X4)
+        t "U5"  (Witness :: Witness U5) (Witness :: Witness X5)
+        t "U5"  (Witness :: Witness U5) (Witness :: Witness X6)
+        t "U5"  (Witness :: Witness U5) (Witness :: Witness X7)
+        t "U5"  (Witness :: Witness U5) (Witness :: Witness X8)
 
+
+	return ()
 
 	return ()

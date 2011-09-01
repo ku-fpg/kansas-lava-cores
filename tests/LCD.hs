@@ -65,15 +65,14 @@ tests test = do
         testStream test 
 		     "lcd"
 	  	     lcdTest1
-		    (dubGen arbitrary :: Gen (Maybe U9))
 
 
 	runlcdBootPatch test
 
 	return ()
 
-
-runlcdBootPatch (TestSeq test toL)  = do
+runlcdBootPatch :: TestSeq -> IO ()
+runlcdBootPatch (TestSeq test _)  = do
 	let cir :: Seq (Enabled U9) -> Seq (Enabled (U5,U18))
 	    cir ins = out
 	      where 

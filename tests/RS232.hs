@@ -52,7 +52,7 @@ tests test = do
 
         let t :: String -> Integer -> IO ()
             t str baud = sequence_
-                [ testStream test (str ++ "/" ++ wib) (rs232Test baud scale) (dubGen arbitrary :: Gen (Maybe U8))
+                [ testStream test (str ++ "/" ++ wib) (rs232Test baud scale)
                 | (wib,scale) <- [ ("1",1), ("0.99",0.99), ("1.01",1.01) ]
                 ]
 
