@@ -49,6 +49,7 @@ Executable kansas-lava-cores-tests
       buildable: False
     Main-Is:        Main.hs
     Hs-Source-Dirs: ., tests, ../kansas-lava
---    Ghc-Options: -Wall  -Werror 
---                 -fno-warn-orphans -fcontext-stack=256
-
+    Ghc-Options: 
+          -threaded -rtsopts
+--        -Wall  -Werror 
+                        

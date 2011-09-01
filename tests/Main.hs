@@ -13,9 +13,6 @@ import LCD as LCD
 main :: IO ()
 main = do
         let opt = def { verboseOpt = 4  -- 4 == show cases that failed
-	    	      , genSim     = True
---                      , testOnly = return ["fifo/rs232"]
---		      , testOnly = return ["fifo/vanilla/1/U5"]
                       }
         testDriver opt $ take 5 $ drop 0
                 [ Rate.tests
