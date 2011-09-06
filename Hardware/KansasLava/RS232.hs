@@ -1,4 +1,4 @@
-{-# LANGUAGE TypeFamilies, ScopedTypeVariables, NoMonomorphismRestriction, Rank2Types #-}
+{-# LANGUAGE TypeFamilies, ScopedTypeVariables, NoMonomorphismRestriction, Rank2Types, TemplateHaskell #-}
 
 module Hardware.KansasLava.RS232 (rs232out, rs232in) where -- , liftWithUART) where
 
@@ -41,14 +41,15 @@ withTX_Send = funMap $ \ tx -> return $ case tx of
 		_         -> Nothing
 
 
-class Rep a => BitRep a where
-   bitRep :: [(a, Unsigned (W a))]
-
 instance BitRep RS232_TX where
-    bitRep = 
-	[ (TX_Idle, 	0 :: U4) ] ++
+    bitRep =
+	[ (TX_Idle, 	0) ] ++
 	[ (TX_Send v, 	fromIntegral v + 1) | v <- [0..9] ]
 
+
+$(repBitRep ''RS232_TX 4)
+
+{-
 -- Template Haskell would help here.
 fromRS232_TX :: RS232_TX -> X11
 fromRS232_TX TX_Idle = 0
@@ -67,6 +68,7 @@ instance Rep RS232_TX where
     toRep (X_RS232_TX v)	= toRep (optX (fmap fromRS232_TX v))
     fromRep v			= X_RS232_TX (fmap toRS232_TX (unX (fromRep v)))
     showRep (X_RS232_TX v)	= show v
+-}
 
 (.*&.) :: (Signal sig, Rep a) => sig (Enabled a) -> sig Bool -> sig (Enabled a)
 (.*&.) en_a bool = packEnabled (en .&&. bool) a
