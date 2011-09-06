@@ -1,4 +1,4 @@
-{-# LANGUAGE TypeFamilies, ScopedTypeVariables #-}
+{-# LANGUAGE TypeFamilies, ScopedTypeVariables, TypeOperators, OverloadedStrings, TemplateHaskell #-}
 module Hardware.KansasLava.Spartan3e.LCD
 	( lcdDriver
 	-- * For testing only
@@ -8,7 +8,12 @@ module Hardware.KansasLava.Spartan3e.LCD
 import Language.KansasLava as KL
 import Data.Sized.Unsigned
 import Data.Sized.Ix
-import Data.Sized.Matrix
+import Data.Sized.Matrix as M
+import Control.Applicative
+import Data.Char
+import qualified Data.Bits as B
+
+import Hardware.KansasLava.Form as F
 
 -- | 'lcdDriver' turns 9-bit commands into bus signals for the 16x2 LCD on the Spartan3e.
 lcdDriver :: (Clock c, sig ~ CSeq c)
@@ -134,7 +139,8 @@ circuit = unpack res
 	(_,res) = (lcdBootPatch $$ phyLCDPatch) (inp,())
 		
 
-main = do
+main/bin/bash: main: command not found
+ () = do
 	let (rs,sf_d,e) = circuit
 	
 	let fabric = do
@@ -164,3 +170,154 @@ main = do
 
 	return ()
 -}
+
+-- simulator for the MM driver.
+shallowMMDriver :: forall c sig . (Clock c, sig ~ CSeq c)
+	=> Patch (sig (Enabled (X32,U7)))	[String]
+		 (sig Ack)			()
+shallowMMDriver = fromAckBox $$ 
+		  forwardPatch (scanl driver screen) $$
+		  forwardPatch (fmap (M.toList))
+   where
+	driver :: Matrix X32 Char  -> Enabled (X32,U7) -> Matrix X32 Char
+	driver m Nothing = m
+	driver m (Just (addr,val)) = m // [(addr,chr (fromIntegral val))]
+
+	screen :: Matrix X32 Char
+	screen = pure ' '
+
+rmDups x (y:ys) | x /= y = y : rmDups y ys
+		| otherwise = rmDups x ys
+rmDups x [] = error "rmDups"	
+
+message :: [Enabled (X32,U7)]
+message = [] --[return (fromIntegral i,0x30 + fromIntegral i)
+--	  | i <- [0..(31 :: Int)]]
+
+-- Small DSL
+
+
+toStack :: Patch a (a :> ())
+	         b (b :> ())
+toStack = undefined
+
+fromStack :: Patch (a :> ()) a
+	           (b :> ()) b
+fromStack = undefined
+
+{-
+headStack :: Patch (a :> as) 	a
+	   	   (b :> bs)	b
+tailStack :: Patch (a :> as) 	as
+	   	   (b :> bs)	bs
+		   
+-}
+
+deepMessage = idPatch
+	$$ string "Kansas Lava   "
+	$$ openPatch
+	$$ fstPatch (race)
+	$$ widehex 
+	$$ F.char ' '
+	$$ F.char '('
+	$$ openPatch
+	$$ fstPatch (race)
+	$$ widehex 
+	$$ F.char ')'
+	$$ F.char 'B'
+	$$ F.char 'C'
+	$$ F.char 'D'
+	$$ F.char 'E'
+
+
+race :: forall c sig . (Clock c, sig ~ CSeq c)
+     => Patch ()	(sig (Enabled U12))
+	      ()	(sig Ack)
+race = unitPatch (concat [ replicate 0 Nothing ++ [Just x]
+			 | x <- [0..]
+			 ]) $$ toAckBox $$ ackBoxToEnabled $$ enabledToAckBox
+
+main () = do
+	let stimulus = unitPatch message $$ toAckBox
+	let strs = runPatch (stimulus $$ deepMessage $$ unitClockPatch $$ shallowMMDriver)
+	let strs' = Prelude.head strs : rmDups (Prelude.head strs) (Prelude.tail strs)
+	sequence_
+	  [ do putStrLn $"+" ++ take 16 (Prelude.repeat '-') ++ "+"
+	       putStrLn $"|" ++ take 16 str ++ "|"
+	       putStrLn $"|" ++ take 16 (drop 16 str) ++ "|"
+	       putStrLn $"+" ++ take 16 (Prelude.repeat '-') ++ "+"
+	  | str <- strs'
+	  ]
+	
+----------------
+
+{-
+priorityJoinerPatch :: forall c sig a . (Clock c, sig ~ CSeq c, Rep a)
+
+ => Patch ((sig (Enabled a)) :> (sig (Enabled a)))    (sig (Enabled a))
+
+	   ((sig Ack)         :> (sig Ack))            (sig Ack) 
+
+priorityJoinerPatch = fe `bus` matrixPriorityJoinerPatch
+  where
+	fe = forwardPatch (\ ~(b :> c) -> (matrix [b,c])) `bus`
+	     backwardPatch (\ ~m -> ( (m M.! (0 :: X2)) :> (m M.! (1 :: X2))))
+
+matrixPriorityJoinerPatch :: forall c sig a x . (Clock c, sig ~ CSeq c, Rep a, Rep x, Size x, Num x, Enum x)
+ 
+ => Patch (Matrix x (sig (Enabled a)))		(sig (Enabled a))
+	   (Matrix x (sig Ack))		  	(sig Ack)
+
+matrixPriorityJoinerPatch ~(mInp, ackOut) = (mAckInp, out)
+ where
+   -- Value to (consider selecting)
+   inpIndex :: sig x
+   inpIndex = cASE (zip (map isEnabled $ M.toList mInp) (map pureS [0..])) (pureS 0)
+
+   mAckInp = forEach mInp $ \ x inp -> toAck $ ((pureS x) .==. inpIndex) .&&. (fromAck ackOut)
+   out = (pack mInp) .!. inpIndex 
+-}
+
+data LCDInstruction 
+	= ClearDisplay
+	| ReturnHome
+	| EntryMode { moveRight :: Bool, displayShift :: Bool }
+	| SetDisplay { displayOn :: Bool, cursorOn :: Bool, blinkingCursor :: Bool }
+	| SetShift { displayShift :: Bool, rightShift :: Bool }
+	| FunctionSet { eightBit :: Bool, twoLines :: Bool, notFiveByEight :: Bool }
+	| SetCGAddr { cg_addr :: U6 }
+	| SetDDAddr { dd_addr :: U7 }
+	| ReadBusyAddr
+	| ReadRam
+	| WriteChar { char :: U8 }	
+   deriving (Eq, Ord, Show)
+
+-- 9-bit version; am okay with making it 10-bit
+instance BitRep LCDInstruction where
+    bitRep =
+	[ (ClearDisplay,  	"00000001") ] ++ 
+	[ (ReturnHome, 		"0000001X") ] ++
+	[ (EntryMode a b ,	"000001" + bool a + bool b) 
+		| a <- [False,True]
+		, b <- [False,True]
+	] ++
+	[ (SetDisplay a b c,	"00001" + bool a + bool b + bool c)
+		| a <- [False,True]
+		, b <- [False,True]
+		, c <- [False,True]
+	] ++ -- more stuff
+	[ (SetCGAddr addr, "001" + word addr)
+		| addr <- [0..maxBound] 
+	] ++ -- more stuff
+	[ (WriteChar c, "1" + word (c :: U8))
+		| c <- [0..255]
+	]
+		
+
+-- To move to Kansas Lava
+bool False = word (0 :: U1)
+bool True  = word (1 :: U1)
+	
+$(repBitRep ''LCDInstruction 9)
+	
+
