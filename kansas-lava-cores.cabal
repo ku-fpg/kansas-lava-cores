@@ -27,11 +27,11 @@ Library
         Hardware.KansasLava.RS232
         Hardware.KansasLava.Chunker
 
-        Hardware.KansasLava.Spartan3e.LCD
+        Hardware.KansasLava.LCD.ST7066U
 
   Hs-Source-Dirs: ., ../kansas-lava
   Other-modules:
-
+  Ghc-Options: -fcontext-stack=100
 
 Executable kansas-lava-cores-tests
     if flag(unit)
@@ -49,7 +49,7 @@ Executable kansas-lava-cores-tests
       buildable: False
     Main-Is:        Main.hs
     Hs-Source-Dirs: ., tests, ../kansas-lava
-    Ghc-Options: 
+    Ghc-Options: -fcontext-stack=100
           -threaded -rtsopts
 --        -Wall  -Werror 
                         

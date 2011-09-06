@@ -2,6 +2,11 @@
 module Hardware.KansasLava.LCD.ST7066U
 	( phy_Inst_4bit_LCD
 	, init_LCD
+	, mm_LCD_Inst
+	-- * Instruction Set
+	, LCDInstruction(..)
+	, setDDAddr
+	, writeChar
 	-- * For testing only
 	, phy_4bit_LCD
 	) where
@@ -22,6 +27,9 @@ import Hardware.KansasLava.Form as F
 
 -- example_lcd_driver = init_LCD $$ phy_Inst_4bit_LCD
 
+-- The Sitronix ST7066U is compatible with Samsung X60069X, Samsung KS0066U,
+-- Hitachi HD44780, and SMOS SED1278.
+
 ----------------------------------------------------------------------
 -- Controller datastructure& bit formats 
 
@@ -41,6 +49,12 @@ data LCDInstruction
    deriving (Eq, Ord, Show)
 
 $(repBitRep ''LCDInstruction 9)
+
+setDDAddr :: Comb U7 -> Comb LCDInstruction 
+setDDAddr = funMap (return . SetDDAddr)
+
+writeChar :: Comb U8 -> Comb LCDInstruction 
+writeChar = funMap (return . WriteChar)
 
 -- 9-bit version; am okay with making it 10-bit
 instance BitRep LCDInstruction where
@@ -70,7 +84,10 @@ instance BitRep LCDInstruction where
 	] ++ 
 	[ (SetCGAddr (fromIntegral addr), 	"001" # addr)
 		| addr <- every :: [BitPat X6]
-	] ++ -- more stuff
+	] ++ -- 
+	[ (SetDDAddr (fromIntegral addr), 	"01" # addr)
+		| addr <- every :: [BitPat X7]
+	] ++ -- 
 	[ (WriteChar (fromIntegral c), 		"1" # c)
 		| c <- every :: [BitPat X8]
 	]
@@ -204,3 +221,23 @@ init_LCD = appendPatch initCmds
 			  , SetDisplay { displayOn = True, cursorOn = False, blinkingCursor = False }
 			  , ClearDisplay
 	 		  ]
+
+----------------------------------------------------------------------
+-- Memory Mapped version
+----------------------------------------------------------------------
+
+mm_LCD_Inst :: forall c sig . (Clock c, sig ~ CSeq c)
+	=> Patch (sig (Enabled ((X2,X16),U8)))	(sig (Enabled LCDInstruction))
+		 (sig Ack)			(sig Ack)
+
+mm_LCD_Inst = mapPatch toInsts $$ matrixExpandPatch
+  where
+	toInsts :: Comb ((X2,X16),U8) -> Comb (Matrix X2 LCDInstruction)
+	toInsts wr = pack (matrix [ setDDAddr dd_addr, writeChar ch ] :: Matrix X2 (Comb LCDInstruction))
+	    where
+		(addr,ch) = unpack wr
+		(row,col) = unpack addr
+
+		dd_addr :: Comb U7
+		dd_addr = mux (row .==. 0) (0x40 + (unsigned)col,0x00 + (unsigned)col)
+
