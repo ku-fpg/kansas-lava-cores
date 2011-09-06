@@ -292,32 +292,35 @@ data LCDInstruction
 	| WriteChar { char :: U8 }	
    deriving (Eq, Ord, Show)
 
+$(repBitRep ''LCDInstruction 9)
+
 -- 9-bit version; am okay with making it 10-bit
 instance BitRep LCDInstruction where
     bitRep =
-	[ (ClearDisplay,  	"00000001") ] ++ 
-	[ (ReturnHome, 		"0000001X") ] ++
-	[ (EntryMode a b ,	"000001" + bool a + bool b) 
-		| a <- [False,True]
-		, b <- [False,True]
+	[ (ClearDisplay, 			"00000001") ] ++ 
+	[ (ReturnHome, 				"0000001X") ] ++
+	[ (EntryMode (bool a) 
+		     (bool b),			"000001" # a # b) 
+		| a <- every
+		, b <- every
 	] ++
-	[ (SetDisplay a b c,	"00001" + bool a + bool b + bool c)
-		| a <- [False,True]
-		, b <- [False,True]
-		, c <- [False,True]
+	[ (SetDisplay (bool a) 
+		      (bool b)
+		      (bool c),			"00001" # a # b # c)
+		| a <- every
+		, b <- every
+		, c <- every
 	] ++ -- more stuff
-	[ (SetCGAddr addr, "001" + word addr)
-		| addr <- [0..maxBound] 
-	] ++ -- more stuff
-	[ (WriteChar c, "1" + word (c :: U8))
-		| c <- [0..255]
-	]
-		
 
--- To move to Kansas Lava
-bool False = word (0 :: U1)
-bool True  = word (1 :: U1)
-	
-$(repBitRep ''LCDInstruction 9)
+	[ (SetCGAddr (fromIntegral addr), 
+						"001" # addr)
+		| addr <- every :: [BitPat X6]
+	] ++ -- more stuff
+	[ (WriteChar (fromIntegral c), 
+						"1" # c)
+		| c <- every :: [BitPat X8]
+	]
+
+			
 	
 
