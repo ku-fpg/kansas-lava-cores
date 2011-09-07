@@ -1,10 +1,11 @@
-{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TypeFamilies, NoMonomorphismRestriction #-}
 module Main where
 
 import Language.KansasLava as KL
 import Hardware.KansasLava.RS232
 import Hardware.KansasLava.FIFO
-import Hardware.KansasLava.Spartan3e.LCD
+import Hardware.KansasLava.LCD.ST7066U
+import Hardware.KansasLava.Form
 import Hardware.KansasLava.Rate
 
 import Data.Sized.Ix
@@ -14,13 +15,13 @@ import Data.Sized.Matrix
 import Data.Default
 import System.CPUTime
 import Data.Char as C
-
+import Control.Concurrent
 
 type X512 = ADD X256 X256
 type X1024 = ADD X512 X512
 type X16K   = MUL X1024 X16
 
-
+{-
 circuit :: (sig ~ CSeq c, Clock c, c ~ ())
 	=> Patch () 	(sig (U1,U4,Bool))
 	         ()	()
@@ -123,3 +124,58 @@ main = do
 
 	kleg' <- optimizeCircuit def kleg
 	writeVhdlCircuit "main" "main.vhd" kleg
+-}
+
+-- New Example
+
+-- spiny thingy
+--example :: (Clock c, sig ~ CSeq c) 
+---        => Patch () (sig (Enabled (X1, U8))) 
+--	         () (sig Ack)
+
+example1 = ratePatch (powerOfTwoRate (Witness :: Witness X2)) $$ aliveForm
+example2 = ratePatch (powerOfTwoRate (Witness :: Witness X3)) $$ aliveForm
+example3 = ratePatch (powerOfTwoRate (Witness :: Witness X4)) $$ aliveForm
+example4 = ratePatch (powerOfTwoRate (Witness :: Witness X5)) $$ aliveForm
+
+message :: Matrix (X2,X16) U8
+message = 
+	matrix $ 
+	map (fromIntegral . ord) $ 
+	"Kansas Lava.... " ++
+	"                "
+
+f :: X4 -> (X2,X16)
+f 0 = (0,15)
+f 1 = (1,0)
+f 2 = (1,10)
+f 3 = (1,12)
+
+type P = Patch ()  (Seq (Enabled (X4, U8)))
+               ()  (Seq  Ack)
+
+main = do
+	let p1 =
+		matrixStack
+		 ( matrix 
+			[ example1 $$ pos 0
+			, example2 $$ pos 1 
+			, example3 $$ pos 2 
+			, example4 $$ pos 3 
+			]
+		   :: Matrix X4 P
+		) $$
+		matrixMergePatch PriorityMerge $$
+		mm_driver message f $$ 
+		unitClockPatch $$
+		shallow_mm
+		
+	let os = map (frame (2,16)) $ runPatch (p1)
+
+	sequence_ [ do
+		putStrLn $ o 
+		threadDelay (10 * 1000)
+	   | o <- os ]
+		
+
+	
