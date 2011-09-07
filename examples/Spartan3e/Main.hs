@@ -136,7 +136,8 @@ main = do
 example1 = ratePatch (powerOfTwoRate (Witness :: Witness X2)) $$ aliveForm
 example2 = ratePatch (powerOfTwoRate (Witness :: Witness X3)) $$ aliveForm
 example3 = ratePatch (powerOfTwoRate (Witness :: Witness X4)) $$ aliveForm
-example4 = ratePatch (powerOfTwoRate (Witness :: Witness X5)) $$ aliveForm
+example4 :: Patch () (Seq (Enabled (X4,U8))) () (Seq Ack)
+example4 = unitPatch [ return n | n <- [0..]] $$ toAckBox $$ hexForm
 
 message :: Matrix (X2,X16) U8
 message = 
@@ -145,13 +146,14 @@ message =
 	"Kansas Lava.... " ++
 	"                "
 
-f :: X4 -> (X2,X16)
+f :: X5 -> (X2,X16)
 f 0 = (0,15)
 f 1 = (1,0)
-f 2 = (1,10)
-f 3 = (1,12)
+f 2 = (1,1)
+f 3 = (1,2)
+f 4 = (1,3)
 
-type P = Patch ()  (Seq (Enabled (X4, U8)))
+type P = Patch ()  (Seq (Enabled (X5, U8)))
                ()  (Seq  Ack)
 
 main = do
@@ -159,11 +161,11 @@ main = do
 		matrixStack
 		 ( matrix 
 			[ example1 $$ pos 0
-			, example2 $$ pos 1 
-			, example3 $$ pos 2 
-			, example4 $$ pos 3 
+--			, example2 $$ pos 1 
+--			, example3 $$ pos 2 
+			, example4 $$ pos 1
 			]
-		   :: Matrix X4 P
+		   :: Matrix X2 P
 		) $$
 		matrixMergePatch PriorityMerge $$
 		mm_driver message f $$ 
@@ -174,7 +176,7 @@ main = do
 
 	sequence_ [ do
 		putStrLn $ o 
-		threadDelay (10 * 1000)
+--		threadDelay (10 * 1000)
 	   | o <- os ]
 		
 
