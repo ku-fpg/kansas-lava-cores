@@ -28,6 +28,7 @@ Library
         Hardware.KansasLava.Chunker
 
         Hardware.KansasLava.LCD.ST7066U
+        Hardware.KansasLava.Boards.Spartan3e
 
   Hs-Source-Dirs: ., ../kansas-lava
   Other-modules:
