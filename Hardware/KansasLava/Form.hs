@@ -99,7 +99,7 @@ shallow_mm = fromAckBox $$
 -- the screen.
 frame :: (Int,Int) -> String -> String
 frame (row,col) str = 
-	"\ESC[0H\ESC[J"  ++
+	"\ESC[0H"  ++
 	"+" ++ replicate col '-' ++ "+\n" ++
 	concat	[ "|" ++ take col (drop (i * col) str) ++ "|\n"
 		| i <- take row [0..]
