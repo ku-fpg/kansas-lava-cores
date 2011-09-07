@@ -61,6 +61,24 @@ pos n = mapPatch $
 	   \ x_u8 -> let (x,u8) = unpack x_u8
 		     in pack ((unsigned) x + pureS n,u8)
 
+-- show a hex number
+hexForm :: forall c sig w .
+ 	( Clock c, sig ~ CSeq c, Size (MUL X4 w), Integral (MUL X4 w)
+	, Integral w, Bounded w, Rep w, Size w
+	) =>
+	Patch (sig (Enabled (Unsigned (MUL X4 w))))	(sig (Enabled (w,U8)))
+      	     (sig Ack)					(sig Ack)
+hexForm
+    = matrixDupPatch $$
+      matrixStack (forAll $ \ i -> 
+		mapPatch (\ v -> (unsigned) (v `B.shiftR` (fromIntegral (maxBound - i) * 4)) :: Comb U4) $$
+		mapPatch (funMap (\ x -> if x >= 0 && x <= 9 
+                     then return (0x30 + fromIntegral x)
+                     else return (0x41 + fromIntegral x - 10))) $$
+		mapPatch (\ ch -> pack (pureS i,ch))) $$
+    matrixMergePatch PriorityMerge
+
+
 -- | 'shallow_mm' simulates the memory mapped API, by drawing an ASCII picture after each write.
 -- Note that this handles 2D devices.
 shallow_mm :: forall c sig addr . (Clock c, sig ~ CSeq c, Size addr, Rep addr)
