@@ -1,7 +1,7 @@
 {-# LANGUAGE RankNTypes, TypeFamilies, ScopedTypeVariables #-}
 -- | The 'Clock' module provides a utility function for simulating clock rate
 -- downsampling.
-module Hardware.KansasLava.Rate(rate, powerOfTwoRate) where
+module Hardware.KansasLava.Rate(rate, powerOfTwoRate, ratePatch) where
 
 import Data.Ratio
 
@@ -9,10 +9,7 @@ import Data.Sized.Unsigned
 import Data.Sized.Signed
 import Data.Sized.Ix
 
-import Language.KansasLava.RTL
-import Language.KansasLava.Utils
-import Language.KansasLava.Types
-import Language.KansasLava.Seq
+import Language.KansasLava
 
 -- | 'rate' constructs a stream of enable bits used for clock-rate
 -- downsampling. For example, with a rate of n=1/2, every other value in the
@@ -68,6 +65,15 @@ rate Witness n
 	 perr = dom - step       * num
 	 nerr = dom - (step + 1) * num
 
--- | 'powerOfTwoRate' generates a pulse every 2^n cycles.
+-- | 'powerOfTwoRate' generates a pulse every 2^n cycles, which is often good enough for polling, timeouts, etc.
 powerOfTwoRate :: forall x clk . (Clock clk, Size x) => Witness x -> CSeq clk Bool
 powerOfTwoRate Witness = rate (Witness :: Witness x) (1/(2^(fromIntegral (size (error "Witness" :: x)))))
+
+-- | 'ratePatch' takes a result from rate, and generates token, one per pulse, with
+-- unused tokens being discared.
+ratePatch :: forall c sig . (Clock c, sig ~ CSeq c)
+	=> sig Bool 
+	-> Patch ()	(sig (Enabled ()))
+	         ()	(sig Ack)
+ratePatch r = unitPatch (packEnabled r $ pureS ()) $$ enabledToAckBox
+	
