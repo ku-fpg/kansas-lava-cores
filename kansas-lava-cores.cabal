@@ -29,6 +29,8 @@ Library
 
         Hardware.KansasLava.LCD.ST7066U
         Hardware.KansasLava.Boards.Spartan3e
+        Hardware.KansasLava.Simulators.Spartan3e
+        Hardware.KansasLava.Simulators.Fabric
 
   Hs-Source-Dirs: ., ../kansas-lava
   Other-modules:
