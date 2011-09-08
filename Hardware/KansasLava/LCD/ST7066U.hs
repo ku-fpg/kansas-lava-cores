@@ -60,35 +60,35 @@ writeChar = funMap (return . WriteChar)
 instance BitRep LCDInstruction where
 	-- TODO: complete
     bitRep =
-	--					LCD_RS # DB(7 downto 0)
+	--					LCD_RS & DB(7 downto 0)
 	[ (ClearDisplay, 			"00000001") ] ++ 
 	[ (ReturnHome, 				"0000001X") ] ++
 	[ (EntryMode (bool a) 
-		     (bool b),			"000001" # a # b) 
+		     (bool b),			"000001" & a & b) 
 		| a <- every
 		, b <- every
 	] ++
 	[ (SetDisplay (bool a) 
 		      (bool b)
-		      (bool c),			"00001" # a # b # c)
+		      (bool c),			"00001" & a & b & c)
 		| a <- every
 		, b <- every
 		, c <- every
 	] ++ 
 	[ (FunctionSet (bool a) 
 		       (bool b)
-		       (bool c),		"0010" # a # b # c # ("XX" :: BitPat X2))
+		       (bool c),		"0010" & a & b & c & ("XX" :: BitPat X2))
 		| a <- every
 		, b <- every
 		, c <- every
 	] ++ 
-	[ (SetCGAddr (fromIntegral addr), 	"001" # addr)
+	[ (SetCGAddr (fromIntegral addr), 	"001" & addr)
 		| addr <- every :: [BitPat X6]
 	] ++ -- 
-	[ (SetDDAddr (fromIntegral addr), 	"01" # addr)
+	[ (SetDDAddr (fromIntegral addr), 	"01" & addr)
 		| addr <- every :: [BitPat X7]
 	] ++ -- 
-	[ (WriteChar (fromIntegral c), 		"1" # c)
+	[ (WriteChar (fromIntegral c), 		"1" & c)
 		| c <- every :: [BitPat X8]
 	]
 
