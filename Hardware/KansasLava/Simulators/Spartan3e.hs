@@ -31,7 +31,7 @@ import System.IO.Unsafe (unsafeInterleaveIO)
 import Hardware.KansasLava.Simulators.Fabric
 
 
-board_init = Fabric $ \ _ -> ((),[stepper [return BOARD]])
+board_init = outFabric $ [return BOARD]
 
 main = do
 	let u8s :: Seq U8
@@ -48,43 +48,43 @@ main = do
 	runFabric fab
 
 showClock :: Int -> Fabric ()
-showClock m = Fabric $ \ _ -> ((),[ stepper
+showClock m = outFabric $ 
         [ if (n `mod` fromIntegral m == 0) 
           then Just (CLOCK n)
           else Nothing
         | n <- [0..] 
-        ]])
+        ]
 
 leds :: Matrix X8 (Seq Bool) -> Fabric ()
-leds m = Fabric $ \ _ -> ((),
-          map stepper
-	$ M.toList
-	$ forEach m (\ i a -> map (\ c -> case c of
+leds m = do
+        sequence_ [ outFabric $ map (\ c -> case c of
 	                                    Nothing -> Nothing
 	                                    Just b -> Just (LED (fromIntegral i) b))
-				   (changed (fromSeq a))))
+	                     $ changed (fromSeq (m ! i))
+	          | i <- [0..7]
+	          ]
 
 switches :: Fabric (Matrix X4 (Seq Bool))
-switches = Fabric $ \ inps ->
-        let m = forAll $ \ i ->
-                let press = toggle $ map (\ x -> x == Just (key ! i)) inps
-                in (toSeq press,stepper $ map (f i) $ changed press)
-        in (fmap fst m,M.toList $ fmap snd m)
+switches = do
+        ms <- sequence [ inFabric False
+                                  (\ b -> TOGGLE i b)
+                                  (sw i)
+                       | i <- [0..3]
+                       ]
+        return (matrix (map toSeq ms))
   where
-        f _ Nothing  = Nothing
-        f i (Just b) = do Just (TOGGLE i b)
+        sw i ch old | key ! i == ch = not old       -- flip
+                    | otherwise     = old           -- leave
+         
         key :: Matrix X4 Char
         key = matrix "hjkl"
-
+        
 
 mm_lcdPatch :: Patch (Seq (Enabled ((X2,X16),U8)))   (Fabric ())
 	             (Seq Ack)	                    ()
 mm_lcdPatch = fromAckBox $$ forwardPatch fab
    where
-        fab inp = Fabric $ \ _ -> ((), 
-                        [ stepper $ map (just $ \ ((x,y),ch) -> Just (LCD (x,y) (Char.chr (fromIntegral ch))))
-                                        inp
-                        ])
+        fab inp = outFabric $ map (just $ \ ((x,y),ch) -> Just (LCD (x,y) (Char.chr (fromIntegral ch)))) inp
 
         just :: (a -> Maybe b) -> Maybe a -> Maybe b
         just _ Nothing  = Nothing
