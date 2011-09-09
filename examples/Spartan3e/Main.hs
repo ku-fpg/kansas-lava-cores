@@ -17,6 +17,9 @@ import System.CPUTime
 import Data.Char as C
 import Control.Concurrent
 
+import Hardware.KansasLava.Simulators.Spartan3e as Board 
+import Hardware.KansasLava.Simulators.Fabric    as Sim
+
 type X512 = ADD X256 X256
 type X1024 = ADD X512 X512
 type X16K   = MUL X1024 X16
@@ -156,7 +159,7 @@ f 4 = (1,3)
 type P = Patch ()  (Seq (Enabled (X5, U8)))
                ()  (Seq  Ack)
 
-main = do
+main2 = do
 	let p1 =
 		matrixStack
 		 ( matrix 
@@ -179,5 +182,48 @@ main = do
 --		threadDelay (10 * 1000)
 	   | o <- os ]
 		
+main = do
+	let u8s :: Seq U8
+	    u8s = toSeq (cycle ( [0..255]))
+
+ 	    m8 :: Matrix X8 (Seq Bool)
+    	    m8 = forAll $ \ i -> testABit u8s (fromIntegral i)
+
+            p1 =
+		matrixStack
+		 ( matrix 
+			[ example1 $$ pos 0
+--			, example2 $$ pos 1 
+--			, example3 $$ pos 2 
+			, example4 $$ pos 1
+			]
+		   :: Matrix X2 P
+		) $$
+		matrixMergePatch PriorityMerge $$
+		mm_driver message f $$ 
+                mm_lcdPatch
+
+
+	let fab = do    board_init
+                        (a,e_b) <- dial
+
+	                bs <- switches
+
+                        let ((),e_r) = enabledToAckBox (e_b,toAck low)
+
+
+                        leds (matrix [a,isEnabled e_b, enabledVal e_b,low
+                                     ,isEnabled e_r,enabledVal e_r,low,low
+                                     ])
+
+--                        runPatch (alwaysAckPatch ((0,0),33) $$ mm_lcdPatch)
+                        runPatch p1
+
+                        buttons
+
+                        ll_dial
+
+	                showClock 10000
+	Sim.runFabric fab
 
 	
