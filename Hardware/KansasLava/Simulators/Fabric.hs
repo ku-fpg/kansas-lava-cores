@@ -19,12 +19,12 @@ import Control.Monad.Fix
 import System.IO.Unsafe (unsafeInterleaveIO)
 
 -- | The simulator uses its own 'Fabric', which connects not to pins on the chip, but rather an ASCII picture of the board.
-data Fabric a = Fabric ([Maybe Char] -> (a,[Stepper]))
+data Fabric a = Fabric ([Maybe Char] -> IO (a,[Stepper]))
 
 
 -- | Turn a list of graphical events into a 'Fabric'.
 outFabric :: (Graphic g) => [Maybe g] -> Fabric ()
-outFabric ogs = Fabric $ \ _ -> ((),[stepper ogs])
+outFabric ogs = Fabric $ \ _ -> return ((),[stepper ogs])
 
 
 -- | Turn a observation of the keyboard into a list of values.
@@ -33,12 +33,11 @@ inFabric :: (Eq a, Graphic g)
          -> (a -> g)                    -- ^ how to print 'a' (when changed)
          -> (Char -> a -> a)            -- ^ how to interpreate a key press
          -> Fabric [a]
-inFabric a pr interp = Fabric $ \ inp ->
+inFabric a pr interp = Fabric $ \ inp -> do
         let f' a' Nothing = a'
             f' a' (Just c) = interp c a'
             vals = scanl f' a inp
-        in (vals,[stepper $ map (fmap pr) $ changed vals])
-        
+        return (vals,[stepper $ map (fmap pr) $ changed vals])
   where
         changed :: (Eq a) => [a] -> [Maybe a]
         changed (a:as) = Just a : f a as
@@ -49,19 +48,18 @@ inFabric a pr interp = Fabric $ \ inp ->
 
 
 instance Monad Fabric where
-        return a = Fabric $ \ _ -> (a,[])
-        (Fabric f) >>= k = Fabric $ \ inp -> 
-                                let (a,s1)   = f inp
-                                    Fabric g = k a
-                                    (b,s2)   = g inp
-                                in
-                                    (b,s1 ++ s2)
+        return a = Fabric $ \ _ -> return (a,[])
+        (Fabric f) >>= k = Fabric $ \ inp -> do
+                                (a,s1)  <- f inp
+                                let Fabric g = k a
+                                (b,s2)  <- g inp
+                                return (b,s1 ++ s2)
         fail msg = error msg
 
 instance MonadFix Fabric where
-        mfix f = Fabric $ \ inp -> let Fabric g = f a
-                                       (a,ss) = g inp
-                                   in (a,ss)
+        -- TODO: check this
+        mfix f = Fabric $ \ inp -> mfix (\ r ->  let (Fabric g) = f (fst r) 
+                                                 in g inp)
         
 -- Do something, and return.
 data Stepper = Stepper (IO (Stepper))
@@ -103,7 +101,7 @@ runFabric (Fabric f) = do
                 rest <- unsafeInterleaveIO $ loop
                 return (out : rest)
         inputs <- loop 
-        let (_,steps) = f inputs
+        (_,steps) <- f inputs
 	putStr "\ESC[2J\ESC[1;1H"
         runSteppers steps
 
