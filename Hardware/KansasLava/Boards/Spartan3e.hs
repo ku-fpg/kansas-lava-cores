@@ -6,6 +6,7 @@ module Hardware.KansasLava.Boards.Spartan3e (
 	, showUCF
 	-- * Patch API's.
 	, lcdPatch
+	, mm_lcdPatch
 	, switchesPatch
 	-- * Raw API's.
 	, lcd
@@ -46,11 +47,24 @@ ucf = []
 ------------------------------------------------------------
 -- Patches
 ------------------------------------------------------------
+
+mm_lcdPatch :: Patch (Seq (Enabled ((X2,X16),U8)))  (Fabric ())
+	             (Seq Ack)	                    ()
+-- | 'lcdPatch' gives a memory mappped (mm) API to the LCD.
+--  Disables the StrataFlash (for now).
+mm_lcdPatch = 
+        mm_LCD_Inst $$
+	init_LCD $$ 
+	phy_Inst_4bit_LCD $$ 
+	forwardPatch (\ bus -> do 
+		let (rs,sf_d,e) = unpack bus
+		lcd rs sf_d e)
+
 -- 
 -- | 'lcdPatch' gives a patch-level API to the LCD, based on LCDInstructions.
 --  Disables the StrataFlash (for now).
 lcdPatch :: Patch (Seq (Enabled LCDInstruction)) (Fabric ())
-	     	  (Seq Ack)	                    ()
+	     	  (Seq Ack)	                 ()
 lcdPatch = 
 	init_LCD $$ 
 	phy_Inst_4bit_LCD $$ 
