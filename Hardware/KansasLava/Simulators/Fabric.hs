@@ -1,3 +1,5 @@
+-- | * Remember to call init_board for your specific board.
+
 module Hardware.KansasLava.Simulators.Fabric (
           -- * The Fake Fabric Monad, and its constructor
           Fabric        -- abstract
@@ -9,6 +11,7 @@ module Hardware.KansasLava.Simulators.Fabric (
         , Graphic(..)
         , at
         , green
+        , reverse_video
         ) where
         
 import System.IO
@@ -114,10 +117,17 @@ green m = do
         m
         putStr $ "\ESC[0m"
 
+
+reverse_video :: IO () -> IO ()
+reverse_video m = do
+        putStr $ "\ESC[7m"
+        m
+        putStr $ "\ESC[0m"        
+
 -- | Do an  IO (print) at a specific location on the screen.
 at :: IO () -> (Int,Int) -> IO ()
 at m (row,col) = do
 	putStr $ "\ESC[" ++ show row ++ ";" ++ show col ++ "H"
         m
-	putStr $ "\ESC[22;1H"
+	putStr $ "\ESC[24;1H"
 	hFlush stdout
