@@ -2,8 +2,9 @@
 
 module Hardware.KansasLava.Simulators.Fabric (
           -- * The Fake Fabric Monad, and its constructor
-          Fabric        -- abstract
+          Fabric               -- abstract
         , outFabric
+        , outFabricIO
         , inFabric
         -- * running the fake Fabric
         , runFabric
@@ -26,6 +27,9 @@ data Fabric a = Fabric ([Maybe Char] -> IO (a,[Stepper]))
 outFabric :: (Graphic g) => [Maybe g] -> Fabric ()
 outFabric ogs = Fabric $ \ _ -> return ((),[stepper ogs])
 
+outFabricIO :: (Graphic g) => IO a -> (a -> [Maybe g]) -> Fabric ()
+outFabricIO m ogs = Fabric $ \ _ -> do st <- m
+                                       return ((),[stepper (ogs st)])
 
 -- | Turn a observation of the keyboard into a list of values.
 inFabric :: (Eq a, Graphic g) 
