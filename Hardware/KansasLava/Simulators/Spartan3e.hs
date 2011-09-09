@@ -1,20 +1,14 @@
-module Hardware.KansasLava.Simulators.Spartan3e
-{-
+module Hardware.KansasLava.Simulators.Spartan3e {- (
 	-- * Initialization, and global settings.
 	  board_init
---	, rot_as_reset
---	, clockRate
---	, showUCF
+	, rot_as_reset
+	, clockRate
+	, showUCF
 	-- * Patch API's.
---	, lcdPatch
---	, switchesPatch
-	-- * Raw API's.
-	, leds
---	, lcd
---	, switches
-	) where
--}
-        where
+--	, lcdPatch              -- unsupported in the simulator
+	, mm_lcdPatch
+	, switchesPatch
+	) -} where
 
 import Data.Sized.Ix
 import Data.Sized.Unsigned
@@ -31,21 +25,17 @@ import System.IO.Unsafe (unsafeInterleaveIO)
 import Hardware.KansasLava.Simulators.Fabric
 
 
-board_init = outFabric $ [return BOARD]
+rot_as_reset = undefined
+clockRate = undefined
+showUCF _ = return "/* Simulator does not need a UCF */\n"
+switchesPatch = undefined
 
-main = do
-	let u8s :: Seq U8
-	    u8s = toSeq (cycle ( [0..255]))
-
- 	    m8 :: Matrix X8 (Seq Bool)
-    	    m8 = forAll $ \ i -> testABit u8s (fromIntegral i)
-
-	let fab = do    board_init
-	                bs <- switches
-	                leds (bs `M.append` bs)
-                        runPatch (alwaysAckPatch ((0,0),33) $$ mm_lcdPatch)
-	                showClock 10000
-	runFabric fab
+board_init = do
+        outFabric $ [return BOARD]
+        inFabric False
+                (QUIT)
+                (\ c _ -> c == 'q')
+        
 
 showClock :: Int -> Fabric ()
 showClock m = outFabric $ 
@@ -78,7 +68,51 @@ switches = do
          
         key :: Matrix X4 Char
         key = matrix "hjkl"
+
+buttons :: Fabric (Matrix X4 (Seq Bool))
+buttons = do
+        ms <- sequence [ inFabric False
+                                  (\ b -> BUTTON i b)
+                                  (sw i)
+                       | i <- [0..3]
+                       ]
+        return (matrix (map toSeq ms))
+  where
+        sw i ch old | key ! i == ch = not old       -- flip
+                    | otherwise     = old           -- leave
+         
+        key :: Matrix X4 Char
+        key = matrix "aegx"
+
+       
+       
+data Dial = Dial Bool U2
+        deriving Eq
+
+-- 'dial' returns the status of the 
+dial :: Fabric (Seq Bool, Seq (Enabled Bool))
+dial = do 
+        st <- ll_dial
+        return ( toSeq $ map (\ (Dial b _) -> b) $ st
+               , toSeq $ rot $ map (\ (Dial _ p) -> p) $ st
+               )
+  where
+          rot xs = map f $ List.zipWith (-) (0:xs) xs
+
+          f 0 = Nothing
+          f 1 = Just False
+          f 2 = error "turned dial twice in one cycle?"
+          f 3 = Just True
         
+ll_dial :: Fabric [Dial]
+ll_dial = inFabric (Dial False 0)
+                   (DIAL)
+                   switch
+   where 
+           switch 'd' (Dial b p) = Dial (not b) p
+           switch 's' (Dial b p) = Dial b (pred p)
+           switch 'f' (Dial b p) = Dial b (succ p)
+           switch _   other      = other
 
 mm_lcdPatch :: Patch (Seq (Enabled ((X2,X16),U8)))   (Fabric ())
 	             (Seq Ack)	                    ()
@@ -130,10 +164,11 @@ boardASCII = unlines
  , "  +---------------------------------------------+"
  , ""
  , "   Keyboard Commands:"
- , "     a, e, x, g - press buttons"
+ , "     a, e, g, x - press buttons"
  , "     d          - press dial"
  , "     s, f       - turn dial counter-clock/clockwise"
- , "     H,J,K,L    - toggle switches"
+ , "     h,j,k,l    - toggle switches"
+ , "     q          - quit"
  ]
 
 
@@ -148,6 +183,9 @@ data Output
         | CLOCK Integer
         | LCD (X2,X16) Char
         | BOARD
+        | BUTTON X4 Bool
+        | DIAL Dial
+        | QUIT Bool
 
 instance Graphic Output where 
  drawGraphic (LED x st) = 
@@ -175,18 +213,21 @@ instance Graphic Output where
         putChar ch `at` (12 + fromIntegral row,20 + fromIntegral col)
  drawGraphic BOARD =
          putStr boardASCII `at` (1,1)
-
-{-
-drawGraphic (BUTTON x b) = do
-        putChar up   `at` (13,50 + 2 * fromIntegral x)
-        putChar down `at` (14,50 + 2 * fromIntegral x)
+ drawGraphic (BUTTON x b) = 
+        (if b then reverse_video else id) $
+        putChar (snd (buttons !! fromIntegral x)) `at` 
+                (fst (buttons !! fromIntegral x)) 
   where
---       coord = matrix [(13,5),(13,6),(13,7),(13,8),(13,9)
-       ch = "hjkl" !! fromIntegral x
- 
-       up = if b then ch else ':'
-       down = if b then ':' else ch
--}
-        
-
-
+       buttons = 
+               [ ((13,7),'a')
+               , ((12,11),'e')
+               , ((13,15),'g')
+               , ((14,11),'x')
+               ]
+ drawGraphic (DIAL (Dial b p)) = 
+        (if b then reverse_video else id) $
+        putChar ("|/-\\" !! fromIntegral p) `at` (13,11)
+ drawGraphic (QUIT b)
+        | b = do return () `at` (24,1)
+                 error "Simulation Quit"
+        | otherwise = return ()
