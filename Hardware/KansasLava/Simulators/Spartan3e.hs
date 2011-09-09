@@ -12,6 +12,10 @@ module Hardware.KansasLava.Simulators.Spartan3e (
 --	, lcdPatch              -- unsupported in the simulator
 	, mm_lcdPatch
 	, switchesPatch
+--        , rs232_dce_rx
+        , rs232_dce_tx
+--        , rs232_dte_rx
+--        , rs232_dte_tx
 	 -- * Raw API's.
 --	, lcd                   -- unsupported in the simulator
 	, switches
@@ -30,10 +34,9 @@ import Control.Monad
 import Data.List as List
 import Data.Char as Char
 import Control.Concurrent
-import System.IO.Unsafe (unsafeInterleaveIO)
+import System.IO.Unsafe
 
 import Hardware.KansasLava.Simulators.Fabric
-
 
 rot_as_reset = undefined
 clockRate = undefined
@@ -54,6 +57,38 @@ showClock m = outFabric $
           else Nothing
         | n <- [0..] 
         ]
+
+-----------------------------------------------------------------------
+-- Patches
+-----------------------------------------------------------------------
+
+rs232_dce_tx :: Integer         -- ^ baud rate (ignored for simulation)
+             -> Patch (Seq (Enabled U8))  (Fabric ())
+	              (Seq Ack)	          ()
+
+rs232_dce_tx baud = fromAckBox $$ forwardPatch fab
+   where
+        fab inp = outFabricIO start $ \ (h,c) ->
+                     map (just $ \ ch -> Just (RS232_TX DCE h c ch)) inp
+
+        start = do
+                h <- openBinaryFile "dev/dce_out" AppendMode
+                hSetBuffering h NoBuffering        
+                c <- newMVar 0
+                return (h,c)
+
+        just :: (a -> Maybe b) -> Maybe a -> Maybe b
+        just _ Nothing  = Nothing
+        just k (Just a) = k a
+
+--rs232_dce_rx :: Fabric (Patch () (Seq (Enabled U8))
+--	                      () ())
+
+
+-----------------------------------------------------------------------
+-- 
+-----------------------------------------------------------------------
+
 
 leds :: Matrix X8 (Seq Bool) -> Fabric ()
 leds m = do
@@ -157,7 +192,8 @@ diff xs = Nothing : f Nothing xs
   f x [] = []
 
 boardASCII = unlines
- [ "  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
+ [ "   _||_____|VGA|_____|X|__|232 DCE|__|232 CTE|__"
+ , "  |oXX                                          |_"
  , "  |                                             | |"
  , "  |                     +----+                  | |"
  , " ----+         DIGILENT |FPGA|                  | |"
@@ -196,10 +232,13 @@ data Output
         | BUTTON X4 Bool
         | DIAL Dial
         | QUIT Bool
+        | RS232_TX RS232 Handle (MVar Integer) U8
+        
+data RS232 = DCE | DTE
 
 instance Graphic Output where 
  drawGraphic (LED x st) = 
-        opt_green $ putChar (ledASCII st) `at` (10,46 - fromIntegral x)
+        opt_green $ putChar (ledASCII st) `at` (11,46 - fromIntegral x)
    where
         opt_green = if st == Just True then green else id
 
@@ -209,8 +248,8 @@ instance Graphic Output where
         ledASCII (Just False) = '.'
 
  drawGraphic (TOGGLE x b) = do
-        putChar up   `at` (13,40 + 2 * fromIntegral x)
-        putChar down `at` (14,40 + 2 * fromIntegral x)
+        putChar up   `at` (14,40 + 2 * fromIntegral x)
+        putChar down `at` (15,40 + 2 * fromIntegral x)
   where
        ch = "hjkl" !! fromIntegral x
  
@@ -218,9 +257,9 @@ instance Graphic Output where
        down = if b then ':' else ch
  drawGraphic (CLOCK n) = do
         let n_txt = show n
-        putStr n_txt `at` (3,47 - Prelude.length n_txt)
+        putStr n_txt `at` (5,47 - Prelude.length n_txt)
  drawGraphic (LCD (row,col) ch) =
-        putChar ch `at` (12 + fromIntegral row,20 + fromIntegral col)
+        putChar ch `at` (13 + fromIntegral row,20 + fromIntegral col)
  drawGraphic BOARD =
          putStr boardASCII `at` (1,1)
  drawGraphic (BUTTON x b) = 
@@ -229,15 +268,23 @@ instance Graphic Output where
                 (fst (buttons !! fromIntegral x)) 
   where
        buttons = 
-               [ ((13,7),'a')
-               , ((12,11),'e')
-               , ((13,15),'g')
-               , ((14,11),'x')
+               [ ((14,7),'a')
+               , ((13,11),'e')
+               , ((14,15),'g')
+               , ((15,11),'x')
                ]
  drawGraphic (DIAL (Dial b p)) = 
         (if b then reverse_video else id) $
-        putChar ("|/-\\" !! fromIntegral p) `at` (13,11)
+        putChar ("|/-\\" !! fromIntegral p) `at` (14,11)
  drawGraphic (QUIT b)
-        | b = do return () `at` (24,1)
+        | b = do return () `at` (25,1)
                  error "Simulation Quit"
         | otherwise = return ()
+ drawGraphic (RS232_TX DCE h var c) = do
+        v <- takeMVar var
+        let v' = v + 1
+        putMVar var v'
+        putStr ("o:" ++ show v') `at` (2,27)
+        hPutChar h (chr (fromIntegral c))
+        hFlush h
+
