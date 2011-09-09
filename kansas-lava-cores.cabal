@@ -18,7 +18,7 @@ Flag unit
 
 Library
   Build-Depends: base >= 4, 
---                kansas-lava == 0.2.1.20100623, 
+                kansas-lava == 0.2.1.20100623, 
                 sized-types == 0.3.2.20110831
   Exposed-modules:
         Hardware.KansasLava.FIFO
@@ -32,14 +32,14 @@ Library
         Hardware.KansasLava.Simulators.Spartan3e
         Hardware.KansasLava.Simulators.Fabric
 
-  Hs-Source-Dirs: ., ../kansas-lava
+--  Hs-Source-Dirs: ., ../kansas-lava
   Other-modules:
   Ghc-Options: -fcontext-stack=100
 
 Executable kansas-lava-cores-tests
     if flag(unit)
       Build-Depends: base >= 4, 
---      kansas-lava == 0.2.1.20100623, 
+        kansas-lava == 0.2.1.20100623, 
         sized-types == 0.3.2.20110831, data-default,
                  containers, data-reify == 0.6, pretty,
                  dotgen  >= 0.4.1, array, template-haskell,
@@ -51,7 +51,7 @@ Executable kansas-lava-cores-tests
       Build-depends: base
       buildable: False
     Main-Is:        Main.hs
-    Hs-Source-Dirs: ., tests, ../kansas-lava
+    Hs-Source-Dirs: ., tests
     Ghc-Options: -fcontext-stack=100
           -threaded -rtsopts
 --        -Wall  -Werror 
