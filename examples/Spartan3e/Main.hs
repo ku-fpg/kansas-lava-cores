@@ -179,7 +179,7 @@ main2 = do
 
 	sequence_ [ do
 		putStrLn $ o 
---		threadDelay (10 * 1000)
+		threadDelay (1000)
 	   | o <- os ]
 		
 main = do
@@ -221,7 +221,7 @@ main = do
 
                         buttons
 
-                        ll_dial
+                        dial
 
 	                showClock 10000
 	Sim.runFabric fab

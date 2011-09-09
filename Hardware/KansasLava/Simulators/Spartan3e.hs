@@ -1,14 +1,24 @@
-module Hardware.KansasLava.Simulators.Spartan3e {- (
+-- | This API should mirror 'Hardware.KansasLava.Boards.Spartan3e'.
+
+module Hardware.KansasLava.Simulators.Spartan3e (
 	-- * Initialization, and global settings.
 	  board_init
 	, rot_as_reset
 	, clockRate
 	, showUCF
+        -- * Simulator only options
+        , showClock
 	-- * Patch API's.
 --	, lcdPatch              -- unsupported in the simulator
 	, mm_lcdPatch
 	, switchesPatch
-	) -} where
+	 -- * Raw API's.
+--	, lcd                   -- unsupported in the simulator
+	, switches
+        , dial  
+        , leds
+        , buttons
+	) where
 
 import Data.Sized.Ix
 import Data.Sized.Unsigned
