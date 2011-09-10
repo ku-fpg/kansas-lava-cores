@@ -188,9 +188,10 @@ runSteppers ss = do
 
 -- Stepper could be written in terms of ioStepper
 stepper :: (Graphic g) => [Maybe g] -> Stepper
-stepper (Nothing:ms) = Stepper (do return (stepper ms))
-stepper (Just o:ms)  = Stepper (do showANSI (drawGraphic o) ; return (stepper ms))
-stepper other        = Stepper (return $ stepper other)
+stepper = ioStepper 
+        . map (\ o -> case o of
+                         Nothing -> return ()
+                         Just g -> showANSI (drawGraphic g))
 
 ioStepper :: [IO ()] -> Stepper
 ioStepper (m:ms)      = Stepper (do m ; return (ioStepper ms))
