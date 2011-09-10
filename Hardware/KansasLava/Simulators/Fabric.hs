@@ -2,9 +2,9 @@
 -- | * Remember to call init_board for your specific board.
 
 module Hardware.KansasLava.Simulators.Fabric (
-          -- * The Fake Fabric Monad..
+          -- * The Fake Fabric Monad
           Fabric               -- abstract
-          -- * The Fabric non-proper morphisms  
+          -- * The Fabric non-proper morphisms
         , outFabric
         , outFabricEvents
         , outFabricCount
@@ -85,6 +85,7 @@ outFabricEvents ogs = Fabric $ \ _ _ -> return ((),[stepper ogs])
 
 -- | creates single graphical events, based on the number of Events,
 -- when the first real event is event 1, and there is a beginning of time event 0.
+-- Example of use: count the number of bytes send or recieved on a device.
 outFabricCount :: (Graphic g) => (Integer -> g) -> [Maybe a] -> Fabric ()
 outFabricCount f = outFabric f . loop 0
   where
@@ -114,7 +115,7 @@ writeFileFabric filename contents = Fabric $ \ _ _ -> do
 -- Ways out inputting to the Fabric
 -----------------------------------------------------------------------
 
--- | Turn a observation of the keyboard into a list of values.
+-- | Turn an observation of the keyboard into a list of values.
 inFabric :: a                           -- ^ initial 'a'
          -> (Char -> a -> a)            -- ^ how to interpreate a key press
          -> Fabric [a]
