@@ -239,10 +239,9 @@ instance Graphic Output where
         ledASCII (Just True)  = '@'
         ledASCII (Just False) = '.'
 
- drawGraphic (TOGGLE x b) = MANY
-        [ PRINT [up]   `at` (14,40 + 2 * fromIntegral x) 
-        , PRINT [down] `at` (15,40 + 2 * fromIntegral x)
-        ]
+ drawGraphic (TOGGLE x b) = do
+        PRINT [up]   `at` (14,40 + 2 * fromIntegral x) 
+        PRINT [down] `at` (15,40 + 2 * fromIntegral x)
   where
        ch = "hjkl" !! fromIntegral x
  
@@ -252,10 +251,9 @@ instance Graphic Output where
         PRINT ("clk: " ++ show n) `at` (5,35)
  drawGraphic (LCD (row,col) ch) =
         PRINT [ch] `at` (13 + fromIntegral row,20 + fromIntegral col)
- drawGraphic BOARD = MANY
-        [  PRINT boardASCII `at` (1,1)
-        , COLOR Red $ PRINT ['o'] `at` (2,4)
-        ]
+ drawGraphic BOARD = do
+        PRINT boardASCII `at` (1,1)
+        COLOR Red $ PRINT ['o'] `at` (2,4)
  drawGraphic (BUTTON x b) = 
         (if b then REVERSE else id) $
         PRINT [snd (buttons !! fromIntegral x)] `at` 
@@ -271,10 +269,9 @@ instance Graphic Output where
         (if b then REVERSE else id) $
         PRINT ["|/-\\" !! fromIntegral p] `at` (14,11)
  drawGraphic (QUIT b)
-        | b = MANY [ PRINT "" `at` (25,1)
-                   , error "Simulation Quit"
-                   ]
-        | otherwise = MANY []
+        | b = do PRINT "" `at` (25,1)
+                 error "Simulation Quit"
+        | otherwise = return ()
 {-
  drawGraphic (RS232_TX DCE h var c) = do
         v <- takeMVar var

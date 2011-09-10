@@ -13,8 +13,8 @@ module Hardware.KansasLava.Simulators.Fabric (
         -- * running the fake Fabric
         , friendlyFabric
         , runFabric
-        -- * Support for the (ASCII) Graphics
-        , ASCII(..)
+        -- * Support for the (ANSI) Graphics
+        , ANSI(..)
         , Color(..)     -- from System.Console.ANSI
         , Graphic(..)
 --        , at
@@ -158,7 +158,7 @@ friendlyFabric = Fabric $ \ _ ->
 -----------------------------------------------------------------------
 
 class Graphic g where
-        drawGraphic :: g -> ASCII
+        drawGraphic :: g -> ANSI ()
 
 -- ACT is basically a back-door to perform IO, using the 
 -- graphics handler (which is really an effects handler).
@@ -189,7 +189,7 @@ runSteppers ss = do
 -- Stepper could be written in terms of ioStepper
 stepper :: (Graphic g) => [Maybe g] -> Stepper
 stepper (Nothing:ms) = Stepper (do return (stepper ms))
-stepper (Just o:ms)  = Stepper (do showASCII (drawGraphic o) ; return (stepper ms))
+stepper (Just o:ms)  = Stepper (do showANSI (drawGraphic o) ; return (stepper ms))
 stepper other        = Stepper (return $ stepper other)
 
 ioStepper :: [IO ()] -> Stepper
@@ -200,54 +200,36 @@ ioStepper other       = Stepper (return $ ioStepper other)
 -- Helpers for printing to the screen
 -----------------------------------------------------------------------
 
-data ASCII = REVERSE       ASCII
-           | COLOR   Color ASCII
-           | PRINT String
-           | ASCII `AT` (Int,Int)
-           | MANY [ASCII]
+data ANSI a where
+        REVERSE :: ANSI ()                 -> ANSI ()
+        COLOR   :: Color -> ANSI ()        -> ANSI ()
+        PRINT   :: String                  -> ANSI ()
+        AT      :: ANSI () -> (Int,Int)    -> ANSI ()
+        BIND    :: ANSI b -> (b -> ANSI a) -> ANSI a
+        RETURN  :: a                       -> ANSI a
+        
+instance Monad ANSI where
+        return a = RETURN a
+        m >>= k  = BIND m k
 
-showASCII :: ASCII -> IO ()
-showASCII (REVERSE ascii) = reverse_video $ showASCII ascii
-showASCII (COLOR col ascii) = do
-        setSGR [SetColor Foreground Vivid col]
-        showASCII ascii
-        setSGR []
-showASCII (PRINT str) = putStr str
-showASCII (AT ascii (row,col)) = do
-        setCursorPosition row col
-        showASCII ascii
-        setCursorPosition 24 0
-showASCII (MANY as) = do
-        sequence_ [ showASCII a | a <- as ]
-
--- | Do an IO (print) in the context of a green pen.
-green :: IO () -> IO ()
-green m = do
-        setSGR [SetColor Foreground Vivid Green]
-        m
-        setSGR []
-
--- | Do an IO (print) in the context of a green pen.
-red :: IO () -> IO ()
-red m = do
-        setSGR [SetColor Foreground Vivid Red]
-        m
-        setSGR []
-
-
-reverse_video :: IO () -> IO ()
-reverse_video m = do
+showANSI :: ANSI a -> IO a
+showANSI (REVERSE ascii) = do
         setSGR [SetSwapForegroundBackground True]
-        m
+        showANSI ascii
         setSGR []
-
--- | Do an  IO (print) at a specific location on the screen.
-at :: IO () -> (Int,Int) -> IO ()
-at m (row,col) = do
-        setCursorPosition (row) (col)
-        m
+showANSI (COLOR col ascii) = do
+        setSGR [SetColor Foreground Vivid col]
+        showANSI ascii
+        setSGR []
+showANSI (PRINT str) = putStr str
+showANSI (AT ascii (row,col)) = do
+        setCursorPosition row col
+        showANSI ascii
         setCursorPosition 24 0
---	hFlush stdout ???
+showANSI (RETURN a) = return a
+showANSI (BIND m k) = do
+        a <- showANSI m
+        showANSI (k a)
 
 -----------------------------------------------------------------------
 -- Steping version of hGetContent, never blocks, returning
