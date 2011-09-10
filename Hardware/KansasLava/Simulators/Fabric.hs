@@ -2,26 +2,28 @@
 -- | * Remember to call init_board for your specific board.
 
 module Hardware.KansasLava.Simulators.Fabric (
-          -- * The Fake Fabric Monad, and its constructor
+          -- * The Fake Fabric Monad, and its NPM.
           Fabric               -- abstract
         , outFabric
         , outFabricEvents
-        , outFabricIO
         , outFabricCount
         , writeFileFabric
         , inFabric
         , readFileFabric
         -- * running the fake Fabric
+        , friendlyFabric
         , runFabric
         -- * Support for the (ASCII) Graphics
         , Graphic(..)
         , at
         , green
+        , red
         , reverse_video
         ) where
         
 import System.IO
 import Control.Exception
+import Control.Concurrent
 import Data.Char
 import Control.Monad.Fix
 import Data.Word
@@ -49,28 +51,21 @@ outFabricEvents :: (Graphic g) => [Maybe g] -> Fabric ()
 outFabricEvents ogs = Fabric $ \ _ -> return ((),[stepper ogs])
 
 -- creates single graphical events, based on the number of Events,
--- when the first event is event 1.
+-- when the first real event is event 1, and there is a beginning of time event 0.
 outFabricCount :: (Graphic g) => (Integer -> g) -> [Maybe a] -> Fabric ()
-outFabricCount f = outFabric f . loop 1
+outFabricCount f = outFabric f . loop 0
   where
         loop n (Nothing:xs) = n : loop n xs
         loop n (Just _:xs)  = n : loop (succ n) xs
 
 writeFileFabric :: String -> [Maybe Word8] -> Fabric ()
 writeFileFabric filename contents = Fabric $ \ _ -> do
-        h <- openBinaryFile "dev/dce_tx" AppendMode
+        h <- openFile "dev/dce_tx" WriteMode
         hSetBuffering h NoBuffering        
-        return ((),[ stepper (map (fmap (\ ch -> Act $ do
+        return ((),[ stepper (map (fmap (\ ch -> ACT $ do
                                 hPutChar h (chr (fromIntegral ch))
                                 hFlush h)) contents)
                    ])
-
-        
-
-outFabricIO :: (Graphic g) => IO a -> (a -> [Maybe g]) -> Fabric ()
-outFabricIO m ogs = Fabric $ \ _ -> do st <- m
-                                       return ((),[stepper (ogs st)])
-
 
 
 -- | Turn a observation of the keyboard into a list of values.
@@ -97,6 +92,15 @@ readFileFabric filename = Fabric $ \ inp -> do
         hSetBuffering h NoBuffering  
         ss <- hGetContentsStepwise h
         return (map (fmap (fromIntegral . ord)) ss,[])
+
+
+-- | 'friendlyFabric' slows things down, to be CPU friendly.
+friendlyFabric :: Fabric ()
+friendlyFabric =
+        outFabric (const $ ACT $ do
+                   threadDelay (20 * 1000)) [0..]
+
+
 
 instance Monad Fabric where
         return a = Fabric $ \ _ -> return (a,[])
@@ -130,10 +134,12 @@ runSteppers ss = do
 class Graphic g where
         drawGraphic :: g -> IO ()
 
-data Act = Act (IO ())
+-- ACT is basically a back-door to perform IO, using the 
+-- graphics handler (which is really an effects handler).
+data ACT = ACT (IO ())
 
-instance Graphic Act where
-        drawGraphic (Act m) = m
+instance Graphic ACT where
+        drawGraphic (ACT m) = m
 
 stepper :: (Graphic g) => [Maybe g] -> Stepper
 stepper (Nothing:ms) = Stepper (do return (stepper ms))
@@ -176,6 +182,13 @@ hGetContentsStepwise h = do
 green :: IO () -> IO ()
 green m = do
         putStr $ "\ESC[32m"
+        m
+        putStr $ "\ESC[0m"
+
+-- | Do an IO (print) in the context of a green pen.
+red :: IO () -> IO ()
+red m = do
+        putStr $ "\ESC[31m"
         m
         putStr $ "\ESC[0m"
 

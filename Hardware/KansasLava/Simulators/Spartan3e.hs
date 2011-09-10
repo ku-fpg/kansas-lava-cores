@@ -50,13 +50,6 @@ board_init = do
 
 showClock :: Int -> Fabric ()
 showClock m = outFabric (CLOCK) [0..]
-{-
-        [ if (n `mod` fromIntegral m == 0) 
-          then (if n == 100000 then error "X" else Just (CLOCK n))
-          else Nothing
-        | n <- [0..] 
-        ]
--}
 
 -----------------------------------------------------------------------
 -- Patches
@@ -67,8 +60,6 @@ shallowSlowDownAckBoxPatch ::
 	                 (Seq Ack)	     (Seq Ack)
 shallowSlowDownAckBoxPatch slow ~(inp,ack) = (toAck (toSeq ack_out),packEnabled (toSeq good) (enabledVal inp))
   where
-
-
         ack_in :: [Bool]
         ack_in = [ x | Just x <- fromSeq (fromAck ack) ]
 
@@ -94,41 +85,20 @@ rs232_dce_tx baud = shallowSlowDownAckBoxPatch slow_count $$ fromAckBox $$ forwa
    where
         -- 10 bits per byte
         slow_count = 10 * clockRate `div` baud
-
         fab inp = do
                 writeFileFabric "dev/dce_tx" $ map (fmap fromIntegral) inp
                 outFabricCount (RS232 TX 1) inp
 
-
-{-
-        outFabricIO start $ \ (h,c) ->
-                     map (just $ \ ch -> Just (RS232_TX DCE h c ch)) inp
-
-        start = do
-                h <- openBinaryFile "dev/dce_tx" AppendMode
-                hSetBuffering h NoBuffering        
-                c <- newMVar 0
-                return (h,c)
-
-        just :: (a -> Maybe b) -> Maybe a -> Maybe b
-        just _ Nothing  = Nothing
-        just k (Just a) = k a
--}
 rs232_dce_rx :: Integer
              -> Fabric (Patch () (Seq (Enabled U8))
 	                      () ())
 rs232_dce_rx baud = do
         -- 10 bits per byte
         let slow_count = 10 * clockRate `div` baud
-
         ss0 <- readFileFabric "dev/dce_rx"
-
         let ss = concatMap (\ x -> x : replicate (fromIntegral slow_count) Nothing) ss0
-
         outFabricCount (RS232 RX 1) ss
-
         return (unitPatch (toSeq (map (fmap fromIntegral) ss)))
-
 
 -----------------------------------------------------------------------
 -- 
@@ -213,7 +183,7 @@ mm_lcdPatch = fromAckBox $$ forwardPatch fab
 
 boardASCII = unlines
  [ "   _||_____|VGA|_____|X|__|232 DCE|__|232 CTE|__"
- , "  |oXX                                          |_"
+ , "  |o||                                          |_"
  , "  |                                             | |"
  , "  |                     +----+                  | |"
  , " ----+         DIGILENT |FPGA|                  | |"
@@ -275,12 +245,13 @@ instance Graphic Output where
  
        up = if b then ch else ':'
        down = if b then ':' else ch
- drawGraphic (CLOCK n) = do
+ drawGraphic (CLOCK n) = 
         putStr ("clk: " ++ show n) `at` (5,35)
  drawGraphic (LCD (row,col) ch) =
         putChar ch `at` (13 + fromIntegral row,20 + fromIntegral col)
- drawGraphic BOARD =
+ drawGraphic BOARD = do
          putStr boardASCII `at` (1,1)
+         red $ putChar 'o' `at` (2,4)
  drawGraphic (BUTTON x b) = 
         (if b then reverse_video else id) $
         putChar (snd (buttons !! fromIntegral x)) `at` 
@@ -308,8 +279,9 @@ instance Graphic Output where
         hPutChar h (chr (fromIntegral c))
         hFlush h
 -}
- drawGraphic (RS232 dir port val) = do
-        putStr (prefix ++ show val) `at` (col,row)
+ drawGraphic (RS232 dir port val) 
+      | val > 0   = putStr (prefix ++ show val) `at` (col,row)
+      | otherwise = putStr (prefix ++ "-")      `at` (col,row)
   where
         row = matrix [ 27, 38 ] ! port
 

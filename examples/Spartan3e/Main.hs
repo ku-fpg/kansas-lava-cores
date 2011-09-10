@@ -217,16 +217,19 @@ main = do
                                      ])
 
 --                        runPatch (alwaysAckPatch ((0,0),33) $$ mm_lcdPatch)
-                        runPatch p1
+--                        runPatch p1
+
+                        friendlyFabric
 
                         buttons
+
+                        rs232_dce_rx (115200 * 100)
                         
                         runPatch (
                                 unitPatch (map Just [33..126] ++ Prelude.repeat Nothing) $$
                                 toAckBox $$
-                                rs232_dce_tx 115200)
+                                rs232_dce_tx (115200 * 100))
 
-                        rs232_dce_rx (115200 * 100)
 
                         dial
 
