@@ -30,8 +30,32 @@ import Control.Monad.Fix
 import Data.Word
 import System.IO.Unsafe (unsafeInterleaveIO)
 
--- | The simulator uses its own 'Fabric', which connects not to pins on the chip, but rather an ASCII picture of the board.
+-----------------------------------------------------------------------
+-- Monad
+-----------------------------------------------------------------------
+
+-- | The simulator uses its own 'Fabric', which connects not to pins on the chip, 
+-- but rather an ASCII picture of the board.
+
 data Fabric a = Fabric ([Maybe Char] -> IO (a,[Stepper]))
+
+
+instance Monad Fabric where
+        return a = Fabric $ \ _ -> return (a,[])
+        (Fabric f) >>= k = Fabric $ \ inp -> do
+                                (a,s1)  <- f inp
+                                let Fabric g = k a
+                                (b,s2)  <- g inp
+                                return (b,s1 ++ s2)
+        fail msg = error msg
+
+instance MonadFix Fabric where
+        -- TODO: check this
+        mfix f = Fabric $ \ inp -> mfix (\ r ->  let (Fabric g) = f (fst r) 
+                                                 in g inp)
+-----------------------------------------------------------------------
+-- Ways out outputing from the Fabric
+-----------------------------------------------------------------------
 
 -- | Checks an input list for diffences between adjacent elements,
 -- and for changes, maps a graphical event onto the internal stepper.
@@ -73,6 +97,9 @@ writeFileFabric filename contents = Fabric $ \ _ -> do
                                     "Failed to open " ++ filename ++ " for writing, " ++ 
                                     "(perhaps fifo with no writer?)")
 
+-----------------------------------------------------------------------
+-- Ways out inputting to the Fabric
+-----------------------------------------------------------------------
 
 -- | Turn a observation of the keyboard into a list of values.
 inFabric :: a                           -- ^ initial 'a'
@@ -99,6 +126,20 @@ readFileFabric filename = Fabric $ \ inp -> do
         ss <- hGetContentsStepwise h
         return (map (fmap (fromIntegral . ord)) ss,[])
 
+-----------------------------------------------------------------------
+-- Running the Fabric
+-----------------------------------------------------------------------
+
+-- | 'runFabric' executes the Fabric, never returns, and ususally replaces 'reifyFabric'.
+
+runFabric :: Fabric () -> IO ()
+runFabric (Fabric f) = do
+        hSetBuffering stdin NoBuffering
+        hSetEcho stdin False
+        inputs <- hGetContentsStepwise stdin
+        (_,steps) <- f inputs
+	putStr "\ESC[2J\ESC[1;1H"
+        runSteppers steps
 
 -- | 'friendlyFabric' slows things down, to be CPU friendly.
 friendlyFabric :: Fabric ()
@@ -106,22 +147,24 @@ friendlyFabric =
         outFabric (const $ ACT $ do
                    threadDelay (20 * 1000)) [0..]
 
+-----------------------------------------------------------------------
+-- Abstaction for output (typically the screen)
+-----------------------------------------------------------------------
 
+class Graphic g where
+        drawGraphic :: g -> IO ()
 
-instance Monad Fabric where
-        return a = Fabric $ \ _ -> return (a,[])
-        (Fabric f) >>= k = Fabric $ \ inp -> do
-                                (a,s1)  <- f inp
-                                let Fabric g = k a
-                                (b,s2)  <- g inp
-                                return (b,s1 ++ s2)
-        fail msg = error msg
+-- ACT is basically a back-door to perform IO, using the 
+-- graphics handler (which is really an effects handler).
+data ACT = ACT (IO ())
 
-instance MonadFix Fabric where
-        -- TODO: check this
-        mfix f = Fabric $ \ inp -> mfix (\ r ->  let (Fabric g) = f (fst r) 
-                                                 in g inp)
-        
+instance Graphic ACT where
+        drawGraphic (ACT m) = m
+
+-----------------------------------------------------------------------
+-- Internal: The Stepper abstraction, which is just the resumption monad
+-----------------------------------------------------------------------
+
 -- Do something, and return.
 data Stepper = Stepper (IO (Stepper))
 
@@ -137,52 +180,15 @@ runSteppers ss = do
 --        threadDelay (10 * 1000)
         runSteppers ss'
 
-class Graphic g where
-        drawGraphic :: g -> IO ()
-
--- ACT is basically a back-door to perform IO, using the 
--- graphics handler (which is really an effects handler).
-data ACT = ACT (IO ())
-
-instance Graphic ACT where
-        drawGraphic (ACT m) = m
-
 stepper :: (Graphic g) => [Maybe g] -> Stepper
 stepper (Nothing:ms) = Stepper (do return (stepper ms))
 stepper (Just o:ms)  = Stepper (do drawGraphic o ; return (stepper ms))
 stepper other        = Stepper (return $ stepper other)
 
--- | 'runFabric' executes the Fabric, never returns, and ususally replaces 'reifyFabric'.
 
-runFabric :: Fabric () -> IO ()
-runFabric (Fabric f) = do
-        hSetBuffering stdin NoBuffering
-        hSetEcho stdin False
-        inputs <- hGetContentsStepwise stdin
-        (_,steps) <- f inputs
-	putStr "\ESC[2J\ESC[1;1H"
-        runSteppers steps
-
---        eof <- hIsEOF h
---        if eof then return (repeat Nothing) else rest
---  where
-
-
-hGetContentsStepwise :: Handle -> IO [Maybe Char]
-hGetContentsStepwise h = do
-        opt_ok <- try (hReady h)
-        case opt_ok of
-           Right ok -> do
-                   out <- if ok then do
-                             ch <- hGetChar h
-                             return (Just ch)
-                           else do
-                             return Nothing
-                   rest <- unsafeInterleaveIO $ hGetContentsStepwise h
-                   return (out : rest)
-           Left (e :: IOException) -> return (repeat Nothing)
-
+-----------------------------------------------------------------------
 -- Helpers for printing to the screen
+-----------------------------------------------------------------------
 
 -- | Do an IO (print) in the context of a green pen.
 green :: IO () -> IO ()
@@ -212,6 +218,26 @@ at m (row,col) = do
         m
 	putStr $ "\ESC[24;1H"
 	hFlush stdout
+
+-----------------------------------------------------------------------
+-- Steping version of hGetContent, never blocks, returning
+-- a stream of nothing after the end file.
+-----------------------------------------------------------------------
+
+hGetContentsStepwise :: Handle -> IO [Maybe Char]
+hGetContentsStepwise h = do
+        opt_ok <- try (hReady h)
+        case opt_ok of
+           Right ok -> do
+                   out <- if ok then do
+                             ch <- hGetChar h
+                             return (Just ch)
+                           else do
+                             return Nothing
+                   rest <- unsafeInterleaveIO $ hGetContentsStepwise h
+                   return (out : rest)
+           Left (e :: IOException) -> return (repeat Nothing)
+
 
 -----------------------------------------------------------------------
 -- Exception Magic
