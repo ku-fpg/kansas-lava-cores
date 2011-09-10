@@ -44,19 +44,19 @@ showUCF _ = return "/* Simulator does not need a UCF */\n"
 switchesPatch = undefined
 
 board_init = do
-        outFabric $ [return BOARD]
-        inFabric False
-                (QUIT)
-                (\ c _ -> c == 'q')
-        
+        outFabric (\ _ -> BOARD) [()]
+        quit <- inFabric False (\ c _ -> c == 'q')
+        outFabric QUIT quit
 
 showClock :: Int -> Fabric ()
-showClock m = outFabric $ 
+showClock m = outFabric (CLOCK) [0..]
+{-
         [ if (n `mod` fromIntegral m == 0) 
-          then Just (CLOCK n)
+          then (if n == 100000 then error "X" else Just (CLOCK n))
           else Nothing
         | n <- [0..] 
         ]
+-}
 
 -----------------------------------------------------------------------
 -- Patches
@@ -95,7 +95,13 @@ rs232_dce_tx baud = shallowSlowDownAckBoxPatch slow_count $$ fromAckBox $$ forwa
         -- 10 bits per byte
         slow_count = 10 * clockRate `div` baud
 
-        fab inp = outFabricIO start $ \ (h,c) ->
+        fab inp = do
+                writeFileFabric "dev/dce_tx" $ map (fmap fromIntegral) inp
+                outFabricCount (RS232 TX 1) inp
+
+
+{-
+        outFabricIO start $ \ (h,c) ->
                      map (just $ \ ch -> Just (RS232_TX DCE h c ch)) inp
 
         start = do
@@ -107,7 +113,7 @@ rs232_dce_tx baud = shallowSlowDownAckBoxPatch slow_count $$ fromAckBox $$ forwa
         just :: (a -> Maybe b) -> Maybe a -> Maybe b
         just _ Nothing  = Nothing
         just k (Just a) = k a
-
+-}
 rs232_dce_rx :: Integer
              -> Fabric (Patch () (Seq (Enabled U8))
 	                      () ())
@@ -115,19 +121,13 @@ rs232_dce_rx baud = do
         -- 10 bits per byte
         let slow_count = 10 * clockRate `div` baud
 
-        ss0 <- inFabricIO $ do 
-                h <- openBinaryFile "dev/dce_rx" ReadMode
-                hSetBuffering h NoBuffering  
-                return h
+        ss0 <- readFileFabric "dev/dce_rx"
 
         let ss = concatMap (\ x -> x : replicate (fromIntegral slow_count) Nothing) ss0
 
-        let loop n (Nothing:xs) = Nothing : loop n xs
-            loop n (Just _:xs) = return (RS232_RX DCE n) : loop (succ n) xs
+        outFabricCount (RS232 RX 1) ss
 
-        outFabric $ loop 1 ss
-
-        return (unitPatch (toSeq (map (fmap (fromIntegral . ord)) ss)))
+        return (unitPatch (toSeq (map (fmap fromIntegral) ss)))
 
 
 -----------------------------------------------------------------------
@@ -137,18 +137,15 @@ rs232_dce_rx baud = do
 
 leds :: Matrix X8 (Seq Bool) -> Fabric ()
 leds m = do
-        sequence_ [ outFabric $ map (\ c -> case c of
-	                                    Nothing -> Nothing
-	                                    Just b -> Just (LED (fromIntegral i) b))
-	                     $ changed (fromSeq (m ! i))
+        sequence_ [ outFabric ( LED (fromIntegral i)) (fromSeq (m ! i))
 	          | i <- [0..7]
 	          ]
 
 switches :: Fabric (Matrix X4 (Seq Bool))
 switches = do
-        ms <- sequence [ inFabric False
-                                  (\ b -> TOGGLE i b)
-                                  (sw i)
+        ms <- sequence [ do ss <- inFabric False (sw i)
+                            outFabric (TOGGLE i) ss
+                            return ss
                        | i <- [0..3]
                        ]
         return (matrix (map toSeq ms))
@@ -161,9 +158,9 @@ switches = do
 
 buttons :: Fabric (Matrix X4 (Seq Bool))
 buttons = do
-        ms <- sequence [ inFabric False
-                                  (\ b -> BUTTON i b)
-                                  (sw i)
+        ms <- sequence [ do ss <- inFabric False (sw i)
+                            outFabric (BUTTON i) ss
+                            return ss
                        | i <- [0..3]
                        ]
         return (matrix (map toSeq ms))
@@ -174,8 +171,6 @@ buttons = do
         key :: Matrix X4 Char
         key = matrix "aegx"
 
-       
-       
 data Dial = Dial Bool U2
         deriving Eq
 
@@ -195,9 +190,10 @@ dial = do
           f 3 = Just True
         
 ll_dial :: Fabric [Dial]
-ll_dial = inFabric (Dial False 0)
-                   (DIAL)
-                   switch
+ll_dial = do 
+        ss <- inFabric (Dial False 0) switch
+        outFabric DIAL ss
+        return ss
    where 
            switch 'd' (Dial b p) = Dial (not b) p
            switch 's' (Dial b p) = Dial b (pred p)
@@ -208,33 +204,12 @@ mm_lcdPatch :: Patch (Seq (Enabled ((X2,X16),U8)))   (Fabric ())
 	             (Seq Ack)	                    ()
 mm_lcdPatch = fromAckBox $$ forwardPatch fab
    where
-        fab inp = outFabric $ map (just $ \ ((x,y),ch) -> Just (LCD (x,y) (Char.chr (fromIntegral ch)))) inp
+        fab inp = outFabricEvents $ map (just $ \ ((x,y),ch) -> Just (LCD (x,y) (Char.chr (fromIntegral ch)))) inp
 
         just :: (a -> Maybe b) -> Maybe a -> Maybe b
         just _ Nothing  = Nothing
         just k (Just a) = k a
 
-toggle :: [Bool] -> [Bool]
-toggle = f False
-  where
-        f st (True:rs) = not st : f (not st) rs
-        f st (_:rs)    = st     : f st rs
-        f st []        = []
-
-
-changed :: (Eq a) => [a] -> [Maybe a]
-changed (a:as) = Just a : f a as
-  where
-        f x (y:ys) | x == y    = Nothing : f x ys
-                   | otherwise = Just y : f y ys
-        f _ [] = []
-
-diff :: (Eq a) => [Maybe a] -> [Maybe a]
-diff xs = Nothing : f Nothing xs
- where 
-  f x (y:ys) | x == y    =     f x ys
-	     | otherwise = y : f y ys
-  f x [] = []
 
 boardASCII = unlines
  [ "   _||_____|VGA|_____|X|__|232 DCE|__|232 CTE|__"
@@ -277,10 +252,9 @@ data Output
         | BUTTON X4 Bool
         | DIAL Dial
         | QUIT Bool
-        | RS232_TX RS232 Handle (MVar Integer) U8
-        | RS232_RX RS232 Integer
-        
-data RS232 = DCE | DTE
+        | RS232 DIR X2 Integer
+
+data DIR  = RX | TX
 
 instance Graphic Output where 
  drawGraphic (LED x st) = 
@@ -302,8 +276,7 @@ instance Graphic Output where
        up = if b then ch else ':'
        down = if b then ':' else ch
  drawGraphic (CLOCK n) = do
-        let n_txt = show n
-        putStr n_txt `at` (5,47 - Prelude.length n_txt)
+        putStr ("clk: " ++ show n) `at` (5,35)
  drawGraphic (LCD (row,col) ch) =
         putChar ch `at` (13 + fromIntegral row,20 + fromIntegral col)
  drawGraphic BOARD =
@@ -326,6 +299,7 @@ instance Graphic Output where
         | b = do return () `at` (25,1)
                  error "Simulation Quit"
         | otherwise = return ()
+{-
  drawGraphic (RS232_TX DCE h var c) = do
         v <- takeMVar var
         let v' = v + 1
@@ -333,5 +307,15 @@ instance Graphic Output where
         putStr ("tx " ++ show v') `at` (2,27)
         hPutChar h (chr (fromIntegral c))
         hFlush h
- drawGraphic (RS232_RX DCE val) = do
-        putStr ("rx " ++ show val) `at` (3,27)
+-}
+ drawGraphic (RS232 dir port val) = do
+        putStr (prefix ++ show val) `at` (col,row)
+  where
+        row = matrix [ 27, 38 ] ! port
+
+        prefix = case dir of
+                   RX -> "rx "
+                   TX -> "tx "
+        col = case dir of
+                   RX -> 3
+                   TX -> 2

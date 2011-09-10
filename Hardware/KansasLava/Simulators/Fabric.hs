@@ -5,9 +5,12 @@ module Hardware.KansasLava.Simulators.Fabric (
           -- * The Fake Fabric Monad, and its constructor
           Fabric               -- abstract
         , outFabric
+        , outFabricEvents
         , outFabricIO
+        , outFabricCount
+        , writeFileFabric
         , inFabric
-        , inFabricIO
+        , readFileFabric
         -- * running the fake Fabric
         , runFabric
         -- * Support for the (ASCII) Graphics
@@ -19,38 +22,66 @@ module Hardware.KansasLava.Simulators.Fabric (
         
 import System.IO
 import Control.Exception
+import Data.Char
 import Control.Monad.Fix
+import Data.Word
 import System.IO.Unsafe (unsafeInterleaveIO)
 
 -- | The simulator uses its own 'Fabric', which connects not to pins on the chip, but rather an ASCII picture of the board.
 data Fabric a = Fabric ([Maybe Char] -> IO (a,[Stepper]))
 
--- | Turn a list of graphical events into a 'Fabric'.
-outFabric :: (Graphic g) => [Maybe g] -> Fabric ()
-outFabric ogs = Fabric $ \ _ -> return ((),[stepper ogs])
+-- | Checks an input list for diffences between adjacent elements,
+-- and for changes, maps a graphical event onto the internal stepper.
+-- The idea is that sending the graphical event twice, it should be 
+-- idempotent.
+outFabric :: (Eq a, Graphic g) => (a -> g) -> [a] -> Fabric ()
+outFabric f = outFabricEvents . map (fmap f) . changed
+
+changed :: (Eq a) => [a] -> [Maybe a]
+changed (a:as) = Just a : f a as
+    where
+        f x (y:ys) | x == y    = Nothing : f x ys
+                   | otherwise = Just y : f y ys
+        f _ [] = []
+
+-- | Turn a list of graphical events into a 'Fabric', without processing.
+outFabricEvents :: (Graphic g) => [Maybe g] -> Fabric ()
+outFabricEvents ogs = Fabric $ \ _ -> return ((),[stepper ogs])
+
+-- creates single graphical events, based on the number of Events,
+-- when the first event is event 1.
+outFabricCount :: (Graphic g) => (Integer -> g) -> [Maybe a] -> Fabric ()
+outFabricCount f = outFabric f . loop 1
+  where
+        loop n (Nothing:xs) = n : loop n xs
+        loop n (Just _:xs)  = n : loop (succ n) xs
+
+writeFileFabric :: String -> [Maybe Word8] -> Fabric ()
+writeFileFabric filename contents = Fabric $ \ _ -> do
+        h <- openBinaryFile "dev/dce_tx" AppendMode
+        hSetBuffering h NoBuffering        
+        return ((),[ stepper (map (fmap (\ ch -> Act $ do
+                                hPutChar h (chr (fromIntegral ch))
+                                hFlush h)) contents)
+                   ])
+
+        
 
 outFabricIO :: (Graphic g) => IO a -> (a -> [Maybe g]) -> Fabric ()
 outFabricIO m ogs = Fabric $ \ _ -> do st <- m
                                        return ((),[stepper (ogs st)])
 
+
+
 -- | Turn a observation of the keyboard into a list of values.
-inFabric :: (Eq a, Graphic g) 
-         => a                           -- ^ initial 'a'
-         -> (a -> g)                    -- ^ how to print 'a' (when changed)
+inFabric :: a                           -- ^ initial 'a'
          -> (Char -> a -> a)            -- ^ how to interpreate a key press
          -> Fabric [a]
-inFabric a pr interp = Fabric $ \ inp -> do
+inFabric a interp = Fabric $ \ inp -> do
         let f' a' Nothing = a'
             f' a' (Just c) = interp c a'
             vals = scanl f' a inp
-        return (vals,[stepper $ map (fmap pr) $ changed vals])
-  where
-        changed :: (Eq a) => [a] -> [Maybe a]
-        changed (a:as) = Just a : f a as
-            where
-                f x (y:ys) | x == y    = Nothing : f x ys
-                           | otherwise = Just y : f y ys
-                f _ [] = []
+        return (vals,[]) 
 
 
 -- | 'inFabricIO' reads the contents of a file.
@@ -60,11 +91,12 @@ inFabric a pr interp = Fabric $ \ inp -> do
 -- This does not make any attempt to register
 -- what is being observed on the screen; another
 -- process needs to do this.
-inFabricIO :: IO Handle -> Fabric [Maybe Char]
-inFabricIO m = Fabric $ \ inp -> do
-        h <- m
+readFileFabric :: String -> Fabric [Maybe Word8]
+readFileFabric filename = Fabric $ \ inp -> do
+        h <- openBinaryFile filename ReadMode
+        hSetBuffering h NoBuffering  
         ss <- hGetContentsStepwise h
-        return (ss,[])
+        return (map (fmap (fromIntegral . ord)) ss,[])
 
 instance Monad Fabric where
         return a = Fabric $ \ _ -> return (a,[])
@@ -97,6 +129,11 @@ runSteppers ss = do
 
 class Graphic g where
         drawGraphic :: g -> IO ()
+
+data Act = Act (IO ())
+
+instance Graphic Act where
+        drawGraphic (Act m) = m
 
 stepper :: (Graphic g) => [Maybe g] -> Stepper
 stepper (Nothing:ms) = Stepper (do return (stepper ms))
