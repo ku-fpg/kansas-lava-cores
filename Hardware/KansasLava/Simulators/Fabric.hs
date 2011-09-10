@@ -171,6 +171,10 @@ data ACT = ACT (IO ())
 -- Internal: The Stepper abstraction, which is just the resumption monad
 -----------------------------------------------------------------------
 
+-- The idea in the future is we can common up the changes to the
+-- screen, removing needless movement of the cursor, allowing 
+-- a slight pause before updating, etc.
+
 -- Do something, and return.
 data Stepper = Stepper (IO (Stepper))
 
@@ -231,6 +235,11 @@ showANSI (RETURN a) = return a
 showANSI (BIND m k) = do
         a <- showANSI m
         showANSI (k a)
+
+-- | Rather than use a data-structure for each action,
+-- ANSI can be used instead. Not recommended, but harmless.
+instance Graphic (ANSI a) where 
+        drawGraphic g = do g ; return ()
 
 -----------------------------------------------------------------------
 -- Steping version of hGetContent, never blocks, returning
