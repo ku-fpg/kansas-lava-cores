@@ -22,7 +22,7 @@ module Hardware.KansasLava.Simulators.Spartan3e (
         , buttons
 	) where
 
-import Hardware.KansasLava.Boards.Spartan3e (clockRate)
+import qualified Hardware.KansasLava.Boards.Spartan3e as Board
 import Data.Sized.Ix
 import Data.Sized.Unsigned
 import Data.Sized.Matrix as M
@@ -37,17 +37,38 @@ import System.IO.Unsafe
 
 import Hardware.KansasLava.Simulators.Fabric
 
-rot_as_reset = undefined
+------------------------------------------------------------
+-- initialization
+------------------------------------------------------------
+
+-- | 'board_init' sets up the use of the clock.
+-- Always call 'board_init' first. 
+-- Required.
+board_init :: Fabric ()
+board_init = generic_init BOARD CLOCK
+
+-- | 'rot_as_reset' sets up the rotary dial as a reset switch.
+--  Does nothing on the simulator.
+rot_as_reset :: Fabric ()
+rot_as_reset = return ()
+
+-- | The clock rate on the Spartan3e (50MHz), in hertz.
+clockRate :: Integer
+clockRate = Board.clockRate
+
+-- | show out a suggested UCF file for Spartan3e, for a specific circuit.
+showUCF :: KLEG -> IO String
 showUCF _ = return "/* Simulator does not need a UCF */\n"
-switchesPatch = undefined
-
-board_init = generic_init (do PRINT boardASCII `at` (1,1)
-                              COLOR Red $ PRINT ['o'] `at` (2,4))
-                           CLOCK
-
+ 
 -----------------------------------------------------------------------
 -- Patches
 -----------------------------------------------------------------------
+switchesPatch = undefined
+
+-- | 'board_init' sets up the use of the clock. 
+-- Always call 'board_init' first. 
+-- Required.
+
 
 shallowSlowDownAckBoxPatch ::
         Integer -> Patch (Seq (Enabled U8))  (Seq (Enabled U8))

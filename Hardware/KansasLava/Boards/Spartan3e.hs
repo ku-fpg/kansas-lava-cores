@@ -23,7 +23,9 @@ import Data.Sized.Matrix
 -- initialization
 ------------------------------------------------------------
 
--- | 'board_init' sets up the use of the clock. Required.
+-- | 'board_init' sets up the use of the clock.
+-- Always call 'board_init' first. 
+-- Required.
 board_init :: Fabric ()
 board_init = do
 	theClk "CLK_50MHZ"		-- we need to name and pull in the clock
