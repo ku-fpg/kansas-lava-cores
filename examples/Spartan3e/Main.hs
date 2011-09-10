@@ -220,10 +220,17 @@ main = do
                         runPatch p1
 
                         buttons
+                        
+                        runPatch (
+                                unitPatch (map Just [33..126] ++ Prelude.repeat Nothing) $$
+                                toAckBox $$
+                                rs232_dce_tx 115200)
+
+                        rs232_dce_rx (115200 * 100)
 
                         dial
 
-	                showClock 10000
+	                showClock 1000
 	Sim.runFabric fab
 
 	

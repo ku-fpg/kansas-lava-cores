@@ -12,7 +12,7 @@ module Hardware.KansasLava.Simulators.Spartan3e (
 --	, lcdPatch              -- unsupported in the simulator
 	, mm_lcdPatch
 	, switchesPatch
---        , rs232_dce_rx
+        , rs232_dce_rx
         , rs232_dce_tx
 --        , rs232_dte_rx
 --        , rs232_dte_tx
@@ -24,6 +24,7 @@ module Hardware.KansasLava.Simulators.Spartan3e (
         , buttons
 	) where
 
+import Hardware.KansasLava.Boards.Spartan3e (clockRate)
 import Data.Sized.Ix
 import Data.Sized.Unsigned
 import Data.Sized.Matrix as M
@@ -39,7 +40,6 @@ import System.IO.Unsafe
 import Hardware.KansasLava.Simulators.Fabric
 
 rot_as_reset = undefined
-clockRate = undefined
 showUCF _ = return "/* Simulator does not need a UCF */\n"
 switchesPatch = undefined
 
@@ -62,17 +62,44 @@ showClock m = outFabric $
 -- Patches
 -----------------------------------------------------------------------
 
+shallowSlowDownAckBoxPatch ::
+        Integer -> Patch (Seq (Enabled U8))  (Seq (Enabled U8))
+	                 (Seq Ack)	     (Seq Ack)
+shallowSlowDownAckBoxPatch slow ~(inp,ack) = (toAck (toSeq ack_out),packEnabled (toSeq good) (enabledVal inp))
+  where
+
+
+        ack_in :: [Bool]
+        ack_in = [ x | Just x <- fromSeq (fromAck ack) ]
+
+        inp_in :: [Bool]
+        inp_in = [ x | Just x <- fromSeq (isEnabled inp) ]
+
+        good :: [Bool]        
+        good = f 0 inp_in
+        
+        f 0 (False:is) =  False : f 0 is
+        f 0 (True:is)  =  True  : f slow is
+        f other (_:is)  = False : f (pred other) is
+
+        ack_out :: [Bool]
+        ack_out = ack_in
+
+
 rs232_dce_tx :: Integer         -- ^ baud rate (ignored for simulation)
              -> Patch (Seq (Enabled U8))  (Fabric ())
 	              (Seq Ack)	          ()
 
-rs232_dce_tx baud = fromAckBox $$ forwardPatch fab
+rs232_dce_tx baud = shallowSlowDownAckBoxPatch slow_count $$ fromAckBox $$ forwardPatch fab
    where
+        -- 10 bits per byte
+        slow_count = 10 * clockRate `div` baud
+
         fab inp = outFabricIO start $ \ (h,c) ->
                      map (just $ \ ch -> Just (RS232_TX DCE h c ch)) inp
 
         start = do
-                h <- openBinaryFile "dev/dce_out" AppendMode
+                h <- openBinaryFile "dev/dce_tx" AppendMode
                 hSetBuffering h NoBuffering        
                 c <- newMVar 0
                 return (h,c)
@@ -81,8 +108,26 @@ rs232_dce_tx baud = fromAckBox $$ forwardPatch fab
         just _ Nothing  = Nothing
         just k (Just a) = k a
 
---rs232_dce_rx :: Fabric (Patch () (Seq (Enabled U8))
---	                      () ())
+rs232_dce_rx :: Integer
+             -> Fabric (Patch () (Seq (Enabled U8))
+	                      () ())
+rs232_dce_rx baud = do
+        -- 10 bits per byte
+        let slow_count = 10 * clockRate `div` baud
+
+        ss0 <- inFabricIO $ do 
+                h <- openBinaryFile "dev/dce_rx" ReadMode
+                hSetBuffering h NoBuffering  
+                return h
+
+        let ss = concatMap (\ x -> x : replicate (fromIntegral slow_count) Nothing) ss0
+
+        let loop n (Nothing:xs) = Nothing : loop n xs
+            loop n (Just _:xs) = return (RS232_RX DCE n) : loop (succ n) xs
+
+        outFabric $ loop 1 ss
+
+        return (unitPatch (toSeq (map (fmap (fromIntegral . ord)) ss)))
 
 
 -----------------------------------------------------------------------
@@ -233,6 +278,7 @@ data Output
         | DIAL Dial
         | QUIT Bool
         | RS232_TX RS232 Handle (MVar Integer) U8
+        | RS232_RX RS232 Integer
         
 data RS232 = DCE | DTE
 
@@ -284,7 +330,8 @@ instance Graphic Output where
         v <- takeMVar var
         let v' = v + 1
         putMVar var v'
-        putStr ("o:" ++ show v') `at` (2,27)
+        putStr ("tx " ++ show v') `at` (2,27)
         hPutChar h (chr (fromIntegral c))
         hFlush h
-
+ drawGraphic (RS232_RX DCE val) = do
+        putStr ("rx " ++ show val) `at` (3,27)
