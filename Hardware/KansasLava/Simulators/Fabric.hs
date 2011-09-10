@@ -1,4 +1,4 @@
-{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE ScopedTypeVariables, GADTs, DeriveDataTypeable #-}
 -- | * Remember to call init_board for your specific board.
 
 module Hardware.KansasLava.Simulators.Fabric (
@@ -22,6 +22,7 @@ module Hardware.KansasLava.Simulators.Fabric (
         ) where
         
 import System.IO
+import Data.Typeable
 import Control.Exception
 import Control.Concurrent
 import Data.Char
@@ -60,12 +61,17 @@ outFabricCount f = outFabric f . loop 0
 
 writeFileFabric :: String -> [Maybe Word8] -> Fabric ()
 writeFileFabric filename contents = Fabric $ \ _ -> do
-        h <- openFile "dev/dce_tx" WriteMode
-        hSetBuffering h NoBuffering        
-        return ((),[ stepper (map (fmap (\ ch -> ACT $ do
-                                hPutChar h (chr (fromIntegral ch))
-                                hFlush h)) contents)
-                   ])
+        opt_h <- try (openBinaryFile filename WriteMode)
+        case opt_h of 
+          Right h -> do
+                  hSetBuffering h NoBuffering
+                  return ((),[ stepper (map (fmap (\ ch -> ACT $ do
+                                        hPutChar h (chr (fromIntegral ch))
+                                        hFlush h)) contents)
+                                        ])
+          Left (_::IOException) -> throw (FabricException $ 
+                                    "Failed to open " ++ filename ++ " for writing, " ++ 
+                                    "(perhaps fifo with no writer?)")
 
 
 -- | Turn a observation of the keyboard into a list of values.
@@ -206,3 +212,15 @@ at m (row,col) = do
         m
 	putStr $ "\ESC[24;1H"
 	hFlush stdout
+
+-----------------------------------------------------------------------
+-- Exception Magic
+-----------------------------------------------------------------------
+
+data FabricException = FabricException String
+     deriving Typeable
+
+instance Show FabricException where
+     show (FabricException msg) = msg
+
+instance Exception FabricException
