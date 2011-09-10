@@ -19,7 +19,8 @@ Flag unit
 Library
   Build-Depends: base >= 4, 
                 kansas-lava == 0.2.3.0,
-                sized-types == 0.3.2.20110831
+                sized-types == 0.3.2.20110831,
+                ansi-terminal >= 0.5.5
   Exposed-modules:
         Hardware.KansasLava.FIFO
         Hardware.KansasLava.Random
