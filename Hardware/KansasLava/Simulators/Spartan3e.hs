@@ -182,22 +182,22 @@ mm_lcdPatch = fromAckBox $$ forwardPatch fab
 
 
 boardASCII = unlines
- [ "   _||_____|VGA|_____|X|__|232 DCE|__|232 CTE|__"
- , "  |o||                                          |_"
- , "  |                                             | |"
- , "  |                     +----+                  | |"
- , " ----+         DIGILENT |FPGA|                  | |"
- , " RJ45|   ##             |    |    SPARTAN-3E    | |"
- , " ----+   ##             +----+     \\      /     | |"
- , " _|_                                \\    / ()   | |"
- , " USB|     +--+                       \\  /       |_|"
- , " ---'     |##|         +----+       FPGA        |_"
- , "  |+--+   +--+         |####|         oooooooo  | |"
- , "  ||##|           +----------------+  76543210  |_|"
- , "  |+--+  (e)      |                |            |_"
- , "  |  (a) (|) (g)  |                |   : : : :  | |"
- , "  |      (x)      +----------------+   h j k l  |_|"
- , "  +---------------------------------------------+"
+ [ "    _||_____|VGA|_____|X|__|232 DCE|__|232 CTE|__"
+ , "   |o||                                          |_"
+ , "   |                                             | |"
+ , "   |                     +----+                  | |"
+ , "  ----+         DIGILENT |FPGA|                  | |"
+ , "  RJ45|   ##             |    |    SPARTAN-3E    | |"
+ , "  ----+   ##             +----+     \\      /     | |"
+ , "  _|_                                \\    / ()   | |"
+ , "  USB|     +--+                       \\  /       |_|"
+ , "  ---'     |##|         +----+       FPGA        |_"
+ , "   |+--+   +--+         |####|         oooooooo  | |"
+ , "   ||##|           +----------------+  76543210  |_|"
+ , "   |+--+  (e)      |                |            |_"
+ , "   |  (a) (|) (g)  |                |   : : : :  | |"
+ , "   |      (x)      +----------------+   h j k l  |_|"
+ , "   +---------------------------------------------+"
  , ""
  , "   Keyboard Commands:"
  , "     a, e, g, x - press buttons"
@@ -226,36 +226,40 @@ data Output
 
 data DIR  = RX | TX
 
+at = AT
+
 instance Graphic Output where 
  drawGraphic (LED x st) = 
-        opt_green $ putChar (ledASCII st) `at` (11,46 - fromIntegral x)
+        opt_green $ PRINT [ledASCII st] `at` (11,46 - fromIntegral x)
    where
-        opt_green = if st == Just True then green else id
+        opt_green = if st == Just True then COLOR Green else id
 
         ledASCII :: Maybe Bool -> Char
         ledASCII Nothing      = '?'
         ledASCII (Just True)  = '@'
         ledASCII (Just False) = '.'
 
- drawGraphic (TOGGLE x b) = do
-        putChar up   `at` (14,40 + 2 * fromIntegral x)
-        putChar down `at` (15,40 + 2 * fromIntegral x)
+ drawGraphic (TOGGLE x b) = MANY
+        [ PRINT [up]   `at` (14,40 + 2 * fromIntegral x) 
+        , PRINT [down] `at` (15,40 + 2 * fromIntegral x)
+        ]
   where
        ch = "hjkl" !! fromIntegral x
  
        up = if b then ch else ':'
        down = if b then ':' else ch
  drawGraphic (CLOCK n) = 
-        putStr ("clk: " ++ show n) `at` (5,35)
+        PRINT ("clk: " ++ show n) `at` (5,35)
  drawGraphic (LCD (row,col) ch) =
-        putChar ch `at` (13 + fromIntegral row,20 + fromIntegral col)
- drawGraphic BOARD = do
-         putStr boardASCII `at` (1,1)
-         red $ putChar 'o' `at` (2,4)
+        PRINT [ch] `at` (13 + fromIntegral row,20 + fromIntegral col)
+ drawGraphic BOARD = MANY
+        [  PRINT boardASCII `at` (1,1)
+        , COLOR Red $ PRINT ['o'] `at` (2,4)
+        ]
  drawGraphic (BUTTON x b) = 
-        (if b then reverse_video else id) $
-        putChar (snd (buttons !! fromIntegral x)) `at` 
-                (fst (buttons !! fromIntegral x)) 
+        (if b then REVERSE else id) $
+        PRINT [snd (buttons !! fromIntegral x)] `at` 
+              (fst (buttons !! fromIntegral x)) 
   where
        buttons = 
                [ ((14,7),'a')
@@ -264,24 +268,25 @@ instance Graphic Output where
                , ((15,11),'x')
                ]
  drawGraphic (DIAL (Dial b p)) = 
-        (if b then reverse_video else id) $
-        putChar ("|/-\\" !! fromIntegral p) `at` (14,11)
+        (if b then REVERSE else id) $
+        PRINT ["|/-\\" !! fromIntegral p] `at` (14,11)
  drawGraphic (QUIT b)
-        | b = do return () `at` (25,1)
-                 error "Simulation Quit"
-        | otherwise = return ()
+        | b = MANY [ PRINT "" `at` (25,1)
+                   , error "Simulation Quit"
+                   ]
+        | otherwise = MANY []
 {-
  drawGraphic (RS232_TX DCE h var c) = do
         v <- takeMVar var
         let v' = v + 1
         putMVar var v'
-        putStr ("tx " ++ show v') `at` (2,27)
+        PRINT ("tx " ++ show v') `at` (2,27)
         hPutChar h (chr (fromIntegral c))
         hFlush h
 -}
  drawGraphic (RS232 dir port val) 
-      | val > 0   = putStr (prefix ++ show val) `at` (col,row)
-      | otherwise = putStr (prefix ++ "-")      `at` (col,row)
+      | val > 0   = PRINT (prefix ++ show val) `at` (col,row)
+      | otherwise = PRINT (prefix ++ "-")      `at` (col,row)
   where
         row = matrix [ 27, 38 ] ! port
 

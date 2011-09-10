@@ -14,13 +14,16 @@ module Hardware.KansasLava.Simulators.Fabric (
         , friendlyFabric
         , runFabric
         -- * Support for the (ASCII) Graphics
+        , ASCII(..)
+        , Color(..)     -- from System.Console.ANSI
         , Graphic(..)
-        , at
-        , green
-        , red
-        , reverse_video
+--        , at
+--        , green
+--        , red
+--        , reverse_video
         ) where
         
+import System.Console.ANSI
 import System.IO
 import Data.Typeable
 import Control.Exception
@@ -89,13 +92,16 @@ writeFileFabric filename contents = Fabric $ \ _ -> do
         case opt_h of 
           Right h -> do
                   hSetBuffering h NoBuffering
-                  return ((),[ stepper (map (fmap (\ ch -> ACT $ do
-                                        hPutChar h (chr (fromIntegral ch))
-                                        hFlush h)) contents)
-                                        ])
+                  return ((),[ ioStepper (map (f h) contents) ])
           Left (_::IOException) -> throw (FabricException $ 
                                     "Failed to open " ++ filename ++ " for writing, " ++ 
                                     "(perhaps fifo with no writer?)")
+
+    where
+        f _ Nothing   = return ()
+        f h (Just ch) = do
+                hPutChar h (chr (fromIntegral ch))
+                hFlush h
 
 -----------------------------------------------------------------------
 -- Ways out inputting to the Fabric
@@ -134,6 +140,7 @@ readFileFabric filename = Fabric $ \ inp -> do
 
 runFabric :: Fabric () -> IO ()
 runFabric (Fabric f) = do
+        setTitle "Kansas Lava"
         hSetBuffering stdin NoBuffering
         hSetEcho stdin False
         inputs <- hGetContentsStepwise stdin
@@ -143,23 +150,22 @@ runFabric (Fabric f) = do
 
 -- | 'friendlyFabric' slows things down, to be CPU friendly.
 friendlyFabric :: Fabric ()
-friendlyFabric =
-        outFabric (const $ ACT $ do
-                   threadDelay (20 * 1000)) [0..]
+friendlyFabric = Fabric $ \ _ ->
+        return ((),[ioStepper [ threadDelay (20 * 1000) | _ <- [(0 :: Integer)..]]])
 
 -----------------------------------------------------------------------
 -- Abstaction for output (typically the screen)
 -----------------------------------------------------------------------
 
 class Graphic g where
-        drawGraphic :: g -> IO ()
+        drawGraphic :: g -> ASCII
 
 -- ACT is basically a back-door to perform IO, using the 
 -- graphics handler (which is really an effects handler).
 data ACT = ACT (IO ())
 
-instance Graphic ACT where
-        drawGraphic (ACT m) = m
+--instance Graphic ACT where
+--        drawGraphic (ACT m) = m
 
 -----------------------------------------------------------------------
 -- Internal: The Stepper abstraction, which is just the resumption monad
@@ -180,44 +186,68 @@ runSteppers ss = do
 --        threadDelay (10 * 1000)
         runSteppers ss'
 
+-- Stepper could be written in terms of ioStepper
 stepper :: (Graphic g) => [Maybe g] -> Stepper
 stepper (Nothing:ms) = Stepper (do return (stepper ms))
-stepper (Just o:ms)  = Stepper (do drawGraphic o ; return (stepper ms))
+stepper (Just o:ms)  = Stepper (do showASCII (drawGraphic o) ; return (stepper ms))
 stepper other        = Stepper (return $ stepper other)
 
+ioStepper :: [IO ()] -> Stepper
+ioStepper (m:ms)      = Stepper (do m ; return (ioStepper ms))
+ioStepper other       = Stepper (return $ ioStepper other)
 
 -----------------------------------------------------------------------
 -- Helpers for printing to the screen
 -----------------------------------------------------------------------
 
+data ASCII = REVERSE       ASCII
+           | COLOR   Color ASCII
+           | PRINT String
+           | ASCII `AT` (Int,Int)
+           | MANY [ASCII]
+
+showASCII :: ASCII -> IO ()
+showASCII (REVERSE ascii) = reverse_video $ showASCII ascii
+showASCII (COLOR col ascii) = do
+        setSGR [SetColor Foreground Vivid col]
+        showASCII ascii
+        setSGR []
+showASCII (PRINT str) = putStr str
+showASCII (AT ascii (row,col)) = do
+        setCursorPosition row col
+        showASCII ascii
+        setCursorPosition 24 0
+showASCII (MANY as) = do
+        sequence_ [ showASCII a | a <- as ]
+
 -- | Do an IO (print) in the context of a green pen.
 green :: IO () -> IO ()
 green m = do
-        putStr $ "\ESC[32m"
+        setSGR [SetColor Foreground Vivid Green]
         m
-        putStr $ "\ESC[0m"
+        setSGR []
 
 -- | Do an IO (print) in the context of a green pen.
 red :: IO () -> IO ()
 red m = do
-        putStr $ "\ESC[31m"
+        setSGR [SetColor Foreground Vivid Red]
         m
-        putStr $ "\ESC[0m"
+        setSGR []
 
 
 reverse_video :: IO () -> IO ()
 reverse_video m = do
-        putStr $ "\ESC[7m"
+        setSGR [SetSwapForegroundBackground True]
         m
-        putStr $ "\ESC[0m"        
+        setSGR []
 
 -- | Do an  IO (print) at a specific location on the screen.
 at :: IO () -> (Int,Int) -> IO ()
 at m (row,col) = do
-	putStr $ "\ESC[" ++ show row ++ ";" ++ show col ++ "H"
+        setCursorPosition (row) (col)
         m
-	putStr $ "\ESC[24;1H"
-	hFlush stdout
+        setCursorPosition 24 0
+--	hFlush stdout ???
 
 -----------------------------------------------------------------------
 -- Steping version of hGetContent, never blocks, returning
