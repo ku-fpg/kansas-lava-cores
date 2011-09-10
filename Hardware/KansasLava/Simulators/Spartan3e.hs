@@ -6,8 +6,6 @@ module Hardware.KansasLava.Simulators.Spartan3e (
 	, rot_as_reset
 	, clockRate
 	, showUCF
-        -- * Simulator only options
-        , showClock
 	-- * Patch API's.
 --	, lcdPatch              -- unsupported in the simulator
 	, mm_lcdPatch
@@ -43,13 +41,9 @@ rot_as_reset = undefined
 showUCF _ = return "/* Simulator does not need a UCF */\n"
 switchesPatch = undefined
 
-board_init = do
-        outFabric (\ _ -> BOARD) [()]
-        quit <- inFabric False (\ c _ -> c == 'q')
-        outFabric QUIT quit
-
-showClock :: Int -> Fabric ()
-showClock m = outFabric (CLOCK) [0..]
+board_init = generic_init (do PRINT boardASCII `at` (1,1)
+                              COLOR Red $ PRINT ['o'] `at` (2,4))
+                           CLOCK
 
 -----------------------------------------------------------------------
 -- Patches

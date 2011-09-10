@@ -217,9 +217,7 @@ main = do
                                      ])
 
 --                        runPatch (alwaysAckPatch ((0,0),33) $$ mm_lcdPatch)
---                        runPatch p1
-
-                        friendlyFabric
+                        runPatch p1
 
                         buttons
 
@@ -233,7 +231,8 @@ main = do
 
                         dial
 
-	                showClock 1000
-	Sim.runFabric fab
+--	                showClock 1000
+                        return ()
+	Sim.runFabric Friendly fab
 
 	

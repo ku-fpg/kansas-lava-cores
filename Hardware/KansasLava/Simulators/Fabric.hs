@@ -2,25 +2,24 @@
 -- | * Remember to call init_board for your specific board.
 
 module Hardware.KansasLava.Simulators.Fabric (
-          -- * The Fake Fabric Monad, and its NPM.
+          -- * The Fake Fabric Monad..
           Fabric               -- abstract
+          -- * The Fabric non-proper morphisms  
         , outFabric
         , outFabricEvents
         , outFabricCount
         , writeFileFabric
         , inFabric
         , readFileFabric
-        -- * running the fake Fabric
-        , friendlyFabric
+        -- * Running the Fake Fabric
         , runFabric
+        , ExecMode(..)
+        -- * Support for building fake Boards
+        , generic_init
         -- * Support for the (ANSI) Graphics
         , ANSI(..)
         , Color(..)     -- from System.Console.ANSI
         , Graphic(..)
---        , at
---        , green
---        , red
---        , reverse_video
         ) where
         
 import System.Console.ANSI
@@ -28,6 +27,7 @@ import System.IO
 import Data.Typeable
 import Control.Exception
 import Control.Concurrent
+import Control.Monad
 import Data.Char
 import Control.Monad.Fix
 import Data.Word
@@ -40,30 +40,35 @@ import System.IO.Unsafe (unsafeInterleaveIO)
 -- | The simulator uses its own 'Fabric', which connects not to pins on the chip, 
 -- but rather an ASCII picture of the board.
 
-data Fabric a = Fabric ([Maybe Char] -> IO (a,[Stepper]))
+data Fabric a = Fabric ([Maybe Char] -> ExecMode -> IO (a,[Stepper]))
 
 
 instance Monad Fabric where
-        return a = Fabric $ \ _ -> return (a,[])
-        (Fabric f) >>= k = Fabric $ \ inp -> do
-                                (a,s1)  <- f inp
+        return a = Fabric $ \ _ _ -> return (a,[])
+        (Fabric f) >>= k = Fabric $ \ inp mode -> do
+                                (a,s1)  <- f inp mode
                                 let Fabric g = k a
-                                (b,s2)  <- g inp
+                                (b,s2)  <- g inp mode
                                 return (b,s1 ++ s2)
         fail msg = error msg
 
 instance MonadFix Fabric where
         -- TODO: check this
-        mfix f = Fabric $ \ inp -> mfix (\ r ->  let (Fabric g) = f (fst r) 
-                                                 in g inp)
+        mfix f = Fabric $ \ inp mode -> mfix (\ r ->  let (Fabric g) = f (fst r) 
+                                                      in g inp mode)
+
+getFabricExecMode :: Fabric ExecMode
+getFabricExecMode = Fabric $ \ _ mode -> return (mode,[])
+
 -----------------------------------------------------------------------
 -- Ways out outputing from the Fabric
 -----------------------------------------------------------------------
 
 -- | Checks an input list for diffences between adjacent elements,
 -- and for changes, maps a graphical event onto the internal stepper.
--- The idea is that sending the graphical event twice, it should be 
--- idempotent.
+-- The idea is that sending a graphical event twice should be 
+-- idempotent, but internally the system only writes events
+-- when things change.
 outFabric :: (Eq a, Graphic g) => (a -> g) -> [a] -> Fabric ()
 outFabric f = outFabricEvents . map (fmap f) . changed
 
@@ -76,9 +81,9 @@ changed (a:as) = Just a : f a as
 
 -- | Turn a list of graphical events into a 'Fabric', without processing.
 outFabricEvents :: (Graphic g) => [Maybe g] -> Fabric ()
-outFabricEvents ogs = Fabric $ \ _ -> return ((),[stepper ogs])
+outFabricEvents ogs = Fabric $ \ _ _ -> return ((),[stepper ogs])
 
--- creates single graphical events, based on the number of Events,
+-- | creates single graphical events, based on the number of Events,
 -- when the first real event is event 1, and there is a beginning of time event 0.
 outFabricCount :: (Graphic g) => (Integer -> g) -> [Maybe a] -> Fabric ()
 outFabricCount f = outFabric f . loop 0
@@ -86,8 +91,10 @@ outFabricCount f = outFabric f . loop 0
         loop n (Nothing:xs) = n : loop n xs
         loop n (Just _:xs)  = n : loop (succ n) xs
 
+-- | write a file from a clocked list input. Example of use is emulating
+-- RS232.
 writeFileFabric :: String -> [Maybe Word8] -> Fabric ()
-writeFileFabric filename contents = Fabric $ \ _ -> do
+writeFileFabric filename contents = Fabric $ \ _ _ -> do
         opt_h <- try (openBinaryFile filename WriteMode)
         case opt_h of 
           Right h -> do
@@ -111,7 +118,7 @@ writeFileFabric filename contents = Fabric $ \ _ -> do
 inFabric :: a                           -- ^ initial 'a'
          -> (Char -> a -> a)            -- ^ how to interpreate a key press
          -> Fabric [a]
-inFabric a interp = Fabric $ \ inp -> do
+inFabric a interp = Fabric $ \ inp _ -> do
         let f' a' Nothing = a'
             f' a' (Just c) = interp c a'
             vals = scanl f' a inp
@@ -126,7 +133,7 @@ inFabric a interp = Fabric $ \ inp -> do
 -- what is being observed on the screen; another
 -- process needs to do this.
 readFileFabric :: String -> Fabric [Maybe Word8]
-readFileFabric filename = Fabric $ \ inp -> do
+readFileFabric filename = Fabric $ \ inp _ -> do
         h <- openBinaryFile filename ReadMode
         hSetBuffering h NoBuffering  
         ss <- hGetContentsStepwise h
@@ -136,22 +143,56 @@ readFileFabric filename = Fabric $ \ inp -> do
 -- Running the Fabric
 -----------------------------------------------------------------------
 
--- | 'runFabric' executes the Fabric, never returns, and ususally replaces 'reifyFabric'.
+data ExecMode
+        = Fast          -- ^ run as fast as possible, and do not display the clock
+        | Friendly      -- ^ run in friendly mode, with 'threadDelay' to run slower, to be CPU friendly.
+  deriving (Eq, Show)
 
-runFabric :: Fabric () -> IO ()
-runFabric (Fabric f) = do
+-- | 'runFabric' executes the Fabric, never returns, and ususally replaces 'reifyFabric'.
+runFabric :: ExecMode -> Fabric () -> IO ()
+runFabric mode f = do
+        
         setTitle "Kansas Lava"
         hSetBuffering stdin NoBuffering
         hSetEcho stdin False
         inputs <- hGetContentsStepwise stdin
-        (_,steps) <- f inputs
-	putStr "\ESC[2J\ESC[1;1H"
-        runSteppers steps
 
--- | 'friendlyFabric' slows things down, to be CPU friendly.
-friendlyFabric :: Fabric ()
-friendlyFabric = Fabric $ \ _ ->
-        return ((),[ioStepper [ threadDelay (20 * 1000) | _ <- [(0 :: Integer)..]]])
+--        let -- clockOut | mode == Fast = return ()
+--            clockOut | mode == Friendly =
+--                        outFabric clock [0..]
+
+        let extras = do 
+                quit <- inFabric False (\ c _ -> c == 'q')
+                outFabric (\ b -> if b 
+                                  then error "Simulation Quit" 
+                                  else return () :: ANSI ()) quit
+        
+        let Fabric h = (do extras ; f)
+        (_,steps) <- h inputs mode
+	putStr "\ESC[2J\ESC[1;1H"
+
+        let slowDown | mode == Fast = []
+                     | mode == Friendly =
+                         [ ioStepper [ threadDelay (20 * 1000) 
+                                     | _ <- [(0 :: Integer)..] ]]
+
+        runSteppers (steps ++ slowDown)
+
+-----------------------------------------------------------------------
+-- Utils for building boards
+-----------------------------------------------------------------------
+
+-- | 'generic_init' builds a generic board_init, including
+-- setting up the drawing of the board, and printing the (optional) clock.
+
+generic_init :: (Graphic g1,Graphic g2) => g1 -> (Integer -> g2) -> Fabric ()
+generic_init board clock = do
+        -- a bit of a hack; print the board on the first cycle
+        outFabric (\ _ -> board) [()]
+        mode <- getFabricExecMode
+        when (mode /= Fast) $ do
+                outFabric (clock) [0..]
+        return ()
 
 -----------------------------------------------------------------------
 -- Abstaction for output (typically the screen)
