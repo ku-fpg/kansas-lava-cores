@@ -114,7 +114,7 @@ rs232_dce_rx baud = do
                     | otherwise     = old           -- leave
          
         key :: Matrix X4 Char
-        key = matrix "hjkl"
+        key = matrix "lkjh"
 
    buttons = do
         ms <- sequence [ do ss <- inFabric False (sw i)
@@ -131,7 +131,7 @@ rs232_dce_rx baud = do
         key = matrix "aegx"
 
    leds m = do
-        sequence_ [ outFabric ( LED (fromIntegral i)) (fromSeq (m ! i))
+        sequence_ [ outFabric (LED (fromIntegral i)) (fromSeq (m ! i))
 	          | i <- [0..7]
 	          ]
 
@@ -265,10 +265,10 @@ instance Graphic Output where
         ledASCII (Just False) = '.'
 
  drawGraphic (TOGGLE x b) = do
-        PRINT [up]   `at` (14,40 + 2 * fromIntegral x) 
-        PRINT [down] `at` (15,40 + 2 * fromIntegral x)
+        PRINT [up]   `at` (14,46 - 2 * fromIntegral x) 
+        PRINT [down] `at` (15,46 - 2 * fromIntegral x)
   where
-       ch = "hjkl" !! fromIntegral x
+       ch = "lkjh" !! fromIntegral x
  
        up = if b then ch else ':'
        down = if b then ':' else ch
