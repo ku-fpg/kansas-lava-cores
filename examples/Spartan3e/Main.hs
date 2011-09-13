@@ -24,18 +24,22 @@ import qualified Hardware.KansasLava.Boards.Spartan3e as Board
 
 import qualified Hardware.KansasLava.Simulators.Fabric as Sim
 
+import Hardware.KansasLava.Boards.Spartan3e
+import Hardware.KansasLava.Simulators.Spartan3e
+
 -------------------------------------------------
 -- Only for Simulator mode
-{-
-import Hardware.KansasLava.Simulators.Spartan3e
+
+
 type Fabric = Sim.Fabric
 useFabric = simUseFabric :: Opts -> Fabric () -> IO ()
--}
+
 -- Only in VHDL generation mode
-import Hardware.KansasLava.Boards.Spartan3e
+{-
+
 type Fabric = KL.Fabric
 useFabric = vhdlUseFabric :: Opts -> Fabric () -> IO ()
-
+-}
 -------------------------------------------------
 
 data Opts = Opts { demoFabric :: String, fastSim :: Bool, beat :: Integer }
@@ -74,7 +78,7 @@ vhdlUseFabric opts fab = do
 ------------------------------------------------------------------------------
 -- Sample fabrics
 
-fabric :: Opts -> String -> Fabric ()
+fabric :: (Spartan3e fabric) => Opts -> String -> fabric ()
 fabric _ "leds" = do
         sw <- switches
         bu <- buttons

@@ -1,10 +1,13 @@
 -- | This API should mirror 'Hardware.KansasLava.Boards.Spartan3e'.
 
 module Hardware.KansasLava.Simulators.Spartan3e (
+        Spartan3e(..)
+        ) where
+{-        
 	-- * Initialization, and global settings.
 	  board_init
 	, rot_as_reset
-	, clockRate
+	, Board.clockRate
 	, showUCF
 	-- * Patch API's.
 --	, lcdPatch              -- unsupported in the simulator
@@ -21,8 +24,10 @@ module Hardware.KansasLava.Simulators.Spartan3e (
         , leds
         , buttons
 	) where
+-}
 
 import qualified Hardware.KansasLava.Boards.Spartan3e as Board
+import Hardware.KansasLava.Boards.Spartan3e -- (board_init, rot_as_reset)
 import Data.Sized.Ix
 import Data.Sized.Unsigned
 import Data.Sized.Matrix as M
@@ -44,31 +49,126 @@ import Hardware.KansasLava.Simulators.Fabric
 -- | 'board_init' sets up the use of the clock.
 -- Always call 'board_init' first. 
 -- Required.
-board_init :: Fabric ()
-board_init = generic_init BOARD CLOCK
+instance Board.Spartan3e Fabric where 
+   -- board_init :: Fabric ()
+   board_init = generic_init BOARD CLOCK
 
--- | 'rot_as_reset' sets up the rotary dial as a reset switch.
---  Does nothing on the simulator.
-rot_as_reset :: Fabric ()
-rot_as_reset = return ()
-
--- | The clock rate on the Spartan3e (50MHz), in hertz.
-clockRate :: Integer
-clockRate = Board.clockRate
-
--- | show out a suggested UCF file for Spartan3e, for a specific circuit.
-showUCF :: KLEG -> IO String
-showUCF _ = return "/* Simulator does not need a UCF */\n"
+   -- | 'rot_as_reset' sets up the rotary dial as a reset switch.
+   --  Does nothing on the simulator, because the shallow circuits
+   -- can not do a hard reset.
+   rot_as_reset = return ()
  
 -----------------------------------------------------------------------
 -- Patches
 -----------------------------------------------------------------------
-switchesPatch = undefined
 
--- | 'board_init' sets up the use of the clock. 
--- Always call 'board_init' first. 
--- Required.
+   mm_lcdPatch = fromAckBox $$ forwardPatch fab
+      where
+        fab inp = outFabricEvents $ map (just $ \ ((x,y),ch) -> Just (LCD (x,y) (Char.chr (fromIntegral ch)))) inp
 
+        just :: (a -> Maybe b) -> Maybe a -> Maybe b
+        just _ Nothing  = Nothing
+        just k (Just a) = k a
+
+
+   -- switchesPatch = undefined
+
+
+{-
+rs232_dce_tx :: Integer         -- ^ baud rate (ignored for simulation)
+             -> Patch (Seq (Enabled U8))  (Fabric ())
+	              (Seq Ack)	          ()
+
+rs232_dce_tx baud = shallowSlowDownAckBoxPatch slow_count $$ fromAckBox $$ forwardPatch fab
+   where
+        -- 10 bits per byte
+        slow_count = 10 * Board.clockRate `div` baud
+        fab inp = do
+                writeFileFabric "dev/dce_tx" $ map (fmap fromIntegral) inp
+                outFabricCount (RS232 TX 1) inp
+
+rs232_dce_rx :: Integer
+             -> Fabric (Patch () (Seq (Enabled U8))
+	                      () ())
+rs232_dce_rx baud = do
+        -- 10 bits per byte
+        let slow_count = 10 * Board.clockRate `div` baud
+        ss0 <- readFileFabric "dev/dce_rx"
+        let ss = concatMap (\ x -> x : replicate (fromIntegral slow_count) Nothing) ss0
+        outFabricCount (RS232 RX 1) ss
+        return (unitPatch (toSeq (map (fmap fromIntegral) ss)))
+-}
+   -----------------------------------------------------------------------
+   -- 
+   -----------------------------------------------------------------------
+
+   switches = do
+        ms <- sequence [ do ss <- inFabric False (sw i)
+                            outFabric (TOGGLE i) ss
+                            return ss
+                       | i <- [0..3]
+                       ]
+        return (matrix (map toSeq ms))
+      where
+        sw i ch old | key ! i == ch = not old       -- flip
+                    | otherwise     = old           -- leave
+         
+        key :: Matrix X4 Char
+        key = matrix "hjkl"
+
+   buttons = do
+        ms <- sequence [ do ss <- inFabric False (sw i)
+                            outFabric (BUTTON i) ss
+                            return ss
+                       | i <- [0..3]
+                       ]
+        return (matrix (map toSeq ms))
+      where
+        sw i ch old | key ! i == ch = not old       -- flip
+                    | otherwise     = old           -- leave
+         
+        key :: Matrix X4 Char
+        key = matrix "aegx"
+
+   leds m = do
+        sequence_ [ outFabric ( LED (fromIntegral i)) (fromSeq (m ! i))
+	          | i <- [0..7]
+	          ]
+
+{-
+   -- 'dial' returns the status of the 
+   dial :: Fabric (Seq Bool, Seq (Enabled Bool))
+   dial = do 
+        st <- ll_dial
+        return ( toSeq $ map (\ (Dial b _) -> b) $ st
+               , toSeq $ rot $ map (\ (Dial _ p) -> p) $ st
+               )
+      where
+          rot xs = map f $ List.zipWith (-) (0:xs) xs
+
+          f 0 = Nothing
+          f 1 = Just False
+          f 2 = error "turned dial twice in one cycle?"
+          f 3 = Just True
+  -}      
+
+-----------------------------------------------------------------------
+-- 
+-----------------------------------------------------------------------
+data Dial = Dial Bool U2
+        deriving Eq
+
+
+ll_dial :: Fabric [Dial]
+ll_dial = do 
+        ss <- inFabric (Dial False 0) switch
+        outFabric DIAL ss
+        return ss
+   where 
+           switch 'd' (Dial b p) = Dial (not b) p
+           switch 's' (Dial b p) = Dial b (pred p)
+           switch 'f' (Dial b p) = Dial b (succ p)
+           switch _   other      = other
 
 shallowSlowDownAckBoxPatch ::
         Integer -> Patch (Seq (Enabled U8))  (Seq (Enabled U8))
@@ -92,108 +192,18 @@ shallowSlowDownAckBoxPatch slow ~(inp,ack) = (toAck (toSeq ack_out),packEnabled 
         ack_out = ack_in
 
 
-rs232_dce_tx :: Integer         -- ^ baud rate (ignored for simulation)
-             -> Patch (Seq (Enabled U8))  (Fabric ())
-	              (Seq Ack)	          ()
+-- | The clock rate on the Spartan3e (50MHz), in hertz.
+clockRate :: Integer
+clockRate = Board.clockRate
 
-rs232_dce_tx baud = shallowSlowDownAckBoxPatch slow_count $$ fromAckBox $$ forwardPatch fab
-   where
-        -- 10 bits per byte
-        slow_count = 10 * clockRate `div` baud
-        fab inp = do
-                writeFileFabric "dev/dce_tx" $ map (fmap fromIntegral) inp
-                outFabricCount (RS232 TX 1) inp
+-- | show out a suggested UCF file for Spartan3e, for a specific circuit.
+showUCF :: KLEG -> IO String
+showUCF _ = return "/* Simulator does not need a UCF */\n"
 
-rs232_dce_rx :: Integer
-             -> Fabric (Patch () (Seq (Enabled U8))
-	                      () ())
-rs232_dce_rx baud = do
-        -- 10 bits per byte
-        let slow_count = 10 * clockRate `div` baud
-        ss0 <- readFileFabric "dev/dce_rx"
-        let ss = concatMap (\ x -> x : replicate (fromIntegral slow_count) Nothing) ss0
-        outFabricCount (RS232 RX 1) ss
-        return (unitPatch (toSeq (map (fmap fromIntegral) ss)))
 
 -----------------------------------------------------------------------
 -- 
 -----------------------------------------------------------------------
-
-
-leds :: Matrix X8 (Seq Bool) -> Fabric ()
-leds m = do
-        sequence_ [ outFabric ( LED (fromIntegral i)) (fromSeq (m ! i))
-	          | i <- [0..7]
-	          ]
-
-switches :: Fabric (Matrix X4 (Seq Bool))
-switches = do
-        ms <- sequence [ do ss <- inFabric False (sw i)
-                            outFabric (TOGGLE i) ss
-                            return ss
-                       | i <- [0..3]
-                       ]
-        return (matrix (map toSeq ms))
-  where
-        sw i ch old | key ! i == ch = not old       -- flip
-                    | otherwise     = old           -- leave
-         
-        key :: Matrix X4 Char
-        key = matrix "hjkl"
-
-buttons :: Fabric (Matrix X4 (Seq Bool))
-buttons = do
-        ms <- sequence [ do ss <- inFabric False (sw i)
-                            outFabric (BUTTON i) ss
-                            return ss
-                       | i <- [0..3]
-                       ]
-        return (matrix (map toSeq ms))
-  where
-        sw i ch old | key ! i == ch = not old       -- flip
-                    | otherwise     = old           -- leave
-         
-        key :: Matrix X4 Char
-        key = matrix "aegx"
-
-data Dial = Dial Bool U2
-        deriving Eq
-
--- 'dial' returns the status of the 
-dial :: Fabric (Seq Bool, Seq (Enabled Bool))
-dial = do 
-        st <- ll_dial
-        return ( toSeq $ map (\ (Dial b _) -> b) $ st
-               , toSeq $ rot $ map (\ (Dial _ p) -> p) $ st
-               )
-  where
-          rot xs = map f $ List.zipWith (-) (0:xs) xs
-
-          f 0 = Nothing
-          f 1 = Just False
-          f 2 = error "turned dial twice in one cycle?"
-          f 3 = Just True
-        
-ll_dial :: Fabric [Dial]
-ll_dial = do 
-        ss <- inFabric (Dial False 0) switch
-        outFabric DIAL ss
-        return ss
-   where 
-           switch 'd' (Dial b p) = Dial (not b) p
-           switch 's' (Dial b p) = Dial b (pred p)
-           switch 'f' (Dial b p) = Dial b (succ p)
-           switch _   other      = other
-
-mm_lcdPatch :: Patch (Seq (Enabled ((X2,X16),U8)))   (Fabric ())
-	             (Seq Ack)	                    ()
-mm_lcdPatch = fromAckBox $$ forwardPatch fab
-   where
-        fab inp = outFabricEvents $ map (just $ \ ((x,y),ch) -> Just (LCD (x,y) (Char.chr (fromIntegral ch)))) inp
-
-        just :: (a -> Maybe b) -> Maybe a -> Maybe b
-        just _ Nothing  = Nothing
-        just k (Just a) = k a
 
 
 boardASCII = unlines
