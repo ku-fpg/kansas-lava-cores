@@ -3,7 +3,7 @@ module Hardware.KansasLava.Boards.Spartan3e (
 	  board_init
 	, rot_as_reset
 	, clockRate
-	, showUCF
+	, writeUCF
 	-- * Patch API's.
 	, lcdPatch
 	, mm_lcdPatch
@@ -45,12 +45,44 @@ clockRate :: Integer
 clockRate = 50 * 1000 * 1000
 
 -- | show out a suggested UCF file for Spartan3e, for a specific circuit.
-showUCF :: KLEG -> String
-showUCF _ = "# TODO"
+writeUCF :: FilePath -> KLEG -> IO ()
+writeUCF ucf_filename kleg = do
+        let inputs = theSrcs kleg
+        print inputs
+        let findMe = concat
+                     [ case toStdLogicType ty of
+                         SL -> [ nm ]
+                         SLV n -> [ nm ++ "<" ++ show i ++ ">" 
+                                  | i <- [0..(n-1)]
+                                  ]
+                     | (OVar _ nm,ty) <- (theSrcs kleg) ++ map (\ (a,b,c) -> (a,b)) (theSinks kleg)
+                     ]
 
--- The UCF file, in Haskell list format.
-ucf :: [(String,String)]
-ucf = []
+        let isComment ('#':_) = True
+            isComment xs             | all isSpace xs = True
+            isComment _       = False
+
+        let getName xs | take 5 xs == "NET \""
+                       = Just (takeWhile (/= '"') (drop 5 xs))
+            getName _ = Nothing
+
+        let hdr = unlines 
+                [ "# Generated automatically by kansas-lava-cores"
+                , "#" ++ show findMe
+                ]
+
+        filename <- getDataFileName "UCF/Spartan3e.ucf"
+        print filename
+        big_ucf <- readFile filename
+        let lns = unlines
+                  [ let allow = case getName ln of
+                          Nothing -> True
+                          Just nm -> nm `elem` findMe
+                    in (if allow then ""  else "# -- ") ++ ln
+                  | ln <- lines big_ucf
+                  ]
+
+        writeFile ucf_filename (hdr ++ lns)
 
 ------------------------------------------------------------
 -- Patches

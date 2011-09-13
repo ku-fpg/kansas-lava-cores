@@ -11,9 +11,14 @@ Homepage:            http://ittc.ku.edu/~andygill/kansas-lava.php
 Stability:	     alpha
 build-type: 	     Simple
 Cabal-Version:       >= 1.6
+Data-files: UCF/*.ucf
 
 Flag unit
   Description: Enable unit tests for every core
+  Default:     True
+
+Flag spartan3e
+  Description: Enable demo spartan3 program
   Default:     True
 
 Library
@@ -36,6 +41,20 @@ Library
 --  Hs-Source-Dirs: ., ../kansas-lava
   Other-modules:
   Ghc-Options: -fcontext-stack=100
+
+Executable spartan3e-demo
+    if flag(spartan3e)
+      Build-Depends: base >= 4,
+        kansas-lava == 0.2.3.0,
+        sized-types == 0.3.2.20110831, data-default
+      buildable: True
+   else
+      Build-depends: base
+      buildable: False
+   Main-Is: Main.hs
+   Hs-Source-Dirs: ., examples/Spartan3e
+   Ghc-Options: -fcontext-stack=100
+          -threaded -rtsopts
 
 Executable kansas-lava-cores-tests
     if flag(unit)
