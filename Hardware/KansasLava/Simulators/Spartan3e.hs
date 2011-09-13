@@ -71,6 +71,9 @@ instance Board.Spartan3e Fabric where
         just k (Just a) = k a
 
 
+
+   lcd = error "lcdPatch is not supported in the simulator. Use mm_lcdPatch and the memory mapped API instead"
+
    -- switchesPatch = undefined
 
 
