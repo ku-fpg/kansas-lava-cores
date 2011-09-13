@@ -51,9 +51,10 @@ class Monad fabric => Spartan3e fabric where
 
 
    -- | 'debounceP' gives a small debounce correction.
-   -- Use by default on the (input) patches.
-   debounceP :: fabric (Patch (Seq (Enabled Bool)) (Seq (Enabled Bool)) 
-	                      (Seq Ack)	           (Seq Ack))
+   -- Use by on the (input) patches. The simulator 
+   -- does no debouncing; the real hardware needs to.
+   debounceP :: fabric (Patch (Seq Bool)   (Seq Bool)
+	                      ()	   ())
    debounceP = return nullPatch
 
    ----------------------------------------------------------------------------
@@ -153,7 +154,11 @@ switchesP :: (Spartan3e fabric) =>
 	                   () (Matrix X4 ()))
 switchesP = do
 	sws <- switches
-	return (unitPatch sws $$ backwardPatch (\ _mat -> ()))
+        db <- debounceP
+	return (unitPatch sws $$ 
+	        backwardPatch (\ _mat -> ()) $$
+                matrixStack (pure db))
+
 
 -- | 'buttonsP' gives a patch-level API for the toggle switches.
 buttonsP :: (Spartan3e fabric) =>
@@ -161,7 +166,10 @@ buttonsP :: (Spartan3e fabric) =>
 	                   () (Matrix X4 ()))
 buttonsP = do
 	sws <- buttons
-	return (unitPatch sws $$ backwardPatch (\ _mat -> ()))
+        db <- debounceP
+        return (unitPatch sws $$ 
+	        backwardPatch (\ _mat -> ()) $$
+                matrixStack (pure db))
 
 -- | 'ledP' gives a patch-level API for the leds.
 ledsP :: (Spartan3e fabric) =>
