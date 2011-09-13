@@ -1,4 +1,6 @@
--- | This API should mirror 'Hardware.KansasLava.Boards.Spartan3e'.
+-- | This API mirrors 'Hardware.KansasLava.Boards.Spartan3e' via a class
+-- abstaction. The other API also contains some Board specific utilties
+-- that can also be used for simulation.
 
 module Hardware.KansasLava.Simulators.Spartan3e (
         Spartan3e(..)
@@ -50,19 +52,18 @@ import Hardware.KansasLava.Simulators.Fabric
 -- Always call 'board_init' first. 
 -- Required.
 instance Board.Spartan3e Fabric where 
-   -- board_init :: Fabric ()
+
    board_init = generic_init BOARD CLOCK
 
-   -- | 'rot_as_reset' sets up the rotary dial as a reset switch.
-   --  Does nothing on the simulator, because the shallow circuits
+   -- This does nothing on the simulator, because the shallow circuits
    -- can not do a hard reset.
    rot_as_reset = return ()
  
------------------------------------------------------------------------
--- Patches
------------------------------------------------------------------------
+   -----------------------------------------------------------------------
+   -- Patches
+   -----------------------------------------------------------------------
 
-   mm_lcdPatch = fromAckBox $$ forwardPatch fab
+   mm_lcdP = fromAckBox $$ forwardPatch fab
       where
         fab inp = outFabricEvents $ map (just $ \ ((x,y),ch) -> Just (LCD (x,y) (Char.chr (fromIntegral ch)))) inp
 

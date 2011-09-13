@@ -87,7 +87,7 @@ fabric _ "leds" = do
 
 
 fabric _ "lcd" = do
-        runPatch $ neverAckPatch $$ appendPatch msg $$ pulse $$ mm_lcdPatch
+        runPatch $ neverAckPatch $$ appendPatch msg $$ pulse $$ mm_lcdP
  where
          msg :: Matrix X11 ((X2,X16),U8)
          msg = matrix [((0,i),fromIntegral (ord c))

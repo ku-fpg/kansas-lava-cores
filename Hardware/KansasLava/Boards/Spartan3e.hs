@@ -4,6 +4,10 @@ module Hardware.KansasLava.Boards.Spartan3e (
 	-- * Initialization, and global settings.
 	, clockRate
 	, writeUCF
+        -- * Utilities for Board and Simulation use
+        , switchesP
+        , buttonsP
+        , ledsP
 	) where
 
 
@@ -16,12 +20,14 @@ import Data.Sized.Ix hiding (all)
 import Data.Sized.Matrix hiding (all)
 import Data.Char
 import System.IO
- 
+import Control.Applicative
+
 ------------------------------------------------------------
 -- The Spartan3e class
 ------------------------------------------------------------
 
 class Monad fabric => Spartan3e fabric where
+   ----------------------------------------------------------------------------
 
    -- | 'board_init' sets up the use of the clock.
    -- Always call 'board_init' first. [Required].
@@ -30,20 +36,28 @@ class Monad fabric => Spartan3e fabric where
    -- | 'rot_as_reset' sets up the rotary dial as a reset switch.
    rot_as_reset :: fabric ()
 
-   -- | 'lcdPatch' gives a memory mappped (mm) API to the LCD.
+   ----------------------------------------------------------------------------
+
+   -- | 'mm_lcdP' gives a memory mappped (mm) API to the LCD.
    --  Disables the StrataFlash (for now).
-   mm_lcdPatch :: Patch (Seq (Enabled ((X2,X16),U8)))  (fabric ())
-	                (Seq Ack)	               ()
+   mm_lcdP :: Patch (Seq (Enabled ((X2,X16),U8)))  (fabric ())
+	            (Seq Ack)	                   ()
+   mm_lcdP = mm_LCD_Inst $$ lcdP
 
-   -- | 'lcdPatch' gives a patch-level API to the LCD, based on LCDInstructions.
+   -- | 'lcdP' gives a patch-level API to the LCD, based on LCDInstructions.
    --  Disables the StrataFlash (for now).
-   lcdPatch :: Patch (Seq (Enabled LCDInstruction)) (fabric ())
-	             (Seq Ack)	                    ()
+   lcdP :: Patch (Seq (Enabled LCDInstruction)) (fabric ())
+	         (Seq Ack)	                ()
 
-   -- | 'switchesPatch' gives a patch-level API for the toggle switches.
-   switchesPatch :: fabric (Patch () (Matrix X4 (Seq Bool))
-		                  () (Matrix X4 ()))
 
+   -- | 'debounceP' gives a small debounce correction.
+   -- Use by default on the (input) patches.
+   debounceP :: fabric (Patch (Seq (Enabled Bool)) (Seq (Enabled Bool)) 
+	                      (Seq Ack)	           (Seq Ack))
+   debounceP = return nullPatch
+
+   ----------------------------------------------------------------------------
+ 
    -- | 'lcd' give raw access to the lcd bus. Disables the StrataFlash (for now).
    lcd :: Seq U1 -> Seq U4 -> Seq Bool -> fabric ()
 
@@ -56,10 +70,10 @@ class Monad fabric => Spartan3e fabric where
    -- | 'leds' drives the leds
    leds :: Matrix X8 (Seq Bool) -> fabric ()
 
-   -- 'dial_button' gives raw access to the state of the dial button
+   -- | 'dial_button' gives raw access to the state of the dial button
    dial_button :: fabric (Seq Bool)
 
-   -- 'dial_rot' gives Enabled packets when dial is rotated,
+   -- | 'dial_rot' gives Enabled packets when dial is rotated,
    -- and if the rotation was clockwise
    dial_rot :: fabric (Seq (Enabled Bool))
 
@@ -90,18 +104,13 @@ instance Spartan3e Fabric where
 -- Patches
 ------------------------------------------------------------
 
-  mm_lcdPatch = mm_LCD_Inst $$ lcdPatch
-
-  lcdPatch = 
+  lcdP = 
 	init_LCD $$ 
 	phy_Inst_4bit_LCD $$ 
 	forwardPatch (\ bus -> do 
 		let (rs,sf_d,e) = unpack bus
 		lcd rs sf_d e)
 
-  switchesPatch = do
-	sws <- switches
-	return (unitPatch sws $$ backwardPatch (\ _mat -> ()))
 
   ------------------------------------------------------------
   -- RAW APIs
@@ -111,8 +120,8 @@ instance Spartan3e Fabric where
 		outStdLogic 	  "LCD_RS" rs
 		outStdLogicVector "SF_D" (KL.append (0 :: Seq (U8)) sf_d  :: Seq U12)
 		outStdLogic       "LCD_E"  e
-		outStdLogic "LCD_RW" low
-		outStdLogic "SF_CE0" high
+		outStdLogic       "LCD_RW" low
+		outStdLogic       "SF_CE0" high
 
 
   switches = do
@@ -132,6 +141,35 @@ instance Spartan3e Fabric where
   dial_button = 
         inStdLogic "ROT_CENTER"
 
+  dial_rot = error "dial_rot is not (yet) supported in the hardware"
+
+-------------------------------------------------------------
+-- Utilies that can be shared
+-------------------------------------------------------------
+
+-- | 'switchesP' gives a patch-level API for the toggle switches.
+switchesP :: (Spartan3e fabric) =>
+             fabric (Patch () (Matrix X4 (Seq Bool))
+	                   () (Matrix X4 ()))
+switchesP = do
+	sws <- switches
+	return (unitPatch sws $$ backwardPatch (\ _mat -> ()))
+
+-- | 'buttonsP' gives a patch-level API for the toggle switches.
+buttonsP :: (Spartan3e fabric) =>
+             fabric (Patch () (Matrix X4 (Seq Bool))
+	                   () (Matrix X4 ()))
+buttonsP = do
+	sws <- buttons
+	return (unitPatch sws $$ backwardPatch (\ _mat -> ()))
+
+-- | 'ledP' gives a patch-level API for the leds.
+ledsP :: (Spartan3e fabric) =>
+             Patch (Matrix X8 (Seq Bool)) (fabric ())
+                   (Matrix X8 ())         ()
+ledsP = 
+        backwardPatch (\ () -> pure ()) $$
+        forwardPatch leds
 
 
  
