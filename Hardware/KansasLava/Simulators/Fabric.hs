@@ -103,7 +103,7 @@ writeFileFabric filename contents = Fabric $ \ _ _ -> do
                   return ((),[ ioStepper (map (f h) contents) ])
           Left (_::IOException) -> throw (FabricException $ 
                                     "Failed to open " ++ filename ++ " for writing, " ++ 
-                                    "(perhaps fifo with no writer?)")
+                                    "(perhaps fifo with no reader?)")
 
     where
         f _ Nothing   = return ()
