@@ -2,8 +2,9 @@
 -- abstaction. The other API also contains some Board specific utilties
 -- that can also be used for simulation.
 
-module Hardware.KansasLava.Simulators.Spartan3e (
-        Spartan3e(..)
+module Hardware.KansasLava.Simulators.Spartan3e 
+        ( Spartan3e(..)
+        , Graphic(..)
         ) where
 {-        
 	-- * Initialization, and global settings.
@@ -71,40 +72,29 @@ instance Board.Spartan3e Fabric where
         just _ Nothing  = Nothing
         just k (Just a) = k a
 
+   lcdP = error "lcdP is not supported in the simulator. Use mm_lcdPatch and the memory mapped API instead"
 
-
-   lcd = error "lcdPatch is not supported in the simulator. Use mm_lcdPatch and the memory mapped API instead"
-
-   -- switchesPatch = undefined
-
-
-{-
-rs232_dce_tx :: Integer         -- ^ baud rate (ignored for simulation)
-             -> Patch (Seq (Enabled U8))  (Fabric ())
-	              (Seq Ack)	          ()
-
-rs232_dce_tx baud = shallowSlowDownAckBoxPatch slow_count $$ fromAckBox $$ forwardPatch fab
-   where
+   rs232_txP port baud = shallowSlowDownAckBoxPatch slow_count $$ fromAckBox $$ forwardPatch fab
+      where
         -- 10 bits per byte
         slow_count = 10 * Board.clockRate `div` baud
         fab inp = do
-                writeFileFabric "dev/dce_tx" $ map (fmap fromIntegral) inp
-                outFabricCount (RS232 TX 1) inp
+                writeFileFabric ("dev/" ++ serialName port ++ "_tx") $ map (fmap fromIntegral) inp
+                outFabricCount (RS232 TX port) inp
 
-rs232_dce_rx :: Integer
-             -> Fabric (Patch () (Seq (Enabled U8))
-	                      () ())
-rs232_dce_rx baud = do
+   rs232_rxP port baud = do
         -- 10 bits per byte
         let slow_count = 10 * Board.clockRate `div` baud
-        ss0 <- readFileFabric "dev/dce_rx"
+        ss0 <- readFileFabric ("dev/" ++ serialName port ++ "_rx")
         let ss = concatMap (\ x -> x : replicate (fromIntegral slow_count) Nothing) ss0
-        outFabricCount (RS232 RX 1) ss
+        outFabricCount (RS232 RX port) ss
         return (unitPatch (toSeq (map (fmap fromIntegral) ss)))
--}
+
    -----------------------------------------------------------------------
-   -- 
+   -- Native APIs
    -----------------------------------------------------------------------
+
+   lcd = error "lcd is not supported in the simulator. (to low level)"
 
    switches = do
         ms <- sequence [ do ss <- inFabric False (sw i)
@@ -157,8 +147,13 @@ rs232_dce_rx baud = do
   -}      
 
 -----------------------------------------------------------------------
--- 
+-- Utilities uses in the class defintion.
 -----------------------------------------------------------------------
+
+serialName :: Serial -> String
+serialName DCE = "dce"
+serialName DTE = "dte"
+
 data Dial = Dial Bool U2
         deriving Eq
 
@@ -211,7 +206,7 @@ showUCF _ = return "/* Simulator does not need a UCF */\n"
 
 
 boardASCII = unlines
- [ "    _||_____|VGA|_____|X|__|232 DCE|__|232 CTE|__"
+ [ "    _||_____|VGA|_____|X|__|232 DCE|__|232 DTE|__"
  , "   |o||                                          |_"
  , "   |                                             | |"
  , "   |                     +----+                  | |"
@@ -251,7 +246,7 @@ data Output
         | BUTTON X4 Bool
         | DIAL Dial
         | QUIT Bool
-        | RS232 DIR X2 Integer
+        | RS232 DIR Serial Integer
 
 data DIR  = RX | TX
 
@@ -301,20 +296,13 @@ instance Graphic Output where
         | b = do PRINT "" `at` (25,1)
                  error "Simulation Quit"
         | otherwise = return ()
-{-
- drawGraphic (RS232_TX DCE h var c) = do
-        v <- takeMVar var
-        let v' = v + 1
-        putMVar var v'
-        PRINT ("tx " ++ show v') `at` (2,27)
-        hPutChar h (chr (fromIntegral c))
-        hFlush h
--}
  drawGraphic (RS232 dir port val) 
       | val > 0   = PRINT (prefix ++ show val) `at` (col,row)
       | otherwise = PRINT (prefix ++ "-")      `at` (col,row)
   where
-        row = matrix [ 27, 38 ] ! port
+        row = case port of
+                DCE -> 27
+                DTE -> 38
 
         prefix = case dir of
                    RX -> "rx "

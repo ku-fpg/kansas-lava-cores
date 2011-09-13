@@ -85,7 +85,6 @@ fabric _ "leds" = do
         leds (sw `M.append` bu)
 
 
-
 fabric _ "lcd" = do
         runPatch $ neverAckPatch $$ appendPatch msg $$ pulse $$ mm_lcdP
  where
@@ -94,6 +93,14 @@ fabric _ "lcd" = do
                       | (c,i) <- zip ("Kansas Lava") [0..]
                       ]
         
+fabric _ "rs232out" = do
+        runPatch $ cyclePatch msg $$ rs232_txP DCE (115200 * 100)
+ where
+         msg :: Matrix X95 U8
+         msg = matrix [ i
+                      | i <- [32..126]
+                      ]
+
         
 ---------------------------------------------------------------------------------
 -- Utilties

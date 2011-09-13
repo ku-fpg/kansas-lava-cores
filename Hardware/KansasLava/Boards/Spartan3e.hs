@@ -4,6 +4,8 @@ module Hardware.KansasLava.Boards.Spartan3e (
 	-- * Initialization, and global settings.
 	, clockRate
 	, writeUCF
+        -- * Data structures 
+        , Serial(..)
         -- * Utilities for Board and Simulation use
         , switchesP
         , buttonsP
@@ -49,6 +51,21 @@ class Monad fabric => Spartan3e fabric where
    lcdP :: Patch (Seq (Enabled LCDInstruction)) (fabric ())
 	         (Seq Ack)	                ()
 
+   -- | 'rs232_txP' gives a patch level API for transmission of bytes
+   -- over one of the serial links.
+   rs232_txP :: Serial  -- ^ port
+             -> Integer -- ^ baud rate 
+             -> Patch (Seq (Enabled U8))  (fabric ())
+	              (Seq Ack)	          ()
+
+   -- | 'rs232_rxP' gives a patch level API for reception of bytes
+   -- over one of the serial links. Note there is no hand-shaking
+   -- because the (implied) UART does no buffering; you better be
+   -- ready.
+   rs232_rxP :: Serial  -- ^ port
+             -> Integer -- ^ baud rate
+             -> fabric (Patch () (Seq (Enabled U8))
+	                      () ())
 
    -- | 'debounceP' gives a small debounce correction.
    -- Use by on the (input) patches. The simulator 
@@ -101,9 +118,9 @@ instance Spartan3e Fabric where
 
   rot_as_reset = theRst "ROT_CENTER"
 
-------------------------------------------------------------
--- Patches
-------------------------------------------------------------
+  ------------------------------------------------------------
+  -- Patches
+  ------------------------------------------------------------
 
   lcdP = 
 	init_LCD $$ 
@@ -145,7 +162,13 @@ instance Spartan3e Fabric where
   dial_rot = error "dial_rot is not (yet) supported in the hardware"
 
 -------------------------------------------------------------
--- Utilies that can be shared
+-- data structures
+-------------------------------------------------------------
+
+data Serial = DCE | DTE deriving (Eq, Ord, Show)
+        
+-------------------------------------------------------------
+-- Utilites that can be shared
 -------------------------------------------------------------
 
 -- | 'switchesP' gives a patch-level API for the toggle switches.
