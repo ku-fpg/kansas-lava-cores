@@ -264,15 +264,18 @@ showANSI (REVERSE ascii) = do
         setSGR [SetSwapForegroundBackground True]
         showANSI ascii
         setSGR []
+        hFlush stdout
 showANSI (COLOR col ascii) = do
         setSGR [SetColor Foreground Vivid col]
         showANSI ascii
         setSGR []
+        hFlush stdout
 showANSI (PRINT str) = putStr str
 showANSI (AT ascii (row,col)) = do
         setCursorPosition row col
         showANSI ascii
         setCursorPosition 24 0
+        hFlush stdout
 showANSI (RETURN a) = return a
 showANSI (BIND m k) = do
         a <- showANSI m
