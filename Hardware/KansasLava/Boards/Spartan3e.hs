@@ -11,14 +11,20 @@ module Hardware.KansasLava.Boards.Spartan3e (
 	-- * Raw API's.
 	, lcd
 	, switches
+--        , dial  
+        , leds
+        , buttons
 	) where
 
 import Language.KansasLava as KL
 import Hardware.KansasLava.LCD.ST7066U
 import Data.Sized.Unsigned
-import Data.Sized.Ix
-import Data.Sized.Matrix
-
+import Data.Sized.Ix hiding (all)
+import Data.Sized.Matrix hiding (all)
+import Data.Char
+import System.IO
+import Paths_kansas_lava_cores
+ 
 ------------------------------------------------------------
 -- initialization
 ------------------------------------------------------------
@@ -50,10 +56,11 @@ ucf = []
 -- Patches
 ------------------------------------------------------------
 
-mm_lcdPatch :: Patch (Seq (Enabled ((X2,X16),U8)))  (Fabric ())
-	             (Seq Ack)	                    ()
 -- | 'lcdPatch' gives a memory mappped (mm) API to the LCD.
 --  Disables the StrataFlash (for now).
+
+mm_lcdPatch :: Patch (Seq (Enabled ((X2,X16),U8)))  (Fabric ())
+	             (Seq Ack)	                    ()
 mm_lcdPatch = 
         mm_LCD_Inst $$
 	init_LCD $$ 
@@ -99,5 +106,20 @@ lcd rs sf_d e = do
 
 -- | 'switches' gives raw access to the position of the toggle switches.
 switches :: Fabric (Matrix X4 (Seq Bool))
-switches = undefined
+switches = do
+        inp <- inStdLogicVector "SW" :: Fabric (Seq (Matrix X4 Bool))
+        return (unpack inp)
+
+
+buttons :: Fabric (Matrix X4 (Seq Bool))
+buttons = do
+        i0 <- inStdLogic "BTN_WEST"
+        i1 <- inStdLogic "BTN_NORTH"
+        i2 <- inStdLogic "BTN_EAST"
+        i3 <- inStdLogic "BTN_SOUTH"
+        return (matrix [i0,i1,i2,i3])
+
+leds :: Matrix X8 (Seq Bool) -> Fabric ()
+leds inp = outStdLogicVector "LED" (pack inp :: Seq (Matrix X8 Bool))
+
 
