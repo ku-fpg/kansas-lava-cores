@@ -42,22 +42,30 @@ useFabric = vhdlUseFabric :: Opts -> Fabric () -> IO ()
 -}
 -------------------------------------------------
 
-data Opts = Opts { demoFabric :: String, fastSim :: Bool, beat :: Integer }
+data Opts = Opts { demoFabric :: String, fastSim :: Bool, beat :: Integer, vhdl :: Bool }
         deriving (Show, Data, Typeable)
 
 options = Opts { demoFabric = "lcd"             &= help "demo fabric to be executed or built"
                , fastSim = False                &= help "if running board at full speed"
                , beat = (50 * 1000 * 1000)      &= help "approx number of clicks a second"
+               , vhdl = False                   &= help "generate VDHL"
+
                } 
         &= summary "spartan3e-demo: run different examples for Spartan3e"
         &= program "spartan3e-demo"
 
+
 main = do
         opts <- cmdArgs options
-        let fab = fabric opts (demoFabric opts)
-        useFabric opts $ do
+        let fab :: (Spartan3e fabric) => fabric () 
+            fab = do
                 board_init
-                fab
+                fabric opts (demoFabric opts)
+
+        case vhdl opts of
+          True ->  vhdlUseFabric opts fab
+          False -> simUseFabric opts fab
+
 
 -- The simulator's use of the Fabric
 simUseFabric :: Opts -> Sim.Fabric () -> IO ()
@@ -71,8 +79,8 @@ simUseFabric opts fab =
 vhdlUseFabric :: Opts -> KL.Fabric () -> IO ()
 vhdlUseFabric opts fab = do
         kleg <- reifyFabric fab
-        Board.writeUCF "demo.ucf" kleg
-        KL.writeVhdlCircuit "demo" "demo.vhd" kleg
+        Board.writeUCF "main.ucf" kleg
+        KL.writeVhdlCircuit "main" "main.vhd" kleg
         return ()
 
 ------------------------------------------------------------------------------
@@ -88,9 +96,13 @@ fabric _ "leds" = do
 fabric _ "lcd" = do
         runPatch $ neverAckPatch $$ appendPatch msg $$ pulse $$ mm_lcdP
  where
-         msg :: Matrix X11 ((X2,X16),U8)
-         msg = matrix [((0,i),fromIntegral (ord c))
-                      | (c,i) <- zip ("Kansas Lava") [0..]
+         msg :: Matrix X30 ((X2,X16),U8)
+         msg = matrix $
+                      [((0,i),fromIntegral (ord c))
+                      | (c,i) <- zip ("Example of using") [0..]
+                      ] ++
+                      [((1,i),fromIntegral (ord c))
+                      | (c,i) <- zip ("the LCD driver") [1..]
                       ]
         
 fabric _ "rs232out" = do
@@ -113,5 +125,5 @@ pulse = openPatch $$
 	zipPatch $$
 	mapPatch (\ ab -> snd (unpack ab))
    where
-	top = unitPatch (packEnabled (powerOfTwoRate (Witness :: Witness X5)) (pureS ())) $$
+	top = unitPatch (packEnabled (powerOfTwoRate (Witness :: Witness X1)) (pureS ())) $$
 	      enabledToAckBox

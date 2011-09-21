@@ -53,6 +53,33 @@ aliveForm = openPatch $$
 	zipPatch $$
 	mapPatch (\ ab -> let (a,b) = unpack ab in a)
 
+
+-- what ever you write appears on the right,
+-- pushing everything to the right.
+
+window :: forall c sig x . (Clock c, sig ~ CSeq c, c ~ (), Size x, Bounded x, Num x, Enum x)
+        => Patch (sig (Enabled U8))	(sig (Enabled (Matrix x U8)))
+	        (sig Ack)		(sig Ack)
+window = loopPatch patch 
+--        $$
+--        cyclePatch (
+--        matrixExpandPatch 
+  where
+     patch = 
+        zipPatch $$ 
+        mapPatch (\ ab -> let (a:: Comb (Matrix x U8),b :: Comb U8) = unpack ab
+                              a' = unpack a :: Matrix x (Comb U8)
+                          in pack $  matrix ([ a' ! x 
+                                               | x <- [1..maxBound]
+                                               ] ++ [b])) $$
+        fifo1 $$
+        dupPatch $$ 
+        fstPatch (appendPatch (matrix [pure 32] :: Matrix X1 (Matrix x U8))) $$
+        nullPatch
+--                  $$
+--                 (fifo1 `stack` fifo1)
+
+
 pos :: forall c sig x y . (Clock c, sig ~ CSeq c, Rep x, Rep y, Num x, Num y)
      => y
      -> Patch (sig (Enabled (x,U8)))	(sig (Enabled (y,U8)))
