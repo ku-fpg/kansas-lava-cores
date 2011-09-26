@@ -16,6 +16,7 @@ module Hardware.KansasLava.Boards.Spartan3e (
 import Language.KansasLava as KL
 import Hardware.KansasLava.LCD.ST7066U
 import Hardware.KansasLava.Boards.UCF
+import qualified Hardware.KansasLava.VGA as VGA
 
 import Data.Sized.Unsigned
 import Data.Sized.Ix hiding (all)
@@ -23,6 +24,7 @@ import Data.Sized.Matrix hiding (all)
 import Data.Char
 import System.IO
 import Control.Applicative
+
 
 ------------------------------------------------------------
 -- The Spartan3e class
@@ -94,6 +96,11 @@ class Monad fabric => Spartan3e fabric where
    -- | 'dial_rot' gives Enabled packets when dial is rotated,
    -- and if the rotation was clockwise
    dial_rot :: fabric (Seq (Enabled Bool))
+
+   -- | 'mm_vgaP' gives a memory mapped API to the VGA port.
+   -- Each charactor has an extra attribute
+   mm_vgaP :: Patch (Seq (Enabled ((X40,X80),(VGA.Attr,U7)))) (fabric ())
+                    (Seq Ack)	                              ()
 
 ------------------------------------------------------------
 -- initialization

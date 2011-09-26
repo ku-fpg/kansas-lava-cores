@@ -93,8 +93,8 @@ outFabricCount f = outFabric f . loop 0
         loop n (Just _:xs)  = n : loop (succ n) xs
 
 -- | write a file from a clocked list input. Example of use is emulating
--- RS232.
-writeFileFabric :: String -> [Maybe Word8] -> Fabric ()
+-- RS232 (which only used empty or singleton lists), for the inside of a list.
+writeFileFabric :: String -> [Maybe String] -> Fabric ()
 writeFileFabric filename contents = Fabric $ \ _ _ -> do
         opt_h <- try (openBinaryFile filename WriteMode)
         case opt_h of 
@@ -106,9 +106,10 @@ writeFileFabric filename contents = Fabric $ \ _ _ -> do
                                     "(perhaps fifo with no reader?)")
 
     where
+        f :: Handle -> Maybe String -> IO ()
         f _ Nothing   = return ()
-        f h (Just ch) = do
-                hPutChar h (chr (fromIntegral ch))
+        f h (Just bs) = do
+                hPutStr h bs
                 hFlush h
 
 -----------------------------------------------------------------------

@@ -1,4 +1,4 @@
-{-# LANGUAGE TypeFamilies, NoMonomorphismRestriction, DeriveDataTypeable #-}
+{-# LANGUAGE TypeFamilies, NoMonomorphismRestriction, DeriveDataTypeable, RankNTypes, ImpredicativeTypes #-}
 module Main where
 
 import qualified Language.KansasLava as KL
@@ -8,6 +8,8 @@ import Hardware.KansasLava.FIFO
 import Hardware.KansasLava.LCD.ST7066U
 import Hardware.KansasLava.Form
 import Hardware.KansasLava.Rate
+import qualified Hardware.KansasLava.VGA as VGA
+import Hardware.KansasLava.VGA (Attr(..), fg, bg)
 
 import Data.Sized.Ix
 import Data.Sized.Unsigned
@@ -96,14 +98,49 @@ fabric _ "leds" = do
 fabric _ "lcd" = do
         runPatch $ neverAckPatch $$ appendPatch msg $$ pulse $$ mm_lcdP
  where
-         msg :: Matrix X30 ((X2,X16),U8)
-         msg = matrix $
+        msg :: Matrix X30 ((X2,X16),U8)
+        msg = matrix $
                       [((0,i),fromIntegral (ord c))
                       | (c,i) <- zip ("Example of using") [0..]
                       ] ++
                       [((1,i),fromIntegral (ord c))
                       | (c,i) <- zip ("the LCD driver") [1..]
                       ]
+{-
+fabric _ "vga" = do
+        runPatch $ doP $$ mm_vgaP
+ where
+        doP :: Patch () (Seq (Enabled ((X40,X80),(Attr,U7))))
+                     () (Seq Ack)
+        doP = undefined
+        
+--        zipPatch (cyclePatch msg)
+--                       (
+
+        asciiP :: Patch () (Seq (Enabled U7))
+                        () (Seq Ack)
+        asciiP = cyclePatch (matrix [ 33 .. 122 ] :: MSize X91)
+
+
+        -- just a list of positions
+        posP :: Patch () (Seq (Enabled (X40,X80)))
+                      () (Seq Ack)
+        posP = cyclePatch (matrix [(a,b) | a <- [0..39], b <- [0..79]] :: Matrix (MUL X80 X40) (X40,X80))
+
+-}
+
+
+{-
+
+        msg :: Matrix X30 ((X40,X80),(Attr,U7))
+        msg = matrix $
+                      [((0,i),(Attr { bg = VGA.White, fg = VGA.Black },fromIntegral (ord c)))
+                      | (c,i) <- zip ("Example of using") [0..]
+                      ] ++
+                      [((1,i),(Attr { bg = VGA.White, fg = VGA.Red },fromIntegral (ord c)))
+                      | (c,i) <- zip ("the VGA driver") [1..]
+                      ]
+-}
         
 fabric _ "rs232out" = do
         runPatch $ cyclePatch msg $$ rs232_txP DCE (115200 * 100)

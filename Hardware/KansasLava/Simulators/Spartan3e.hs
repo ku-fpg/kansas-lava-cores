@@ -31,6 +31,9 @@ module Hardware.KansasLava.Simulators.Spartan3e
 
 import qualified Hardware.KansasLava.Boards.Spartan3e as Board
 import Hardware.KansasLava.Boards.Spartan3e -- (board_init, rot_as_reset)
+import qualified Hardware.KansasLava.VGA as VGA
+import qualified Data.ByteString as B
+
 import Data.Sized.Ix
 import Data.Sized.Unsigned
 import Data.Sized.Matrix as M
@@ -79,7 +82,8 @@ instance Board.Spartan3e Fabric where
         -- 10 bits per byte
         slow_count = 10 * Board.clockRate `div` baud
         fab inp = do
-                writeFileFabric ("dev/" ++ serialName port ++ "_tx") $ map (fmap fromIntegral) inp
+                writeFileFabric ("dev/" ++ serialName port ++ "_tx") 
+                        $ map (fmap (\ i -> [chr (fromIntegral i)])) inp
                 outFabricCount (RS232 TX port) inp
 
    rs232_rxP port baud = do
@@ -128,6 +132,13 @@ instance Board.Spartan3e Fabric where
         sequence_ [ outFabric (LED (fromIntegral i)) (fromSeq (m ! i))
 	          | i <- [0..7]
 	          ]
+
+   mm_vgaP = fromAckBox $$ forwardPatch fab
+      where
+        fab :: [Maybe ((X40, X80), (VGA.Attr, U7))] -> Fabric ()
+        fab inp = do
+                writeFileFabric ("dev/vga") 
+                        ((Just $ VGA.init_VCG_ANSI) : map (fmap (VGA.show_VCG_ANSI)) inp)
 
 {-
    -- 'dial' returns the status of the 
