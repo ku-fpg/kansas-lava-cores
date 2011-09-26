@@ -45,6 +45,7 @@ import Data.List as List
 import Data.Char as Char
 import Control.Concurrent
 import System.IO.Unsafe
+import Data.Maybe
 
 import Hardware.KansasLava.Simulators.Polyester
 
@@ -57,8 +58,24 @@ import Hardware.KansasLava.Simulators.Polyester
 -- Required.
 instance Board.Spartan3e Polyester where 
 
-   board_init = generic_init BOARD CLOCK
+   board_init = do
+        generic_init BOARD CLOCK
 
+        sw <- switches
+        sequence_ 
+           [ outPolyester (TOGGLE i) (map fromJust (fromSeq (sw ! i)))
+           | i <- [0..3]
+           ]
+        sw <- buttons
+        sequence_ 
+           [ outPolyester (BUTTON i) (map fromJust (fromSeq (sw ! i)))
+           | i <- [0..3]
+           ]
+
+        ss <- ll_dial
+        outPolyester DIAL ss
+
+        
    -- This does nothing on the simulator, because the shallow circuits
    -- can not do a hard reset.
    rot_as_reset = return ()
@@ -102,7 +119,6 @@ instance Board.Spartan3e Polyester where
 
    switches = do
         ms <- sequence [ do ss <- inPolyester False (sw i)
-                            outPolyester (TOGGLE i) ss
                             return ss
                        | i <- [0..3]
                        ]
@@ -116,7 +132,6 @@ instance Board.Spartan3e Polyester where
 
    buttons = do
         ms <- sequence [ do ss <- inPolyester False (sw i)
-                            outPolyester (BUTTON i) ss
                             return ss
                        | i <- [0..3]
                        ]
@@ -172,7 +187,6 @@ data Dial = Dial Bool U2
 ll_dial :: Polyester [Dial]
 ll_dial = do 
         ss <- inPolyester (Dial False 0) switch
-        outPolyester DIAL ss
         return ss
    where 
            switch 'd' (Dial b p) = Dial (not b) p
