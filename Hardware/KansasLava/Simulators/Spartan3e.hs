@@ -37,7 +37,7 @@ import qualified Data.ByteString as B
 import Data.Sized.Ix
 import Data.Sized.Unsigned
 import Data.Sized.Matrix as M
-import Language.KansasLava hiding (Fabric, runFabric)
+import Language.KansasLava
 import qualified Language.KansasLava as KL
 import System.IO
 import Control.Monad
