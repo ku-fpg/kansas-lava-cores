@@ -3,16 +3,16 @@
 
 module Hardware.KansasLava.Simulators.Polyester (
           -- * The Fake Fabric Monad
-          Fabric               -- abstract
-          -- * The Fabric non-proper morphisms
-        , outFabric
-        , outFabricEvents
-        , outFabricCount
-        , writeFileFabric
-        , inFabric
-        , readFileFabric
-        -- * Running the Fake Fabric
-        , runFabric
+          Polyester               -- abstract
+          -- * The Polyester non-proper morphisms
+        , outPolyester
+        , outPolyesterEvents
+        , outPolyesterCount
+        , writeFilePolyester
+        , inPolyester
+        , readFilePolyester
+        -- * Running the Fake Polyester
+        , runPolyester
         , ExecMode(..)
         -- * Support for building fake Boards
         , generic_init
@@ -40,28 +40,28 @@ import System.IO.Unsafe (unsafeInterleaveIO)
 -- | The simulator uses its own 'Fabric', which connects not to pins on the chip, 
 -- but rather an ASCII picture of the board.
 
-data Fabric a = Fabric ([Maybe Char] -> ExecMode -> IO (a,[Stepper]))
+data Polyester a = Polyester ([Maybe Char] -> ExecMode -> IO (a,[Stepper]))
 
 
-instance Monad Fabric where
-        return a = Fabric $ \ _ _ -> return (a,[])
-        (Fabric f) >>= k = Fabric $ \ inp mode -> do
+instance Monad Polyester where
+        return a = Polyester $ \ _ _ -> return (a,[])
+        (Polyester f) >>= k = Polyester $ \ inp mode -> do
                                 (a,s1)  <- f inp mode
-                                let Fabric g = k a
+                                let Polyester g = k a
                                 (b,s2)  <- g inp mode
                                 return (b,s1 ++ s2)
         fail msg = error msg
 
-instance MonadFix Fabric where
+instance MonadFix Polyester where
         -- TODO: check this
-        mfix f = Fabric $ \ inp mode -> mfix (\ r ->  let (Fabric g) = f (fst r) 
+        mfix f = Polyester $ \ inp mode -> mfix (\ r ->  let (Polyester g) = f (fst r) 
                                                       in g inp mode)
 
-getFabricExecMode :: Fabric ExecMode
-getFabricExecMode = Fabric $ \ _ mode -> return (mode,[])
+getPolyesterExecMode :: Polyester ExecMode
+getPolyesterExecMode = Polyester $ \ _ mode -> return (mode,[])
 
 -----------------------------------------------------------------------
--- Ways out outputing from the Fabric
+-- Ways out outputing from the Polyester
 -----------------------------------------------------------------------
 
 -- | Checks an input list for diffences between adjacent elements,
@@ -69,8 +69,8 @@ getFabricExecMode = Fabric $ \ _ mode -> return (mode,[])
 -- The idea is that sending a graphical event twice should be 
 -- idempotent, but internally the system only writes events
 -- when things change.
-outFabric :: (Eq a, Graphic g) => (a -> g) -> [a] -> Fabric ()
-outFabric f = outFabricEvents . map (fmap f) . changed
+outPolyester :: (Eq a, Graphic g) => (a -> g) -> [a] -> Polyester ()
+outPolyester f = outPolyesterEvents . map (fmap f) . changed
 
 changed :: (Eq a) => [a] -> [Maybe a]
 changed (a:as) = Just a : f a as
@@ -79,29 +79,29 @@ changed (a:as) = Just a : f a as
                    | otherwise = Just y : f y ys
         f _ [] = []
 
--- | Turn a list of graphical events into a 'Fabric', without processing.
-outFabricEvents :: (Graphic g) => [Maybe g] -> Fabric ()
-outFabricEvents ogs = Fabric $ \ _ _ -> return ((),[stepper ogs])
+-- | Turn a list of graphical events into a 'Polyester', without processing.
+outPolyesterEvents :: (Graphic g) => [Maybe g] -> Polyester ()
+outPolyesterEvents ogs = Polyester $ \ _ _ -> return ((),[stepper ogs])
 
 -- | creates single graphical events, based on the number of Events,
 -- when the first real event is event 1, and there is a beginning of time event 0.
 -- Example of use: count the number of bytes send or recieved on a device.
-outFabricCount :: (Graphic g) => (Integer -> g) -> [Maybe a] -> Fabric ()
-outFabricCount f = outFabric f . loop 0
+outPolyesterCount :: (Graphic g) => (Integer -> g) -> [Maybe a] -> Polyester ()
+outPolyesterCount f = outPolyester f . loop 0
   where
         loop n (Nothing:xs) = n : loop n xs
         loop n (Just _:xs)  = n : loop (succ n) xs
 
 -- | write a file from a clocked list input. Example of use is emulating
 -- RS232 (which only used empty or singleton lists), for the inside of a list.
-writeFileFabric :: String -> [Maybe String] -> Fabric ()
-writeFileFabric filename contents = Fabric $ \ _ _ -> do
+writeFilePolyester :: String -> [Maybe String] -> Polyester ()
+writeFilePolyester filename contents = Polyester $ \ _ _ -> do
         opt_h <- try (openBinaryFile filename WriteMode)
         case opt_h of 
           Right h -> do
                   hSetBuffering h NoBuffering
                   return ((),[ ioStepper (map (f h) contents) ])
-          Left (_::IOException) -> throw (FabricException $ 
+          Left (_::IOException) -> throw (PolyesterException $ 
                                     "Failed to open " ++ filename ++ " for writing, " ++ 
                                     "(perhaps fifo with no reader?)")
 
@@ -113,36 +113,36 @@ writeFileFabric filename contents = Fabric $ \ _ _ -> do
                 hFlush h
 
 -----------------------------------------------------------------------
--- Ways out inputting to the Fabric
+-- Ways out inputting to the Polyester
 -----------------------------------------------------------------------
 
 -- | Turn an observation of the keyboard into a list of values.
-inFabric :: a                           -- ^ initial 'a'
+inPolyester :: a                           -- ^ initial 'a'
          -> (Char -> a -> a)            -- ^ how to interpreate a key press
-         -> Fabric [a]
-inFabric a interp = Fabric $ \ inp _ -> do
+         -> Polyester [a]
+inPolyester a interp = Polyester $ \ inp _ -> do
         let f' a' Nothing = a'
             f' a' (Just c) = interp c a'
             vals = scanl f' a inp
         return (vals,[]) 
 
 
--- | 'inFabricIO' reads the contents of a file.
+-- | 'inPolyesterIO' reads the contents of a file.
 -- The stream is on-demand, and is not controlled by any clock
 -- inside the function. Typically would be read one cons per
 -- clock, but slower reading is acceptable.
 -- This does not make any attempt to register
 -- what is being observed on the screen; another
 -- process needs to do this.
-readFileFabric :: String -> Fabric [Maybe Word8]
-readFileFabric filename = Fabric $ \ inp _ -> do
+readFilePolyester :: String -> Polyester [Maybe Word8]
+readFilePolyester filename = Polyester $ \ inp _ -> do
         h <- openBinaryFile filename ReadMode
         hSetBuffering h NoBuffering  
         ss <- hGetContentsStepwise h
         return (map (fmap (fromIntegral . ord)) ss,[])
 
 -----------------------------------------------------------------------
--- Running the Fabric
+-- Running the Polyester
 -----------------------------------------------------------------------
 
 data ExecMode
@@ -150,9 +150,9 @@ data ExecMode
         | Friendly      -- ^ run in friendly mode, with 'threadDelay' to run slower, to be CPU friendly.
   deriving (Eq, Show)
 
--- | 'runFabric' executes the Fabric, never returns, and ususally replaces 'reifyFabric'.
-runFabric :: ExecMode -> Fabric () -> IO ()
-runFabric mode f = do
+-- | 'runPolyester' executes the Polyester, never returns, and ususally replaces 'reifyPolyester'.
+runPolyester :: ExecMode -> Polyester () -> IO ()
+runPolyester mode f = do
         
         setTitle "Kansas Lava"
         hSetBuffering stdin NoBuffering
@@ -161,15 +161,15 @@ runFabric mode f = do
 
 --        let -- clockOut | mode == Fast = return ()
 --            clockOut | mode == Friendly =
---                        outFabric clock [0..]
+--                        outPolyester clock [0..]
 
         let extras = do 
-                quit <- inFabric False (\ c _ -> c == 'q')
-                outFabric (\ b -> if b 
+                quit <- inPolyester False (\ c _ -> c == 'q')
+                outPolyester (\ b -> if b 
                                   then error "Simulation Quit" 
                                   else return () :: ANSI ()) quit
         
-        let Fabric h = (do extras ; f)
+        let Polyester h = (do extras ; f)
         (_,steps) <- h inputs mode
 	putStr "\ESC[2J\ESC[1;1H"
 
@@ -187,13 +187,13 @@ runFabric mode f = do
 -- | 'generic_init' builds a generic board_init, including
 -- setting up the drawing of the board, and printing the (optional) clock.
 
-generic_init :: (Graphic g1,Graphic g2) => g1 -> (Integer -> g2) -> Fabric ()
+generic_init :: (Graphic g1,Graphic g2) => g1 -> (Integer -> g2) -> Polyester ()
 generic_init board clock = do
         -- a bit of a hack; print the board on the first cycle
-        outFabric (\ _ -> board) [()]
-        mode <- getFabricExecMode
+        outPolyester (\ _ -> board) [()]
+        mode <- getPolyesterExecMode
         when (mode /= Fast) $ do
-                outFabric (clock) [0..]
+                outPolyester (clock) [0..]
         return ()
 
 -----------------------------------------------------------------------
@@ -311,10 +311,10 @@ hGetContentsStepwise h = do
 -- Exception Magic
 -----------------------------------------------------------------------
 
-data FabricException = FabricException String
+data PolyesterException = PolyesterException String
      deriving Typeable
 
-instance Show FabricException where
-     show (FabricException msg) = msg
+instance Show PolyesterException where
+     show (PolyesterException msg) = msg
 
-instance Exception FabricException
+instance Exception PolyesterException

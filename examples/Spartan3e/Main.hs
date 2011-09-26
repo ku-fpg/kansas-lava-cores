@@ -33,8 +33,7 @@ import Hardware.KansasLava.Simulators.Spartan3e
 -- Only for Simulator mode
 
 
-type Fabric = Sim.Fabric
-useFabric = simUseFabric :: Opts -> Fabric () -> IO ()
+useFabric = simUseFabric :: Opts -> Sim.Polyester () -> IO ()
 
 -- Only in VHDL generation mode
 {-
@@ -70,9 +69,9 @@ main = do
 
 
 -- The simulator's use of the Fabric
-simUseFabric :: Opts -> Sim.Fabric () -> IO ()
+simUseFabric :: Opts -> Sim.Polyester () -> IO ()
 simUseFabric opts fab = 
-        Sim.runFabric (case fastSim opts of
+        Sim.runPolyester (case fastSim opts of
                          True -> Sim.Fast
                          False -> Sim.Friendly) $ do
                  fab

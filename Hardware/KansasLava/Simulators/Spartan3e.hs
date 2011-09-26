@@ -55,7 +55,7 @@ import Hardware.KansasLava.Simulators.Polyester
 -- | 'board_init' sets up the use of the clock.
 -- Always call 'board_init' first. 
 -- Required.
-instance Board.Spartan3e Fabric where 
+instance Board.Spartan3e Polyester where 
 
    board_init = generic_init BOARD CLOCK
 
@@ -69,7 +69,7 @@ instance Board.Spartan3e Fabric where
 
    mm_lcdP = fromAckBox $$ forwardPatch fab
       where
-        fab inp = outFabricEvents $ map (just $ \ ((x,y),ch) -> Just (LCD (x,y) (Char.chr (fromIntegral ch)))) inp
+        fab inp = outPolyesterEvents $ map (just $ \ ((x,y),ch) -> Just (LCD (x,y) (Char.chr (fromIntegral ch)))) inp
 
         just :: (a -> Maybe b) -> Maybe a -> Maybe b
         just _ Nothing  = Nothing
@@ -82,16 +82,16 @@ instance Board.Spartan3e Fabric where
         -- 10 bits per byte
         slow_count = 10 * Board.clockRate `div` baud
         fab inp = do
-                writeFileFabric ("dev/" ++ serialName port ++ "_tx") 
+                writeFilePolyester ("dev/" ++ serialName port ++ "_tx") 
                         $ map (fmap (\ i -> [chr (fromIntegral i)])) inp
-                outFabricCount (RS232 TX port) inp
+                outPolyesterCount (RS232 TX port) inp
 
    rs232_rxP port baud = do
         -- 10 bits per byte
         let slow_count = 10 * Board.clockRate `div` baud
-        ss0 <- readFileFabric ("dev/" ++ serialName port ++ "_rx")
+        ss0 <- readFilePolyester ("dev/" ++ serialName port ++ "_rx")
         let ss = concatMap (\ x -> x : replicate (fromIntegral slow_count) Nothing) ss0
-        outFabricCount (RS232 RX port) ss
+        outPolyesterCount (RS232 RX port) ss
         return (unitPatch (toSeq (map (fmap fromIntegral) ss)))
 
    -----------------------------------------------------------------------
@@ -101,8 +101,8 @@ instance Board.Spartan3e Fabric where
    lcd = error "lcd is not supported in the simulator. (to low level)"
 
    switches = do
-        ms <- sequence [ do ss <- inFabric False (sw i)
-                            outFabric (TOGGLE i) ss
+        ms <- sequence [ do ss <- inPolyester False (sw i)
+                            outPolyester (TOGGLE i) ss
                             return ss
                        | i <- [0..3]
                        ]
@@ -115,8 +115,8 @@ instance Board.Spartan3e Fabric where
         key = matrix "lkjh"
 
    buttons = do
-        ms <- sequence [ do ss <- inFabric False (sw i)
-                            outFabric (BUTTON i) ss
+        ms <- sequence [ do ss <- inPolyester False (sw i)
+                            outPolyester (BUTTON i) ss
                             return ss
                        | i <- [0..3]
                        ]
@@ -129,20 +129,20 @@ instance Board.Spartan3e Fabric where
         key = matrix "aegx"
 
    leds m = do
-        sequence_ [ outFabric (LED (fromIntegral i)) (fromSeq (m ! i))
+        sequence_ [ outPolyester (LED (fromIntegral i)) (fromSeq (m ! i))
 	          | i <- [0..7]
 	          ]
 
    mm_vgaP = fromAckBox $$ forwardPatch fab
       where
-        fab :: [Maybe ((X40, X80), (VGA.Attr, U7))] -> Fabric ()
+        fab :: [Maybe ((X40, X80), (VGA.Attr, U7))] -> Polyester ()
         fab inp = do
-                writeFileFabric ("dev/vga") 
+                writeFilePolyester ("dev/vga") 
                         ((Just $ VGA.init_VCG_ANSI) : map (fmap (VGA.show_VCG_ANSI)) inp)
 
 {-
    -- 'dial' returns the status of the 
-   dial :: Fabric (Seq Bool, Seq (Enabled Bool))
+   dial :: Polyester (Seq Bool, Seq (Enabled Bool))
    dial = do 
         st <- ll_dial
         return ( toSeq $ map (\ (Dial b _) -> b) $ st
@@ -169,10 +169,10 @@ data Dial = Dial Bool U2
         deriving Eq
 
 
-ll_dial :: Fabric [Dial]
+ll_dial :: Polyester [Dial]
 ll_dial = do 
-        ss <- inFabric (Dial False 0) switch
-        outFabric DIAL ss
+        ss <- inPolyester (Dial False 0) switch
+        outPolyester DIAL ss
         return ss
    where 
            switch 'd' (Dial b p) = Dial (not b) p
