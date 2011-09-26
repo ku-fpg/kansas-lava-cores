@@ -24,7 +24,7 @@ import System.Console.CmdArgs as CmdArgs
 
 import qualified Hardware.KansasLava.Boards.Spartan3e as Board 
 
-import qualified Hardware.KansasLava.Simulators.Fabric as Sim
+import qualified Hardware.KansasLava.Simulators.Polyester as Sim
 
 import Hardware.KansasLava.Boards.Spartan3e
 import Hardware.KansasLava.Simulators.Spartan3e

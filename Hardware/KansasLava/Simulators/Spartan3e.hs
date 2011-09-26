@@ -46,7 +46,7 @@ import Data.Char as Char
 import Control.Concurrent
 import System.IO.Unsafe
 
-import Hardware.KansasLava.Simulators.Fabric
+import Hardware.KansasLava.Simulators.Polyester
 
 ------------------------------------------------------------
 -- initialization

@@ -37,7 +37,7 @@ Library
         Hardware.KansasLava.Boards.UCF
         Hardware.KansasLava.Boards.Spartan3e
         Hardware.KansasLava.Simulators.Spartan3e
-        Hardware.KansasLava.Simulators.Fabric
+        Hardware.KansasLava.Simulators.Polyester
 
 --  Hs-Source-Dirs: ., ../kansas-lava
   Other-modules:

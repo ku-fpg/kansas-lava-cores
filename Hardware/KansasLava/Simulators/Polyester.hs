@@ -1,7 +1,7 @@
 {-# LANGUAGE ScopedTypeVariables, GADTs, DeriveDataTypeable #-}
 -- | * Remember to call init_board for your specific board.
 
-module Hardware.KansasLava.Simulators.Fabric (
+module Hardware.KansasLava.Simulators.Polyester (
           -- * The Fake Fabric Monad
           Fabric               -- abstract
           -- * The Fabric non-proper morphisms
