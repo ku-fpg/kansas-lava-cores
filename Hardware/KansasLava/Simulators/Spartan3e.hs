@@ -61,6 +61,7 @@ instance Board.Spartan3e Polyester where
    board_init = do
         generic_init BOARD CLOCK
 
+        -- we now grab the input streams, and display any change of switches.
         sw <- switches
         sequence_ 
            [ outPolyester (TOGGLE i) (map fromJust (fromSeq (sw ! i)))
@@ -155,14 +156,15 @@ instance Board.Spartan3e Polyester where
                 writeFilePolyester ("dev/vga") 
                         ((Just $ VGA.init_VCG_ANSI) : map (fmap (VGA.show_VCG_ANSI)) inp)
 
-{-
-   -- 'dial' returns the status of the 
-   dial :: Polyester (Seq Bool, Seq (Enabled Bool))
-   dial = do 
+
+   dial_button = do
         st <- ll_dial
-        return ( toSeq $ map (\ (Dial b _) -> b) $ st
-               , toSeq $ rot $ map (\ (Dial _ p) -> p) $ st
-               )
+        return $ toSeq $ map (\ (Dial b _) -> b) $ st
+
+
+   dial_rot = do
+        st <- ll_dial
+        return $ toSeq $ rot $ map (\ (Dial _ p) -> p) $ st
       where
           rot xs = map f $ List.zipWith (-) (0:xs) xs
 
@@ -170,7 +172,6 @@ instance Board.Spartan3e Polyester where
           f 1 = Just False
           f 2 = error "turned dial twice in one cycle?"
           f 3 = Just True
-  -}      
 
 -----------------------------------------------------------------------
 -- Utilities uses in the class defintion.
@@ -219,11 +220,6 @@ shallowSlowDownAckBoxPatch slow ~(inp,ack) = (toAck (toSeq ack_out),packEnabled 
 -- | The clock rate on the Spartan3e (50MHz), in hertz.
 clockRate :: Integer
 clockRate = Board.clockRate
-
--- | show out a suggested UCF file for Spartan3e, for a specific circuit.
-showUCF :: KLEG -> IO String
-showUCF _ = return "/* Simulator does not need a UCF */\n"
-
 
 -----------------------------------------------------------------------
 -- 

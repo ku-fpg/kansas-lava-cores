@@ -93,6 +93,18 @@ fabric _ "leds" = do
         bu <- buttons
         leds (sw `M.append` bu)
 
+fabric _ "dial" = do
+        d <- dial_button
+        r <- dial_rot
+        let val :: Seq U4
+            val = register 0 $ val + cASE
+                [ (isEnabled r .&&. enabledVal r, 1)
+                , (isEnabled r .&&. bitNot (enabledVal r), -1)
+                ] 0
+        let ms :: Matrix X4 (Seq Bool)
+            ms = unpack ((bitwise) val :: Seq (Matrix X4 Bool))
+
+        leds (matrix $ [d, low] ++ M.toList ms ++ [low,low])
 
 fabric _ "lcd" = do
         runPatch $ neverAckPatch $$ appendPatch msg $$ pulse $$ mm_lcdP
