@@ -2,8 +2,8 @@
 -- | * Remember to call init_board for your specific board.
 
 module Hardware.KansasLava.Simulators.Polyester (
-          -- * The Fake Fabric Monad
-          Polyester               -- abstract
+          -- * The (abstract) Fake Fabric Monad
+          Polyester -- abstract
           -- * The Polyester non-proper morphisms
         , outPolyester
         , outPolyesterEvents
