@@ -25,7 +25,7 @@ import Data.Sized.Unsigned
 --  On a test using the first 100K bytes, all 256 values occurred with
 --  the same probability (390 or 391 times).
 
-randomBytes :: forall c sig . (Clock c, CSeq c ~ sig) => sig U8
+randomBytes :: forall c sig . (Clock c, Signal c ~ sig) => sig U8
 randomBytes = (unsigned) rs
      where
 	rs :: sig U16

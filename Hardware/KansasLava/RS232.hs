@@ -32,10 +32,10 @@ data RS232_TX
 	| TX_Send X10
 	deriving (Show,Eq,Ord)
 
-isTX_Idle :: (Signal sig) => sig RS232_TX -> sig Bool
+isTX_Idle :: (sig ~ Signal c) => sig RS232_TX -> sig Bool
 isTX_Idle = funMap $ \ tx -> return $ tx == TX_Idle
 
-withTX_Send :: (Signal sig) => sig RS232_TX -> sig (Enabled X10)
+withTX_Send :: (sig ~ Signal c) => sig RS232_TX -> sig (Enabled X10)
 withTX_Send = funMap $ \ tx -> return $ case tx of
 		TX_Send i -> Just i
 		_         -> Nothing
@@ -70,18 +70,18 @@ instance Rep RS232_TX where
     showRep (X_RS232_TX v)	= show v
 -}
 
-(.*&.) :: (Signal sig, Rep a) => sig (Enabled a) -> sig Bool -> sig (Enabled a)
+(.*&.) :: (sig ~ Signal c, Rep a) => sig (Enabled a) -> sig Bool -> sig (Enabled a)
 (.*&.) en_a bool = packEnabled (en .&&. bool) a
   where
 	(en,a) = unpackEnabled en_a
 
-resize :: (Signal sig, Integral x, Rep x, Num y, Rep y) => sig x -> sig y
+resize :: (sig ~ Signal c, Integral x, Rep x, Num y, Rep y) => sig x -> sig y
 resize = funMap $ \ x -> return (fromIntegral x)
 
-findBit :: forall sig . (Signal sig) => (Num (sig X10)) => sig U8 -> sig X10 -> sig Bool
-findBit byte x = (bitwise) byte .!. ((unsigned) (loopingDec x) :: sig X8)
+findBit :: forall sig c . (sig ~ Signal c) => (Num (sig X10)) => sig U8 -> sig X10 -> sig Bool
+findBit byte x = (bitwise) byte .!. ((unsigned) (loopingDecS x) :: sig X8)
 
-rs232out :: forall clk sig a . (Eq clk, Clock clk, sig a ~ CSeq clk a, clk ~ ()) 
+rs232out :: forall clk sig a . (Clock clk, sig a ~ Signal clk a)
 	=> Integer			-- ^ Baud Rate.
 	-> Integer			-- ^ Clock rate, in Hz.
         -> Patch (sig (Enabled U8)) 	(sig Bool)
@@ -89,7 +89,7 @@ rs232out :: forall clk sig a . (Eq clk, Clock clk, sig a ~ CSeq clk a, clk ~ ())
 rs232out baudRate clkRate ~(inp0,()) = (toAck (ready .&&. in_en),out)
   where
 	-- at the baud rate for transmission
-	fastTick :: CSeq clk Bool 
+	fastTick :: Signal clk Bool 
     	fastTick = rate (Witness :: Witness X16) (fromIntegral baudRate / fromIntegral clkRate)
 
     	(in_en,in_val) 	= unpack inp0
@@ -136,7 +136,7 @@ rs232out baudRate clkRate ~(inp0,()) = (toAck (ready .&&. in_en),out)
 --   There is no Ack or Ready, because there is no way to pause the 232.
 --   For the same reason, this does not use a Patch.
 
-rs232in :: forall clk sig a . (Eq clk, Clock clk, sig a ~ CSeq clk a) 
+rs232in :: forall clk sig a . (Clock clk, sig a ~ Signal clk a) 
 	=> Integer			-- ^ Baud Rate.
 	-> Integer			-- ^ Clock rate, in Hz.
 	-> Patch (sig Bool)  (sig (Enabled U8))
@@ -145,7 +145,7 @@ rs232in baudRate clkRate ~(in_val0,()) = ((),out)
   where
 	-- 16 times the baud rate for transmission,
 	-- so we can spot the start bit's edge.
-	fastTick :: CSeq clk Bool 
+	fastTick :: Signal clk Bool 
 	fastTick = rate (Witness :: Witness X16) (16 * fromIntegral baudRate / fromIntegral clkRate)
 	
 
@@ -170,7 +170,7 @@ rs232in baudRate clkRate ~(in_val0,()) = ((),out)
 		counter <- newReg (0 :: U8)
 
 		let lowCounter, highCounter :: sig U4
-		    (lowCounter,highCounter) = factor (reg counter)
+		    (lowCounter,highCounter) = unappendS (reg counter)
 
 		WHEN fastTick $ do
 	 		CASE [ IF ((reg reading .==. low) .&&. (inp .==. low)) $ do

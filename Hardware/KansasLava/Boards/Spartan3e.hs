@@ -143,7 +143,7 @@ instance Spartan3e Fabric where
 
   lcd rs sf_d e = do 
 		outStdLogic 	  "LCD_RS" rs
-		outStdLogicVector "SF_D" (KL.append (0 :: Seq (U8)) sf_d  :: Seq U12)
+		outStdLogicVector "SF_D" (appendS (0 :: Seq (U8)) sf_d  :: Seq U12)
 		outStdLogic       "LCD_E"  e
 		outStdLogic       "LCD_RW" low
 		outStdLogic       "SF_CE0" high

@@ -33,7 +33,7 @@ import Hardware.KansasLava.FIFO
 -}
 
 waitForIt :: forall c sig a b t x y . 
-	( Clock c, sig ~ CSeq c, c ~ ()
+	( Clock c, sig ~ Signal c
 	, Rep a
 	, b ~ Unsigned x, Size x
 	, Size t
@@ -81,7 +81,7 @@ waitForIt maxCounter Witness ~(inp,outAck) = (toAck tick,out)
 
 -- | Count a (fixed-sized) header with 1's, and a payload with 0's.
 -- The fixed sized header counting is done before reading the payload size.
-chunkCounter :: forall c sig x y . (Clock c, sig ~ CSeq c, Size x, Num x, Rep x, Size y, Rep y, Num y, c ~ ())
+chunkCounter :: forall c sig x y . (Clock c, sig ~ Signal c, Size x, Num x, Rep x, Size y, Rep y, Num y)
 	    => Witness x			-- number of 1's on the front
 	    -> Patch (sig (Enabled (Unsigned y)))		(sig (Enabled Bool))
 		     (sig Ack)	 			        (sig Ack)
@@ -102,7 +102,7 @@ chunkCounter w = ackToReadyBridge $$ chunkCounter' w $$ readyToAckBridge where
 
 	-- send out x 1's.
 	ones0 :: sig x
-	ones0 = cASE [ (send_one, loopingDec ones1) ]
+	ones0 = cASE [ (send_one, loopingDecS ones1) ]
 		     ones1
 		
 	ones1 = register (0 :: x) ones0
@@ -123,9 +123,9 @@ chunkCounter w = ackToReadyBridge $$ chunkCounter' w $$ readyToAckBridge where
 		       ] disabledS
 
 
-chunkJoinHeader :: forall c sig x y a . 
-   (Clock c, sig ~ CSeq c, Rep a, Rep x, Size x, Num x, Enum x, Rep y, Size y, Num y, c ~ ())
-  => (Comb (Matrix x a) -> Comb (Unsigned y))
+chunkJoinHeader :: forall c sig x y a .  
+   (Clock c, sig ~ Signal c, Rep a, Rep x, Size x, Num x, Enum x, Rep y, Size y, Num y)
+  => (forall comb . Signal comb (Matrix x a) -> Signal comb (Unsigned y))
   -> Patch (sig (Enabled (Matrix x a))  :> sig (Enabled a))	(sig (Enabled a))
 	   (sig Ack 		        :> sig Ack)	        (sig Ack)
 
@@ -143,8 +143,8 @@ chunkJoinHeader f = patch1 $$ patch2 $$ patch3
 	patch3 = muxPatch
 
 chunkSplitHeader :: forall c sig x y a . 
-   (Clock c, sig ~ CSeq c, Rep a, Rep x, Size x, Num x, Enum x, Rep y, Size y, Num y, c ~ ())
-  => (Comb (Matrix x a) -> Comb (Unsigned y))
+   (Clock c, sig ~ Signal c, Rep a, Rep x, Size x, Num x, Enum x, Rep y, Size y, Num y)
+  => (forall comb . Signal comb (Matrix x a) -> Signal comb (Unsigned y))
   -> Patch (sig (Enabled a))	(sig (Enabled (Matrix x a))  :> sig (Enabled a))
 	   (sig Ack)		(sig Ack 		     :> sig Ack)	        
 chunkSplitHeader f = 
@@ -161,11 +161,11 @@ chunkSplitHeader f =
 	      backwardPatch (\ (a :> b :> c) -> (a :> b) :> c) 
 
 -- TODO: generalize to Non-X1 headers, and use witness for max chunk size (so that the fifo size can be driven).
-chunker :: forall c sig t w . (Size t, Clock c, sig ~ CSeq c, c ~ ())
+chunker :: forall c sig t w . (Size t, Clock c, sig ~ Signal c)
         => Unsigned X8					-- max chunk size
 	-> Witness t					-- 2^t is the timeout for a chunk
-	-> (Comb (Matrix X1 U8) -> Comb U8)		-- interprete the header
-	-> (Comb (Unsigned X8) -> Comb (Matrix X1 U8))	-- constructing the header
+	-> (forall comb . Signal comb (Matrix X1 U8) -> Signal comb U8)		-- interprete the header
+	-> (forall comb . Signal comb (Unsigned X8) -> Signal comb (Matrix X1 U8))	-- constructing the header
 	-> Patch (sig (Enabled U8))                    (sig (Enabled U8))
                  (sig Ack)                             (sig Ack)
 chunker mx wit f g = dupPatch $$ stack waiting stalling $$ chunkJoinHeader f
@@ -175,11 +175,11 @@ chunker mx wit f g = dupPatch $$ stack waiting stalling $$ chunkJoinHeader f
 
 	stalling = fifo (Witness :: Witness X256) low
 
-rdByteHeader :: Comb (Matrix X1 U8) -> Comb U8
+rdByteHeader :: Signal comb (Matrix X1 U8) -> Signal comb U8
 rdByteHeader sz = unpack sz ! 0
 
-mkByteHeader :: Comb U8 -> Comb (Matrix X1 U8)
-mkByteHeader sz = pack (matrix [sz] :: Matrix X1 (Comb U8))
+mkByteHeader :: forall comb . Signal comb U8 -> Signal comb (Matrix X1 U8)
+mkByteHeader sz = pack (matrix [sz] :: Matrix X1 (Signal comb U8))
 
---twoByteHeader :: Comb U16 -> Comb (Matrix X2 U8)
+--twoByteHeader :: Signal comb U16 -> Signal comb (Matrix X2 U8)
 --twoByteHeader sz = pack (matrix [sz] :: Matrix X2 U8)

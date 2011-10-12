@@ -50,10 +50,10 @@ data LCDInstruction
 
 $(repBitRep ''LCDInstruction 9)
 
-setDDAddr :: Comb U7 -> Comb LCDInstruction 
+setDDAddr :: Signal comb U7 -> Signal comb LCDInstruction 
 setDDAddr = funMap (return . SetDDAddr)
 
-writeChar :: Comb U8 -> Comb LCDInstruction 
+writeChar :: Signal comb U8 -> Signal comb LCDInstruction 
 writeChar = funMap (return . WriteChar)
 
 -- 9-bit version; am okay with making it 10-bit
@@ -102,7 +102,7 @@ instance BitRep LCDInstruction where
 -- assuming LCD_RW is set always low
 -- assuming 50Mhz clock
 
-phy_4bit_LCD :: forall c sig . (Clock c, sig ~ CSeq c)
+phy_4bit_LCD :: forall c sig . (Clock c, sig ~ Signal c)
 	=> Patch (sig (Enabled (U5,U18)))	(sig (U1,U4,Bool))
 		 (sig Ack)			()
 phy_4bit_LCD ~(inp,_) = (toAck inAck,out)
@@ -126,7 +126,7 @@ phy_4bit_LCD ~(inp,_) = (toAck inAck,out)
 			-- waiting for input
 			ack := pureS True
 			let (cmd' :: sig U5,pause' :: sig U18) = unpack (enabledVal inp)
-			let (sf_d':: sig U4,rs' :: sig U1) = factor cmd'
+			let (sf_d':: sig U4,rs' :: sig U1) = unappendS cmd'
 			pause := pause'
 			rs    := rs'
 			sf_d  := sf_d'
@@ -134,10 +134,10 @@ phy_4bit_LCD ~(inp,_) = (toAck inAck,out)
 		     , IF (reg state .==. 1) $ do
 			wait 2 $ state := 2
 		     , IF (reg state .==. 2) $ do
-		 	lcd_e := comment "lcd_e := high" high
+		 	lcd_e := commentS "lcd_e := high" high
 			wait 12 $ state := 3
 		     , IF (reg state .==. 3) $ do
-		 	lcd_e := comment "lcd_e := low" low
+		 	lcd_e := commentS "lcd_e := low" low
 			state := 4
 			wait 1 $ state := 4
 		     , IF (reg state .==. 4) $ do
@@ -158,9 +158,9 @@ phy_4bit_LCD ~(inp,_) = (toAck inAck,out)
 			  output := pureS (Just 
 		     ]
 -}
-		return (comment "ack" (var ack),pack (reg rs,reg sf_d,comment "lcd_e" $ reg lcd_e))
+		return (commentS "ack" (var ack),pack (reg rs,reg sf_d,commentS "lcd_e" $ reg lcd_e))
 
-waitFor :: (Rep b, Num b) => Reg s c b -> CSeq c b -> RTL s c () -> RTL s c ()
+waitFor :: (Rep b, Num b) => Reg s c b -> Signal c b -> RTL s c () -> RTL s c ()
 waitFor counter count nextOp = do
 	CASE [ IF (reg counter ./=. count) $ do
 			counter := reg counter + 1
@@ -174,7 +174,7 @@ waitFor counter count nextOp = do
 ----------------------------------------------------------------------
 
 -- | 'phy_4bit_Inst' gives a instruction-level interface, in terms of the 4-bit interface.
-phy_Inst_4bit_LCD :: forall c sig . (Clock c, sig ~ CSeq c)
+phy_Inst_4bit_LCD :: forall c sig . (Clock c, sig ~ Signal c)
 	=> Patch (sig (Enabled LCDInstruction))	(sig (U1,U4,Bool))
 		 (sig Ack)			()
 phy_Inst_4bit_LCD = toCmds $$ appendPatch bootCmds $$ phy_4bit_LCD
@@ -189,18 +189,18 @@ phy_Inst_4bit_LCD = toCmds $$ appendPatch bootCmds $$ phy_4bit_LCD
 		, (0x2, 2000)
 		] 
 
-splitCmd :: Comb LCDInstruction -> Comb (Matrix X2 (U5,U18))
+splitCmd :: forall comb . Signal comb LCDInstruction -> Signal comb (Matrix X2 (U5,U18))
 splitCmd cmd = pack $ matrix 
-	[ pack ( high_op `KL.append` mode
+	[ pack ( high_op `appendS` mode
 	       , smallGap
 	       )
-	, pack ( low_op `KL.append` mode
-	       , mux2 ((bitwise) cmd .<=. (0x03 :: Comb U9)) (hugeGap,bigGap)
+	, pack ( low_op `appendS` mode
+	       , mux2 ((bitwise) cmd .<=. (0x03 :: Signal comb U9)) (hugeGap,bigGap)
 	       )
 	]
     where
-	(op :: Comb U8, mode :: Comb U1) = factor ((bitwise) cmd :: Comb U9)
-	(low_op :: Comb U4, high_op :: Comb U4) = factor op
+	(op :: Signal comb U8, mode :: Signal comb U1) = unappendS ((bitwise) cmd :: Signal comb U9)
+	(low_op :: Signal comb U4, high_op :: Signal comb U4) = unappendS op
 
 	smallGap = 50		-- between nibbles
 	bigGap   = 2000		-- between commands
@@ -210,7 +210,7 @@ splitCmd cmd = pack $ matrix
 -- initialization instructions
 ----------------------------------------------------------------------
 
-init_LCD :: forall c sig . (Clock c, sig ~ CSeq c)
+init_LCD :: forall c sig . (Clock c, sig ~ Signal c)
 	=> Patch (sig (Enabled LCDInstruction))	(sig (Enabled LCDInstruction))
 		 (sig Ack)			(sig Ack)
 init_LCD = appendPatch initCmds
@@ -226,18 +226,18 @@ init_LCD = appendPatch initCmds
 -- Memory Mapped version
 ----------------------------------------------------------------------
 
-mm_LCD_Inst :: forall c sig . (Clock c, sig ~ CSeq c)
+mm_LCD_Inst :: forall c sig . (Clock c, sig ~ Signal c)
 	=> Patch (sig (Enabled ((X2,X16),U8)))	(sig (Enabled LCDInstruction))
 		 (sig Ack)			(sig Ack)
 
 mm_LCD_Inst = mapPatch toInsts $$ matrixExpandPatch
   where
-	toInsts :: Comb ((X2,X16),U8) -> Comb (Matrix X2 LCDInstruction)
-	toInsts wr = pack (matrix [ setDDAddr dd_addr, writeChar ch ] :: Matrix X2 (Comb LCDInstruction))
+	toInsts :: forall comb . Signal comb ((X2,X16),U8) -> Signal comb (Matrix X2 LCDInstruction)
+	toInsts wr = pack (matrix [ setDDAddr dd_addr, writeChar ch ] :: Matrix X2 (Signal comb LCDInstruction))
 	    where
 		(addr,ch) = unpack wr
 		(row,col) = unpack addr
 
-		dd_addr :: Comb U7
+		dd_addr :: Signal comb U7
 		dd_addr = mux (row .==. 0) (0x40 + (unsigned)col,0x00 + (unsigned)col)
 

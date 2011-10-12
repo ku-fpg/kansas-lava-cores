@@ -20,7 +20,7 @@ import Data.Maybe as Maybe
 -- It outputs values sutable for input into the shallow_mm (for
 -- simulation), or the LCD mm drivers.
 mm_driver :: forall c sig row col loc . 
-	( Clock c, sig ~ CSeq c
+	( Clock c, sig ~ Signal c
 	, Rep loc, Rep row, Rep col
 	, Size row, Size col
 	, Rep (MUL row col)
@@ -37,13 +37,13 @@ mm_driver m f =
    where
 	m' :: Matrix (row,col) ((row,col),U8)
 	m' = forEach m $ \ addr ix -> (addr,ix)
-	g :: Comb (loc,U8) -> Comb ((row,col),U8)
+	g :: forall comb . Signal comb (loc,U8) -> Signal comb ((row,col),U8)
 	g arg = pack (funMap (return . f) addr,u8)
 	   where (addr,u8) = unpack arg
 
 
 -- spining bar; shows aliveness.
-aliveForm :: forall c sig . (Clock c, sig ~ CSeq c)
+aliveForm :: forall c sig . (Clock c, sig ~ Signal c)
      => Patch (sig (Enabled ()))	(sig (Enabled (X1,U8)))
 	      (sig Ack)			(sig Ack)
 aliveForm = openPatch $$
@@ -57,7 +57,7 @@ aliveForm = openPatch $$
 -- what ever you write appears on the right,
 -- pushing everything to the right.
 
-window :: forall c sig x . (Clock c, sig ~ CSeq c, c ~ (), Size x, Bounded x, Num x, Enum x)
+window :: forall c sig x comb . (Clock c, sig ~ Signal c, c ~ (), Size x, Bounded x, Num x, Enum x)
         => Patch (sig (Enabled U8))	(sig (Enabled (Matrix x U8)))
 	        (sig Ack)		(sig Ack)
 window = loopPatch patch 
@@ -67,20 +67,21 @@ window = loopPatch patch
   where
      patch = 
         zipPatch $$ 
-        mapPatch (\ ab -> let (a:: Comb (Matrix x U8),b :: Comb U8) = unpack ab
-                              a' = unpack a :: Matrix x (Comb U8)
-                          in pack $  matrix ([ a' ! x 
-                                               | x <- [1..maxBound]
-                                               ] ++ [b])) $$
+        mapPatch fn $$
         fifo1 $$
         dupPatch $$ 
         fstPatch (appendPatch (matrix [pure 32] :: Matrix X1 (Matrix x U8))) $$
         nullPatch
---                  $$
---                 (fifo1 `stack` fifo1)
+
+     fn :: forall comb . Signal comb (Matrix x U8,U8) -> Signal comb (Matrix x U8)
+     fn  ab = let (a:: Signal comb (Matrix x U8),b :: Signal comb U8) = unpack ab
+                  a' = unpack a :: Matrix x (Signal comb U8)
+              in pack $  matrix ([ a' ! x 
+                                 | x <- [1..maxBound]
+                                 ] ++ [b])
 
 
-pos :: forall c sig x y . (Clock c, sig ~ CSeq c, Rep x, Rep y, Num x, Num y)
+pos :: forall c sig x y . (Clock c, sig ~ Signal c, Rep x, Rep y, Num x, Num y)
      => y
      -> Patch (sig (Enabled (x,U8)))	(sig (Enabled (y,U8)))
 	      (sig Ack)			(sig Ack)
@@ -90,7 +91,7 @@ pos n = mapPatch $
 
 -- show a hex number
 hexForm :: forall c sig w .
- 	( Clock c, sig ~ CSeq c, Size (MUL X4 w), Integral (MUL X4 w)
+ 	( Clock c, sig ~ Signal c, Size (MUL X4 w), Integral (MUL X4 w)
 	, Integral w, Bounded w, Rep w, Size w
 	) =>
 	Patch (sig (Enabled (Unsigned (MUL X4 w))))	(sig (Enabled (w,U8)))
@@ -98,7 +99,7 @@ hexForm :: forall c sig w .
 hexForm
     = matrixDupPatch $$
       matrixStack (forAll $ \ i -> 
-		mapPatch (\ v -> (unsigned) (v `B.shiftR` (fromIntegral (maxBound - i) * 4)) :: Comb U4) $$
+		mapPatch (\ v -> witnessS (Witness :: Witness U4) $ (unsigned) (v `B.shiftR` (fromIntegral (maxBound - i) * 4))) $$
 		mapPatch (funMap (\ x -> if x >= 0 && x <= 9 
                      then return (0x30 + fromIntegral x)
                      else return (0x41 + fromIntegral x - 10))) $$
@@ -108,7 +109,7 @@ hexForm
 
 -- | 'shallow_mm' simulates the memory mapped API, by drawing an ASCII picture after each write.
 -- Note that this handles 2D devices.
-shallow_mm :: forall c sig addr . (Clock c, sig ~ CSeq c, Size addr, Rep addr)
+shallow_mm :: forall c sig addr . (Clock c, sig ~ Signal c, Size addr, Rep addr)
 	=> Patch (sig (Enabled (addr,U8)))	[String]
 		 (sig Ack)			()
 shallow_mm = fromAckBox $$ 

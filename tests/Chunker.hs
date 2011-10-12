@@ -127,8 +127,8 @@ tests test = do
                         , theStreamName = "chunker/join-split"
                         }
 
-	    f :: Comb (Matrix X3 U4) -> Comb U4
-	    f m = (unpack m :: Matrix X3 (Comb U4)) ! 1
+	    f :: forall comb . Signal comb (Matrix X3 U4) -> Signal comb U4
+	    f m = (unpack m :: Matrix X3 (Signal comb U4)) ! 1
 
 	    count = 2000
 

@@ -16,7 +16,7 @@ import Language.KansasLava
 -- output stream will be True. If 1/n is not a integer, then the function uses
 -- http://en.wikipedia.org/wiki/Bresenham%27s_line_algorithm to approximate the
 -- given rate.
-rate :: forall x clk . (Clock clk, Size x) => Witness x -> Rational -> (CSeq clk Bool)
+rate :: forall x clk . (Clock clk, Size x) => Witness x -> Rational -> (Signal clk Bool)
 rate Witness n
   | step > 2^sz = error $ "bit-size " ++ show sz ++ " too small for punctuate Witness " ++ show n
   | n <= 0 = error "can not have rate less than or equal zero"
@@ -66,12 +66,12 @@ rate Witness n
 	 nerr = dom - (step + 1) * num
 
 -- | 'powerOfTwoRate' generates a pulse every 2^n cycles, which is often good enough for polling, timeouts, etc.
-powerOfTwoRate :: forall x clk . (Clock clk, Size x) => Witness x -> CSeq clk Bool
+powerOfTwoRate :: forall x clk . (Clock clk, Size x) => Witness x -> Signal clk Bool
 powerOfTwoRate Witness = rate (Witness :: Witness x) (1/(2^(fromIntegral (size (error "Witness" :: x)))))
 
 -- | 'ratePatch' takes a result from rate, and generates token, one per pulse, with
 -- unused tokens being discared.
-ratePatch :: forall c sig . (Clock c, sig ~ CSeq c)
+ratePatch :: forall c sig . (Clock c, sig ~ Signal c)
 	=> sig Bool 
 	-> Patch ()	(sig (Enabled ()))
 	         ()	(sig Ack)

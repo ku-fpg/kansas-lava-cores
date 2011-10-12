@@ -64,12 +64,12 @@ instance Board.Spartan3e Polyester where
         -- we now grab the input streams, and display any change of switches.
         sw <- switches
         sequence_ 
-           [ outPolyester (TOGGLE i) (map fromJust (fromSeq (sw ! i)))
+           [ outPolyester (TOGGLE i) (map fromJust (fromS (sw ! i)))
            | i <- [0..3]
            ]
         sw <- buttons
         sequence_ 
-           [ outPolyester (BUTTON i) (map fromJust (fromSeq (sw ! i)))
+           [ outPolyester (BUTTON i) (map fromJust (fromS (sw ! i)))
            | i <- [0..3]
            ]
 
@@ -110,7 +110,7 @@ instance Board.Spartan3e Polyester where
         ss0 <- readFilePolyester ("dev/" ++ serialName port ++ "_rx")
         let ss = concatMap (\ x -> x : replicate (fromIntegral slow_count) Nothing) ss0
         outPolyesterCount (RS232 RX port) ss
-        return (unitPatch (toSeq (map (fmap fromIntegral) ss)))
+        return (unitPatch (toS (map (fmap fromIntegral) ss)))
 
    -----------------------------------------------------------------------
    -- Native APIs
@@ -123,7 +123,7 @@ instance Board.Spartan3e Polyester where
                             return ss
                        | i <- [0..3]
                        ]
-        return (matrix (map toSeq ms))
+        return (matrix (map toS ms))
       where
         sw i ch old | key ! i == ch = not old       -- flip
                     | otherwise     = old           -- leave
@@ -136,7 +136,7 @@ instance Board.Spartan3e Polyester where
                             return ss
                        | i <- [0..3]
                        ]
-        return (matrix (map toSeq ms))
+        return (matrix (map toS ms))
       where
         sw i ch old | key ! i == ch = not old       -- flip
                     | otherwise     = old           -- leave
@@ -145,7 +145,7 @@ instance Board.Spartan3e Polyester where
         key = matrix "aegx"
 
    leds m = do
-        sequence_ [ outPolyester (LED (fromIntegral i)) (fromSeq (m ! i))
+        sequence_ [ outPolyester (LED (fromIntegral i)) (fromS (m ! i))
 	          | i <- [0..7]
 	          ]
 
@@ -159,12 +159,12 @@ instance Board.Spartan3e Polyester where
 
    dial_button = do
         st <- ll_dial
-        return $ toSeq $ map (\ (Dial b _) -> b) $ st
+        return $ toS $ map (\ (Dial b _) -> b) $ st
 
 
    dial_rot = do
         st <- ll_dial
-        return $ toSeq $ rot $ map (\ (Dial _ p) -> p) $ st
+        return $ toS $ rot $ map (\ (Dial _ p) -> p) $ st
       where
           rot xs = map f $ List.zipWith (-) (0:xs) xs
 
@@ -198,13 +198,13 @@ ll_dial = do
 shallowSlowDownAckBoxPatch ::
         Integer -> Patch (Seq (Enabled U8))  (Seq (Enabled U8))
 	                 (Seq Ack)	     (Seq Ack)
-shallowSlowDownAckBoxPatch slow ~(inp,ack) = (toAck (toSeq ack_out),packEnabled (toSeq good) (enabledVal inp))
+shallowSlowDownAckBoxPatch slow ~(inp,ack) = (toAck (toS ack_out),packEnabled (toS good) (enabledVal inp))
   where
         ack_in :: [Bool]
-        ack_in = [ x | Just x <- fromSeq (fromAck ack) ]
+        ack_in = [ x | Just x <- fromS (fromAck ack) ]
 
         inp_in :: [Bool]
-        inp_in = [ x | Just x <- fromSeq (isEnabled inp) ]
+        inp_in = [ x | Just x <- fromS (isEnabled inp) ]
 
         good :: [Bool]        
         good = f 0 inp_in

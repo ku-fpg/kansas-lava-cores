@@ -59,10 +59,10 @@ testRate (TestSeq test _) nm w r limit = do
         let dut = do
                 let o0 :: Seq Bool
                     o0 = rate w r
-                outStdLogic "o0" (o0 :: CSeq () Bool)
+                outStdLogic "o0" (o0 :: Seq Bool)
             driver = do
                 ans <- inStdLogic "o0"
-                let vs = fromSeq ans
+                let vs = fromS ans
                 return $ \ n -> 
                         let sofar :: [Rational]
                             sofar = [ fromIntegral (length (filter (== Just True) (take i vs))) / fromIntegral i

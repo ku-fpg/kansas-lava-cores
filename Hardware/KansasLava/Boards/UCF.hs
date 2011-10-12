@@ -15,7 +15,7 @@ copyUCF src dest kleg = do
                          SLV n -> [ nm ++ "<" ++ show i ++ ">" 
                                   | i <- [0..(n-1)]
                                   ]
-                     | (OVar _ nm,ty) <- (theSrcs kleg) ++ map (\ (a,b,c) -> (a,b)) (theSinks kleg)
+                     | (nm,ty) <- (theSrcs kleg) ++ map (\ (a,b,c) -> (a,b)) (theSinks kleg)
                      ]
 
         let isComment ('#':_) = True

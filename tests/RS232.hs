@@ -46,8 +46,8 @@ tests test = do
 	    count = 100
 
             noise = id
---		  . fromSeq 
---		  . toSeq
+--		  . fromS 
+--		  . toS
 
 
         let t :: String -> Integer -> IO ()

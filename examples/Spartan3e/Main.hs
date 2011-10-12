@@ -165,7 +165,7 @@ fabric _ "rs232out" = do
 ---------------------------------------------------------------------------------
 -- Utilties
 
-pulse :: (sig ~ CSeq c, Clock c, Rep a)
+pulse :: (sig ~ Signal c, Clock c, Rep a)
       => Patch (sig (Enabled a)) (sig (Enabled a))
 	       (sig Ack)         (sig Ack)
 pulse = openPatch $$

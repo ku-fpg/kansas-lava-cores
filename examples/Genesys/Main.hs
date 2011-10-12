@@ -22,7 +22,7 @@ type X1024 = ADD X512 X512
 type X16K   = MUL X1024 X16
 
 
-circuit :: (sig ~ CSeq c, Clock c, c ~ ())
+circuit :: (sig ~ Signal c, Clock c, c ~ ())
 	=> Patch () 	(sig (U1,U4,Bool))
 	         ()	()
 circuit = pulse $$ appendPatch msg $$ lcdDriver
@@ -79,7 +79,7 @@ circuit = pulse $$ appendPatch msg $$ lcdDriver
 --	    , 0x18	-- shift to the *LEFT*
 	    ]
 
-pulse :: (sig ~ CSeq c, Clock c)
+pulse :: (sig ~ Signal c, Clock c)
       => Patch () (sig (Enabled U9))
 	       () (sig Ack)
 pulse = openPatch $$
@@ -113,7 +113,7 @@ main = do
 		theRst "ROT_CENTER"
 
 		outStdLogic "LCD_RS" rs
-		outStdLogicVector "SF_D" (KL.append (0 :: Seq (U8)) sf_d  :: Seq U12)
+		outStdLogicVector "SF_D" (appendS (0 :: Seq (U8)) sf_d  :: Seq U12)
 		outStdLogic "LCD_E"  e
 
 		outStdLogic "LCD_RW" low
