@@ -138,7 +138,7 @@ chunkJoinHeader f = patch1 $$ patch2 $$ patch3
 				      (fifo1 $$ matrixExpandPatch $$ fifo1)
 		          )
 			fifo1
-	patch2 = forwardPatch (\ ((a :> b) :> c) -> a :> b :> c) `bus`
+	patch2 = forwardPatch (\ ((a :> b) :> c) -> a :> b :> c) $$
 		 backwardPatch (\ (a :> b :> c) -> (a :> b) :> c) 
 	patch3 = muxPatch
 
@@ -157,7 +157,7 @@ chunkSplitHeader f =
       clicker = forwardPatch (mapEnabled f) $$ 
  		fifo1 $$ 
 		chunkCounter (Witness :: Witness x)
-      reorg = forwardPatch (\ ((a :> b) :> c) -> a :> b :> c) `bus`
+      reorg = forwardPatch (\ ((a :> b) :> c) -> a :> b :> c) $$
 	      backwardPatch (\ (a :> b :> c) -> (a :> b) :> c) 
 
 -- TODO: generalize to Non-X1 headers, and use witness for max chunk size (so that the fifo size can be driven).

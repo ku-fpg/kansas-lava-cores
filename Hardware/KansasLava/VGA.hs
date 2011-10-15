@@ -2,7 +2,7 @@
 
 module Hardware.KansasLava.VGA where
 
-import Language.KansasLava hiding (lookup)
+import Language.KansasLava
 import Data.Sized.Ix
 import Data.Char
 import Data.Sized.Unsigned

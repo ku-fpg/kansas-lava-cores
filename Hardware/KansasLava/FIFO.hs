@@ -208,7 +208,7 @@ fifo :: forall a c counter ix .
 
 fifo w_ix rst = fifo_patch
    where
-	fifo_patch = fifoFE w_ix rst `bus` fifoMem w_ix `bus` fifoBE w_ix rst 
+	fifo_patch = fifoFE w_ix rst $$ fifoMem w_ix $$ fifoBE w_ix rst 
 
 
 {-
