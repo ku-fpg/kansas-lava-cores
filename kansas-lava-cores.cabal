@@ -59,13 +59,14 @@ Executable spartan3e-demo
 
 Executable kansas-lava-cores-tests
     if flag(unit)
-      Build-Depends: base >= 4, 
+      Build-Depends: 
+        base >= 4, 
         kansas-lava == 0.2.3.0,
-        sized-types == 0.3.2.20110831, data-default,
-                 containers, data-reify == 0.6, pretty,
-                 dotgen  >= 0.4.1, array, template-haskell,
-                 directory, random, netlist==0.3, netlist-to-vhdl==0.3, process,
-                 fgl, filepath, data-default, unix, bytestring, mtl, strict, cmdargs
+        sized-types == 0.3.2.20110831,
+        data-default, containers, data-reify == 0.6, pretty,
+        dotgen  >= 0.4.1, array, template-haskell,
+        directory, random, netlist==0.3, netlist-to-vhdl==0.3, process,
+        fgl, filepath, data-default, unix, bytestring, mtl, strict, cmdargs
       buildable: True
       Other-modules:
     else
