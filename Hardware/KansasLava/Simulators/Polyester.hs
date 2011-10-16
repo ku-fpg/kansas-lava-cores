@@ -93,7 +93,7 @@ outPolyesterCount f = outPolyester f . loop 0
         loop n (Just _:xs)  = n : loop (succ n) xs
 
 -- | write a file from a clocked list input. Example of use is emulating
--- RS232 (which only used empty or singleton lists), for the inside of a list.
+-- RS232 (which only used empty or singleton strings), for the inside of a list.
 writeFilePolyester :: String -> [Maybe String] -> Polyester ()
 writeFilePolyester filename contents = Polyester $ \ _ _ -> do
         opt_h <- try (openBinaryFile filename WriteMode)
@@ -127,7 +127,7 @@ inPolyester a interp = Polyester $ \ inp _ -> do
         return (vals,[]) 
 
 
--- | 'inPolyesterIO' reads the contents of a file.
+-- | 'readFilePolyester' reads the contents of a file.
 -- The stream is on-demand, and is not controlled by any clock
 -- inside the function. Typically would be read one cons per
 -- clock, but slower reading is acceptable.
@@ -202,13 +202,6 @@ generic_init board clock = do
 
 class Graphic g where
         drawGraphic :: g -> ANSI ()
-
--- ACT is basically a back-door to perform IO, using the 
--- graphics handler (which is really an effects handler).
-data ACT = ACT (IO ())
-
---instance Graphic ACT where
---        drawGraphic (ACT m) = m
 
 -----------------------------------------------------------------------
 -- Internal: The Stepper abstraction, which is just the resumption monad
