@@ -98,10 +98,10 @@ tests test = do
 					-- here we
 					-- (1) Turn header ABC into headder CBA, where B is the length;
 					-- (2) Add one to every member of the payload.
-				      stack (forwardPatch (mapEnabled 
+				      stackP (forwardP (mapEnabled 
 							    (\ ms -> let m = unpack ms
 								   in pack (matrix [m ! 2,m ! 1,m ! 0]))))
-					    (forwardPatch (mapEnabled (+1))) $$
+					    (forwardP (mapEnabled (+1))) $$
 				      chunkJoinHeader f
                         , correctnessCondition = \ ins outs -> 
 --                                 trace (show ("cc",length ins,length outs)) $

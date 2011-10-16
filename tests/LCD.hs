@@ -3,7 +3,7 @@ module LCD (tests) where
 
 import Language.KansasLava
 import Hardware.KansasLava.FIFO (fifo)
---import Hardware.KansasLava.LCD (lcdBootPatch)
+--import Hardware.KansasLava.LCD (lcdBootP)
 
 import Data.Sized.Unsigned
 import Data.Sized.Arith
@@ -43,7 +43,7 @@ tests _test = do
         let lcdTest1 :: StreamTest U9 (U5,U18)
 	    lcdTest1 = StreamTest
                         { theStream = 
-				  lcdBootPatch
+				  lcdBootP
                         , correctnessCondition = \ ins outs -> 
 --                                 trace (show ("cc",length ins,length outs)) $
 --                                 trace (show ("ins",map show (take 100 ins))) $
@@ -61,7 +61,7 @@ tests _test = do
 				     | otherwise -> Nothing
 			, theStreamTestCount  = count
 			, theStreamTestCycles = 1000
-                        , theStreamName = "lcdBootPatch1"
+                        , theStreamName = "lcdBootP1"
                         }
 	    count = 100
 
@@ -70,18 +70,18 @@ tests _test = do
 	  	     lcdTest1
 
 
-	runlcdBootPatch test
+	runlcdBootP test
 
 	return ()
 
-runlcdBootPatch :: TestSeq -> IO ()
-runlcdBootPatch (TestSeq test _)  = do
+runlcdBootP :: TestSeq -> IO ()
+runlcdBootP (TestSeq test _)  = do
 	let cir :: Seq (Enabled U9) -> Seq (Enabled (U5,U18))
 	    cir ins = out
 	      where 
 	        (_,out) = enabledToAckBox $$ 
-			  lcdBootPatch $$ 
-			  unitClockPatch $$
+			  lcdBootP $$ 
+			  unitClockP $$
 			  ackBoxToEnabled $ (ins,())
 
 	    driver = do
@@ -93,7 +93,7 @@ runlcdBootPatch (TestSeq test _)  = do
 		outStdLogicVector "o0" o0
 
 	-- Shallow always passes, but builds a reference
-        test "runlcdBootPatch" 1000000 dut $ do
+        test "runlcdBootP" 1000000 dut $ do
 	      	   driver
 		   inStdLogicVector "o0" :: Fabric (Seq (U5,U18))
 		   return (const Nothing)

@@ -26,7 +26,7 @@ tests test = do
             rs232Test baud scale = StreamTest
                         { theStream = 
 				  rs232out baud clockRate $$ 
-				  forwardPatch noise $$
+				  forwardP noise $$
 				  rs232in baud (floor (toRational clockRate * scale)) $$
 				  enabledToAckBox $$
 				  fifo (Witness :: Witness X16) low

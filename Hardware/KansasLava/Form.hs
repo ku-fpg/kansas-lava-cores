@@ -32,8 +32,8 @@ mm_driver :: forall c sig row col loc .
 	-> Patch (sig (Enabled (loc,U8)))	(sig (Enabled ((row,col),U8)))
 		 (sig Ack)			(sig Ack)		
 mm_driver m f = 
-	mapPatch g $$
-	appendPatch (matrix (M.toList m') :: Matrix (MUL row col) ((row,col),U8))
+	mapP g $$
+	prependP (matrix (M.toList m') :: Matrix (MUL row col) ((row,col),U8))
    where
 	m' :: Matrix (row,col) ((row,col),U8)
 	m' = forEach m $ \ addr ix -> (addr,ix)
@@ -46,12 +46,12 @@ mm_driver m f =
 aliveForm :: forall c sig . (Clock c, sig ~ Signal c)
      => Patch (sig (Enabled ()))	(sig (Enabled (X1,U8)))
 	      (sig Ack)			(sig Ack)
-aliveForm = openPatch $$
-	fstPatch (cyclePatch (matrix $ map (fromIntegral . ord) "|/-\\" :: Matrix X4 U8) $$
-		  mapPatch (\ x -> pack (0,x))
+aliveForm = openP $$
+	fstP (cycleP (matrix $ map (fromIntegral . ord) "|/-\\" :: Matrix X4 U8) $$
+		  mapP (\ x -> pack (0,x))
 		 ) $$
-	zipPatch $$
-	mapPatch (\ ab -> let (a,b) = unpack ab in a)
+	zipP $$
+	mapP (\ ab -> let (a,b) = unpack ab in a)
 
 
 -- what ever you write appears on the right,
@@ -60,18 +60,18 @@ aliveForm = openPatch $$
 window :: forall c sig x comb . (Clock c, sig ~ Signal c, c ~ (), Size x, Bounded x, Num x, Enum x)
         => Patch (sig (Enabled U8))	(sig (Enabled (Matrix x U8)))
 	        (sig Ack)		(sig Ack)
-window = loopPatch patch 
+window = loopP patch 
 --        $$
---        cyclePatch (
---        matrixExpandPatch 
+--        cycleP (
+--        matrixExpandP 
   where
      patch = 
-        zipPatch $$ 
-        mapPatch fn $$
+        zipP $$ 
+        mapP fn $$
         fifo1 $$
-        dupPatch $$ 
-        fstPatch (appendPatch (matrix [pure 32] :: Matrix X1 (Matrix x U8))) $$
-        nullPatch
+        dupP $$ 
+        fstP (prependP (matrix [pure 32] :: Matrix X1 (Matrix x U8))) $$
+        emptyP
 
      fn :: forall comb . Signal comb (Matrix x U8,U8) -> Signal comb (Matrix x U8)
      fn  ab = let (a:: Signal comb (Matrix x U8),b :: Signal comb U8) = unpack ab
@@ -85,7 +85,7 @@ pos :: forall c sig x y . (Clock c, sig ~ Signal c, Rep x, Rep y, Num x, Num y)
      => y
      -> Patch (sig (Enabled (x,U8)))	(sig (Enabled (y,U8)))
 	      (sig Ack)			(sig Ack)
-pos n = mapPatch $ 
+pos n = mapP $ 
 	   \ x_u8 -> let (x,u8) = unpack x_u8
 		     in pack ((unsigned) x + pureS n,u8)
 
@@ -97,14 +97,14 @@ hexForm :: forall c sig w .
 	Patch (sig (Enabled (Unsigned (MUL X4 w))))	(sig (Enabled (w,U8)))
       	     (sig Ack)					(sig Ack)
 hexForm
-    = matrixDupPatch $$
-      matrixStack (forAll $ \ i -> 
-		mapPatch (\ v -> witnessS (Witness :: Witness U4) $ (unsigned) (v `B.shiftR` (fromIntegral (maxBound - i) * 4))) $$
-		mapPatch (funMap (\ x -> if x >= 0 && x <= 9 
+    = matrixDupP $$
+    matrixStackP (forAll $ \ i -> 
+		mapP (\ v -> witnessS (Witness :: Witness U4) $ (unsigned) (v `B.shiftR` (fromIntegral (maxBound - i) * 4))) $$
+		mapP (funMap (\ x -> if x >= 0 && x <= 9 
                      then return (0x30 + fromIntegral x)
                      else return (0x41 + fromIntegral x - 10))) $$
-		mapPatch (\ ch -> pack (pureS i,ch))) $$
-    matrixMergePatch PriorityMerge
+		mapP (\ ch -> pack (pureS i,ch))) $$
+    matrixMergeP PriorityMerge
 
 
 -- | 'shallow_mm' simulates the memory mapped API, by drawing an ASCII picture after each write.
@@ -113,9 +113,9 @@ shallow_mm :: forall c sig addr . (Clock c, sig ~ Signal c, Size addr, Rep addr)
 	=> Patch (sig (Enabled (addr,U8)))	[String]
 		 (sig Ack)			()
 shallow_mm = fromAckBox $$ 
-	     forwardPatch (Maybe.catMaybes) $$
-	     forwardPatch (scanl driver screen) $$
-	     forwardPatch (fmap (M.toList))
+	     forwardP (Maybe.catMaybes) $$
+	     forwardP (scanl driver screen) $$
+	     forwardP (fmap (M.toList))
    where
 	driver :: Matrix addr Char  -> (addr,U8) -> Matrix addr Char
 	driver m (addr,val) = m // [(addr,chr (fromIntegral val))]

@@ -74,7 +74,7 @@ class Monad fabric => Spartan3e fabric where
    -- does no debouncing; the real hardware needs to.
    debounceP :: fabric (Patch (Seq Bool)   (Seq Bool)
 	                      ()	   ())
-   debounceP = return nullPatch
+   debounceP = return emptyP
 
    ----------------------------------------------------------------------------
  
@@ -132,7 +132,7 @@ instance Spartan3e Fabric where
   lcdP = 
 	init_LCD $$ 
 	phy_Inst_4bit_LCD $$ 
-	forwardPatch (\ bus -> do 
+	forwardP (\ bus -> do 
 		let (rs,sf_d,e) = unpack bus
 		lcd rs sf_d e)
 
@@ -185,9 +185,9 @@ switchesP :: (Spartan3e fabric) =>
 switchesP = do
 	sws <- switches
         db <- debounceP
-	return (unitPatch sws $$ 
-	        backwardPatch (\ _mat -> ()) $$
-                matrixStack (pure db))
+	return (outputP sws $$ 
+	        backwardP (\ _mat -> ()) $$
+                matrixStackP (pure db))
 
 
 -- | 'buttonsP' gives a patch-level API for the toggle switches.
@@ -197,17 +197,17 @@ buttonsP :: (Spartan3e fabric) =>
 buttonsP = do
 	sws <- buttons
         db <- debounceP
-        return (unitPatch sws $$ 
-	        backwardPatch (\ _mat -> ()) $$
-                matrixStack (pure db))
+        return (outputP sws $$ 
+	        backwardP (\ _mat -> ()) $$
+                matrixStackP (pure db))
 
 -- | 'ledP' gives a patch-level API for the leds.
 ledsP :: (Spartan3e fabric) =>
              Patch (Matrix X8 (Seq Bool)) (fabric ())
                    (Matrix X8 ())         ()
 ledsP = 
-        backwardPatch (\ () -> pure ()) $$
-        forwardPatch leds
+        backwardP (\ () -> pure ()) $$
+        forwardP leds
 
 
  

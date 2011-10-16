@@ -25,7 +25,7 @@ type X16K   = MUL X1024 X16
 circuit :: (sig ~ Signal c, Clock c, c ~ ())
 	=> Patch () 	(sig (U1,U4,Bool))
 	         ()	()
-circuit = pulse $$ appendPatch msg $$ lcdDriver
+circuit = pulse $$ prependP msg $$ lcdDriver
   where
 	msg :: Matrix X38 U9
 	msg = matrix
@@ -82,14 +82,14 @@ circuit = pulse $$ appendPatch msg $$ lcdDriver
 pulse :: (sig ~ Signal c, Clock c)
       => Patch () (sig (Enabled U9))
 	       () (sig Ack)
-pulse = openPatch $$
-	(top `stack` bottom) $$
-	zipPatch $$
-	mapPatch (\ ab -> snd (unpack ab))
+pulse = openP $$
+	(top `stackP` bottom) $$
+	zipP $$
+	mapP (\ ab -> snd (unpack ab))
    where
-	top = unitPatch (packEnabled (powerOfTwoRate (Witness :: Witness X25)) (pureS ())) $$
+	top = outputP (packEnabled (powerOfTwoRate (Witness :: Witness X25)) (pureS ())) $$
 	      enabledToAckBox
-	bottom = cyclePatch (matrix (map ((+ 0x100) . fromIntegral . C.ord) msg) :: Matrix X19 U9)
+	bottom = cycleP (matrix (map ((+ 0x100) . fromIntegral . C.ord) msg) :: Matrix X19 U9)
 
 	msg = "Kansas Lava rocks! "
 
@@ -103,7 +103,7 @@ diff (x:xs) = f 0 x xs
 	f _ _ [] = []
 
 main = do
-	let (_,res) = execPatch circuit ((),())
+	let (_,res) = execP circuit ((),())
 
 	let (rs,sf_d,e) = unpack res
 

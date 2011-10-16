@@ -13,9 +13,9 @@ module Hardware.KansasLava.Simulators.Spartan3e
 	, Board.clockRate
 	, showUCF
 	-- * Patch API's.
---	, lcdPatch              -- unsupported in the simulator
-	, mm_lcdPatch
-	, switchesPatch
+--	, lcdP              -- unsupported in the simulator
+	, mm_lcdP
+	, switchesP
         , rs232_dce_rx
         , rs232_dce_tx
 --        , rs232_dte_rx
@@ -85,7 +85,7 @@ instance Board.Spartan3e Polyester where
    -- Patches
    -----------------------------------------------------------------------
 
-   mm_lcdP = fromAckBox $$ forwardPatch fab
+   mm_lcdP = fromAckBox $$ forwardP fab
       where
         fab inp = outPolyesterEvents $ map (just $ \ ((x,y),ch) -> Just (LCD (x,y) (Char.chr (fromIntegral ch)))) inp
 
@@ -93,9 +93,9 @@ instance Board.Spartan3e Polyester where
         just _ Nothing  = Nothing
         just k (Just a) = k a
 
-   lcdP = error "lcdP is not supported in the simulator. Use mm_lcdPatch and the memory mapped API instead"
+   lcdP = error "lcdP is not supported in the simulator. Use mm_lcdP and the memory mapped API instead"
 
-   rs232_txP port baud = shallowSlowDownAckBoxPatch slow_count $$ fromAckBox $$ forwardPatch fab
+   rs232_txP port baud = shallowSlowDownAckBoxP slow_count $$ fromAckBox $$ forwardP fab
       where
         -- 10 bits per byte
         slow_count = 10 * Board.clockRate `div` baud
@@ -110,7 +110,7 @@ instance Board.Spartan3e Polyester where
         ss0 <- readFilePolyester ("dev/" ++ serialName port ++ "_rx")
         let ss = concatMap (\ x -> x : replicate (fromIntegral slow_count) Nothing) ss0
         outPolyesterCount (RS232 RX port) ss
-        return (unitPatch (toS (map (fmap fromIntegral) ss)))
+        return (outputP (toS (map (fmap fromIntegral) ss)))
 
    -----------------------------------------------------------------------
    -- Native APIs
@@ -149,7 +149,7 @@ instance Board.Spartan3e Polyester where
 	          | i <- [0..7]
 	          ]
 
-   mm_vgaP = fromAckBox $$ forwardPatch fab
+   mm_vgaP = fromAckBox $$ forwardP fab
       where
         fab :: [Maybe ((X40, X80), (VGA.Attr, U7))] -> Polyester ()
         fab inp = do
@@ -195,10 +195,10 @@ ll_dial = do
            switch 'f' (Dial b p) = Dial b (succ p)
            switch _   other      = other
 
-shallowSlowDownAckBoxPatch ::
+shallowSlowDownAckBoxP ::
         Integer -> Patch (Seq (Enabled U8))  (Seq (Enabled U8))
 	                 (Seq Ack)	     (Seq Ack)
-shallowSlowDownAckBoxPatch slow ~(inp,ack) = (toAck (toS ack_out),packEnabled (toS good) (enabledVal inp))
+shallowSlowDownAckBoxP slow ~(inp,ack) = (toAck (toS ack_out),packEnabled (toS good) (enabledVal inp))
   where
         ack_in :: [Bool]
         ack_in = [ x | Just x <- fromS (fromAck ack) ]

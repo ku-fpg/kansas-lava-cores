@@ -131,16 +131,16 @@ chunkJoinHeader :: forall c sig x y a .
 
 chunkJoinHeader f = patch1 $$ patch2 $$ patch3
    where
-	patch1 = stack (dupPatch $$ 
-				stack (forwardPatch (mapEnabled f) $$ 
+	patch1 = stackP (dupP $$ 
+				stackP (forwardP (mapEnabled f) $$ 
 				       fifo1 $$
 				       chunkCounter (Witness :: Witness x))
-				      (fifo1 $$ matrixExpandPatch $$ fifo1)
+				      (fifo1 $$ matrixExpandP $$ fifo1)
 		          )
 			fifo1
-	patch2 = forwardPatch (\ ((a :> b) :> c) -> a :> b :> c) $$
-		 backwardPatch (\ (a :> b :> c) -> (a :> b) :> c) 
-	patch3 = muxPatch
+	patch2 = forwardP (\ ((a :> b) :> c) -> a :> b :> c) $$
+		 backwardP (\ (a :> b :> c) -> (a :> b) :> c) 
+	patch3 = muxP
 
 chunkSplitHeader :: forall c sig x y a . 
    (Clock c, sig ~ Signal c, Rep a, Rep x, Size x, Num x, Enum x, Rep y, Size y, Num y)
@@ -148,17 +148,17 @@ chunkSplitHeader :: forall c sig x y a .
   -> Patch (sig (Enabled a))	(sig (Enabled (Matrix x a))  :> sig (Enabled a))
 	   (sig Ack)		(sig Ack 		     :> sig Ack)	        
 chunkSplitHeader f = 
-	loopPatch $
-		(fifo1 `stack` fifo1) $$
-		deMuxPatch $$
-		(fstPatch (fifo1 $$ matrixContractPatch $$ dupPatch $$ fstPatch clicker)) $$
+	loopP $
+		(fifo1 `stackP` fifo1) $$
+		deMuxP $$
+		(fstP (fifo1 $$ matrixContractP $$ dupP $$ fstP clicker)) $$
 		reorg
   where
-      clicker = forwardPatch (mapEnabled f) $$ 
+      clicker = forwardP (mapEnabled f) $$ 
  		fifo1 $$ 
 		chunkCounter (Witness :: Witness x)
-      reorg = forwardPatch (\ ((a :> b) :> c) -> a :> b :> c) $$
-	      backwardPatch (\ (a :> b :> c) -> (a :> b) :> c) 
+      reorg = forwardP (\ ((a :> b) :> c) -> a :> b :> c) $$
+	      backwardP (\ (a :> b :> c) -> (a :> b) :> c) 
 
 -- TODO: generalize to Non-X1 headers, and use witness for max chunk size (so that the fifo size can be driven).
 chunker :: forall c sig t w . (Size t, Clock c, sig ~ Signal c)
@@ -168,10 +168,10 @@ chunker :: forall c sig t w . (Size t, Clock c, sig ~ Signal c)
 	-> (forall comb . Signal comb (Unsigned X8) -> Signal comb (Matrix X1 U8))	-- constructing the header
 	-> Patch (sig (Enabled U8))                    (sig (Enabled U8))
                  (sig Ack)                             (sig Ack)
-chunker mx wit f g = dupPatch $$ stack waiting stalling $$ chunkJoinHeader f
+chunker mx wit f g = dupP $$ stackP waiting stalling $$ chunkJoinHeader f
   where 
 	waiting = waitForIt mx wit $$ 
-		  mapPatch g
+		  mapP g
 
 	stalling = fifo (Witness :: Witness X256) low
 

@@ -107,7 +107,7 @@ fabric _ "dial" = do
         leds (matrix $ [d, low] ++ M.toList ms ++ [low,low])
 
 fabric _ "lcd" = do
-        runPatch $ neverAckPatch $$ appendPatch msg $$ pulse $$ mm_lcdP
+        runP $ neverAckP $$ prependP msg $$ pulse $$ mm_lcdP
  where
         msg :: Matrix X30 ((X2,X16),U8)
         msg = matrix $
@@ -119,24 +119,24 @@ fabric _ "lcd" = do
                       ]
 {-
 fabric _ "vga" = do
-        runPatch $ doP $$ mm_vgaP
+        runP $ doP $$ mm_vgaP
  where
         doP :: Patch () (Seq (Enabled ((X40,X80),(Attr,U7))))
                      () (Seq Ack)
         doP = undefined
         
---        zipPatch (cyclePatch msg)
+--        zipP (cycleP msg)
 --                       (
 
         asciiP :: Patch () (Seq (Enabled U7))
                         () (Seq Ack)
-        asciiP = cyclePatch (matrix [ 33 .. 122 ] :: MSize X91)
+        asciiP = cycleP (matrix [ 33 .. 122 ] :: MSize X91)
 
 
         -- just a list of positions
         posP :: Patch () (Seq (Enabled (X40,X80)))
                       () (Seq Ack)
-        posP = cyclePatch (matrix [(a,b) | a <- [0..39], b <- [0..79]] :: Matrix (MUL X80 X40) (X40,X80))
+        posP = cycleP (matrix [(a,b) | a <- [0..39], b <- [0..79]] :: Matrix (MUL X80 X40) (X40,X80))
 
 -}
 
@@ -154,7 +154,7 @@ fabric _ "vga" = do
 -}
         
 fabric _ "rs232out" = do
-        runPatch $ cyclePatch msg $$ rs232_txP DCE (115200 * 100)
+        runP $ cycleP msg $$ rs232_txP DCE (115200 * 100)
  where
          msg :: Matrix X95 U8
          msg = matrix [ i
@@ -168,10 +168,10 @@ fabric _ "rs232out" = do
 pulse :: (sig ~ Signal c, Clock c, Rep a)
       => Patch (sig (Enabled a)) (sig (Enabled a))
 	       (sig Ack)         (sig Ack)
-pulse = openPatch $$
-	(top `stack` idPatch) $$ 
-	zipPatch $$
-	mapPatch (\ ab -> snd (unpack ab))
+pulse = openP $$
+	(top `stackP` emptyP) $$ 
+	zipP $$
+	mapP (\ ab -> snd (unpack ab))
    where
-	top = unitPatch (packEnabled (powerOfTwoRate (Witness :: Witness X1)) (pureS ())) $$
+	top = outputP (packEnabled (powerOfTwoRate (Witness :: Witness X1)) (pureS ())) $$
 	      enabledToAckBox

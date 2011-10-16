@@ -177,9 +177,9 @@ waitFor counter count nextOp = do
 phy_Inst_4bit_LCD :: forall c sig . (Clock c, sig ~ Signal c)
 	=> Patch (sig (Enabled LCDInstruction))	(sig (U1,U4,Bool))
 		 (sig Ack)			()
-phy_Inst_4bit_LCD = toCmds $$ appendPatch bootCmds $$ phy_4bit_LCD
+phy_Inst_4bit_LCD = toCmds $$ prependP bootCmds $$ phy_4bit_LCD
    where
-	toCmds = mapPatch splitCmd $$ matrixExpandPatch
+	toCmds = mapP splitCmd $$ matrixExpandP
 
 	bootCmds :: Matrix X4 (U5,U18)
 	bootCmds = matrix 
@@ -213,7 +213,7 @@ splitCmd cmd = pack $ matrix
 init_LCD :: forall c sig . (Clock c, sig ~ Signal c)
 	=> Patch (sig (Enabled LCDInstruction))	(sig (Enabled LCDInstruction))
 		 (sig Ack)			(sig Ack)
-init_LCD = appendPatch initCmds
+init_LCD = prependP initCmds
    where
 	initCmds :: Matrix X4 LCDInstruction
 	initCmds = matrix [ FunctionSet { eightBit = False, twoLines = True, fiveByEleven = False }
@@ -230,7 +230,7 @@ mm_LCD_Inst :: forall c sig . (Clock c, sig ~ Signal c)
 	=> Patch (sig (Enabled ((X2,X16),U8)))	(sig (Enabled LCDInstruction))
 		 (sig Ack)			(sig Ack)
 
-mm_LCD_Inst = mapPatch toInsts $$ matrixExpandPatch
+mm_LCD_Inst = mapP toInsts $$ matrixExpandP
   where
 	toInsts :: forall comb . Signal comb ((X2,X16),U8) -> Signal comb (Matrix X2 LCDInstruction)
 	toInsts wr = pack (matrix [ setDDAddr dd_addr, writeChar ch ] :: Matrix X2 (Signal comb LCDInstruction))
