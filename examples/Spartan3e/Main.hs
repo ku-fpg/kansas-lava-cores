@@ -6,7 +6,7 @@ import Language.KansasLava hiding (Fabric)
 import Hardware.KansasLava.RS232
 import Hardware.KansasLava.FIFO
 import Hardware.KansasLava.LCD.ST7066U
-import Hardware.KansasLava.Form
+import Hardware.KansasLava.Text
 import Hardware.KansasLava.Rate
 import qualified Hardware.KansasLava.VGA as VGA
 import Hardware.KansasLava.VGA (Attr(..), fg, bg)

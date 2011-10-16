@@ -2,7 +2,7 @@
     ScopedTypeVariables, MultiParamTypeClasses, FunctionalDependencies,ParallelListComp,
     RankNTypes, TypeOperators, NoMonomorphismRestriction  #-}
 
-module Hardware.KansasLava.Form where
+module Hardware.KansasLava.Text where
 
 import Language.KansasLava as KL
 import Data.Sized.Unsigned

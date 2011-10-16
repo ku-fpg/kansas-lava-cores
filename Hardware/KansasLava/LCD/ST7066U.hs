@@ -19,7 +19,7 @@ import Control.Applicative
 import Data.Char
 import qualified Data.Bits as B
 
-import Hardware.KansasLava.Form as F
+import Hardware.KansasLava.Text as F
 
 ----------------------------------------------------------------------
 -- Example usage
