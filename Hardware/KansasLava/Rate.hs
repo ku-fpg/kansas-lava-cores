@@ -1,7 +1,7 @@
 {-# LANGUAGE RankNTypes, TypeFamilies, ScopedTypeVariables #-}
 -- | The 'Clock' module provides a utility function for simulating clock rate
 -- downsampling.
-module Hardware.KansasLava.Rate(rate, powerOfTwoRate, rateP) where
+module Hardware.KansasLava.Rate(rate, powerOfTwoRate, rateP, throttleP) where
 
 import Data.Ratio
 
@@ -76,4 +76,17 @@ rateP :: forall c sig . (Clock c, sig ~ Signal c)
 	-> Patch ()	(sig (Enabled ()))
 	         ()	(sig Ack)
 rateP r = outputP (packEnabled r $ pureS ()) $$ enabledToAckBox
+
+throttleP :: forall sig c a x . (sig ~ Signal c, Clock c, Rep a)
+      => sig Bool
+      -> Patch (sig (Enabled a)) (sig (Enabled a))
+	       (sig Ack)         (sig Ack)
+throttleP in_pred
+      = openP $$
+	(top `stackP` emptyP) $$ 
+	zipP $$
+	mapP (\ ab -> snd (unpack ab))
+   where
+	top = outputP (packEnabled in_pred (pureS ())) $$
+	      enabledToAckBox
 	
