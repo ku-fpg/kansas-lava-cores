@@ -29,19 +29,6 @@ import qualified Hardware.KansasLava.Simulators.Polyester as Sim
 import Hardware.KansasLava.Boards.Spartan3e
 import Hardware.KansasLava.Simulators.Spartan3e
 
--------------------------------------------------
--- Only for Simulator mode
-
-
-useFabric = simUseFabric :: Opts -> Sim.Polyester () -> IO ()
-
--- Only in VHDL generation mode
-{-
-
-type Fabric = KL.Fabric
-useFabric = vhdlUseFabric :: Opts -> Fabric () -> IO ()
--}
--------------------------------------------------
 
 data Opts = Opts { demoFabric :: String, fastSim :: Bool, beat :: Integer, vhdl :: Bool }
         deriving (Show, Data, Typeable)
@@ -107,7 +94,7 @@ fabric _ "dial" = do
         leds (matrix $ [d, low] ++ M.toList ms ++ [low,low])
 
 fabric _ "lcd" = do
-        runP $ neverAckP $$ prependP msg $$ pulse $$ mm_lcdP
+        runP $ neverAckP $$ prependP msg $$ throttleP (powerOfTwoRate (Witness :: Witness X5)) $$ mm_lcdP
  where
         msg :: Matrix X30 ((X2,X16),U8)
         msg = matrix $
@@ -164,14 +151,3 @@ fabric _ "rs232out" = do
         
 ---------------------------------------------------------------------------------
 -- Utilties
-
-pulse :: (sig ~ Signal c, Clock c, Rep a)
-      => Patch (sig (Enabled a)) (sig (Enabled a))
-	       (sig Ack)         (sig Ack)
-pulse = openP $$
-	(top `stackP` emptyP) $$ 
-	zipP $$
-	mapP (\ ab -> snd (unpack ab))
-   where
-	top = outputP (packEnabled (powerOfTwoRate (Witness :: Witness X1)) (pureS ())) $$
-	      enabledToAckBox

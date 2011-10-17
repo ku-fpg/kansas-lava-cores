@@ -14,12 +14,11 @@ import Data.Char
 import qualified Data.Bits as B
 import Data.Maybe as Maybe
 
--- | 'mm_driver' is a memory-mapped driver for a (small) display.
+-- | 'mm_text_driver' is a memory-mapped driver for a (small) display.
 -- It gets passed the background "image", and the mapping from
 -- active location number to row,col on the screen.
--- It outputs values sutable for input into the shallow_mm (for
--- simulation), or the LCD mm drivers.
-mm_driver :: forall c sig row col loc . 
+-- It outputs values sutable for input into the LCD mm drivers.
+mm_text_driver :: forall c sig row col loc . 
 	( Clock c, sig ~ Signal c
 	, Rep loc, Rep row, Rep col
 	, Size row, Size col
@@ -31,7 +30,7 @@ mm_driver :: forall c sig row col loc .
 	-> (loc -> (row,col))	-- active content mapping
 	-> Patch (sig (Enabled (loc,U8)))	(sig (Enabled ((row,col),U8)))
 		 (sig Ack)			(sig Ack)		
-mm_driver m f = 
+mm_text_driver m f = 
 	mapP g $$
 	prependP (matrix (M.toList m') :: Matrix (MUL row col) ((row,col),U8))
    where
@@ -42,11 +41,13 @@ mm_driver m f =
 	   where (addr,u8) = unpack arg
 
 
--- spining bar; shows aliveness.
-aliveForm :: forall c sig . (Clock c, sig ~ Signal c)
+-- | spining bar glyph; shows aliveness.
+-- rotates by 45 degrees for each pulse sent in.
+aliveGlyph :: forall c sig . (Clock c, sig ~ Signal c)
      => Patch (sig (Enabled ()))	(sig (Enabled (X1,U8)))
 	      (sig Ack)			(sig Ack)
-aliveForm = openP $$
+aliveGlyph 
+      = openP $$
 	fstP (cycleP (matrix $ map (fromIntegral . ord) "|/-\\" :: Matrix X4 U8) $$
 		  mapP (\ x -> pack (0,x))
 		 ) $$
@@ -61,9 +62,6 @@ window :: forall c sig x comb . (Clock c, sig ~ Signal c, c ~ (), Size x, Bounde
         => Patch (sig (Enabled U8))	(sig (Enabled (Matrix x U8)))
 	        (sig Ack)		(sig Ack)
 window = loopP patch 
---        $$
---        cycleP (
---        matrixExpandP 
   where
      patch = 
         zipP $$ 
@@ -80,22 +78,13 @@ window = loopP patch
                                  | x <- [1..maxBound]
                                  ] ++ [b])
 
-
-pos :: forall c sig x y . (Clock c, sig ~ Signal c, Rep x, Rep y, Num x, Num y)
-     => y
-     -> Patch (sig (Enabled (x,U8)))	(sig (Enabled (y,U8)))
-	      (sig Ack)			(sig Ack)
-pos n = mapP $ 
-	   \ x_u8 -> let (x,u8) = unpack x_u8
-		     in pack ((unsigned) x + pureS n,u8)
-
 -- show a hex number
 hexForm :: forall c sig w .
  	( Clock c, sig ~ Signal c, Size (MUL X4 w), Integral (MUL X4 w)
 	, Integral w, Bounded w, Rep w, Size w
 	) =>
 	Patch (sig (Enabled (Unsigned (MUL X4 w))))	(sig (Enabled (w,U8)))
-      	     (sig Ack)					(sig Ack)
+      	      (sig Ack)					(sig Ack)
 hexForm
     = matrixDupP $$
     matrixStackP (forAll $ \ i -> 
@@ -106,30 +95,3 @@ hexForm
 		mapP (\ ch -> pack (pureS i,ch))) $$
     matrixMergeP PriorityMerge
 
-
--- | 'shallow_mm' simulates the memory mapped API, by drawing an ASCII picture after each write.
--- Note that this handles 2D devices.
-shallow_mm :: forall c sig addr . (Clock c, sig ~ Signal c, Size addr, Rep addr)
-	=> Patch (sig (Enabled (addr,U8)))	[String]
-		 (sig Ack)			()
-shallow_mm = fromAckBox $$ 
-	     forwardP (Maybe.catMaybes) $$
-	     forwardP (scanl driver screen) $$
-	     forwardP (fmap (M.toList))
-   where
-	driver :: Matrix addr Char  -> (addr,U8) -> Matrix addr Char
-	driver m (addr,val) = m // [(addr,chr (fromIntegral val))]
-
-	screen :: Matrix addr Char
-	screen = pure ' '
-
--- | 'frame' puts a frame round the text, and puts it at the top of
--- the screen.
-frame :: (Int,Int) -> String -> String
-frame (row,col) str = 
-	"\ESC[0H"  ++
-	"+" ++ replicate col '-' ++ "+\n" ++
-	concat	[ "|" ++ take col (drop (i * col) str) ++ "|\n"
-		| i <- take row [0..]
-		] ++
-	"+" ++ replicate col '-' ++ "+\n"
