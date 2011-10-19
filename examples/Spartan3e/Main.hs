@@ -1,4 +1,4 @@
-{-# LANGUAGE TypeFamilies, NoMonomorphismRestriction, DeriveDataTypeable, RankNTypes, ImpredicativeTypes #-}
+{-# LANGUAGE ScopedTypeVariables, TypeFamilies, NoMonomorphismRestriction, DeriveDataTypeable, RankNTypes, ImpredicativeTypes #-}
 module Main where
 
 import qualified Language.KansasLava as KL
@@ -11,6 +11,7 @@ import Hardware.KansasLava.Rate
 import qualified Hardware.KansasLava.VGA as VGA
 import Hardware.KansasLava.VGA (Attr(..), fg, bg)
 
+import Control.Applicative
 import Data.Sized.Ix
 import Data.Sized.Unsigned
 import Data.Sized.Arith
@@ -29,11 +30,13 @@ import qualified Hardware.KansasLava.Simulators.Polyester as Sim
 import Hardware.KansasLava.Boards.Spartan3e
 import Hardware.KansasLava.Simulators.Spartan3e
 
+import Network
+
 
 data Opts = Opts { demoFabric :: String, fastSim :: Bool, beat :: Integer, vhdl :: Bool }
         deriving (Show, Data, Typeable)
 
-options = Opts { demoFabric = "lcd"             &= help "demo fabric to be executed or built"
+options = Opts { demoFabric = "lcd_inputs"             &= help "demo fabric to be executed or built"
                , fastSim = False                &= help "if running board at full speed"
                , beat = (50 * 1000 * 1000)      &= help "approx number of clicks a second"
                , vhdl = False                   &= help "generate VDHL"
@@ -43,7 +46,7 @@ options = Opts { demoFabric = "lcd"             &= help "demo fabric to be execu
         &= program "spartan3e-demo"
 
 
-main = do
+main = do       
         opts <- cmdArgs options
         let fab :: (Spartan3e fabric) => fabric () 
             fab = do
@@ -71,6 +74,10 @@ vhdlUseFabric opts fab = do
         KL.writeVhdlCircuit "main" "main.vhd" kleg
         return ()
 
+
+matrixOf :: (Size x) => x -> [a] -> Matrix x a
+matrixOf _ = matrix
+
 ------------------------------------------------------------------------------
 -- Sample fabrics
 
@@ -96,14 +103,33 @@ fabric _ "dial" = do
 fabric _ "lcd" = do
         runP $ neverAckP $$ prependP msg $$ throttleP (powerOfTwoRate (Witness :: Witness X5)) $$ mm_lcdP
  where
-        msg :: Matrix X30 ((X2,X16),U8)
-        msg = matrix $
-                      [((0,i),fromIntegral (ord c))
-                      | (c,i) <- zip ("Example of using") [0..]
-                      ] ++
-                      [((1,i),fromIntegral (ord c))
-                      | (c,i) <- zip ("the LCD driver") [1..]
-                      ]
+         msg :: Matrix X32 ((X2,X16),U8)
+         msg = boxU8 ["Example of Using", " the LCD driver "]
+
+fabric _ "lcd_inputs" = do
+        sw <- switches
+        bu <- buttons
+        runP $ patch sw bu
+ where
+        patch sw bu = emptyP
+             $$ forwardP (\ () -> pure ())
+             $$ backwardP (const ())
+             $$ matrixStackP (forAll $ \ (i::X4) ->
+                                    (outputP (changeS (sw M.! i)))
+                                 $$ enabledToAckBox
+                                 $$ mapP (\ s -> pack (pureS (fromIntegral i + 0), mux s (33,34)))
+                             )
+             $$ matrixMergeP RoundRobinMerge
+             $$ mm_text_driver msg active 
+--             $$ throttleP (powerOfTwoRate (Witness :: Witness X1))
+             $$ mm_lcdP
+
+        msg :: Matrix (X2,X16) U8
+        msg = boxU8' ["EXample of Using", " the LCD driver "]
+
+        active :: X4 -> (X2,X16)
+        active x = (0,fromIntegral x)
+
 {-
 fabric _ "vga" = do
         runP $ doP $$ mm_vgaP
@@ -128,18 +154,6 @@ fabric _ "vga" = do
 -}
 
 
-{-
-
-        msg :: Matrix X30 ((X40,X80),(Attr,U7))
-        msg = matrix $
-                      [((0,i),(Attr { bg = VGA.White, fg = VGA.Black },fromIntegral (ord c)))
-                      | (c,i) <- zip ("Example of using") [0..]
-                      ] ++
-                      [((1,i),(Attr { bg = VGA.White, fg = VGA.Red },fromIntegral (ord c)))
-                      | (c,i) <- zip ("the VGA driver") [1..]
-                      ]
--}
-        
 fabric _ "rs232out" = do
         runP $ cycleP msg $$ rs232_txP DCE (115200 * 100)
  where
@@ -148,6 +162,16 @@ fabric _ "rs232out" = do
                       | i <- [32..126]
                       ]
 
-        
+
+-- Remember when a value changes.
+changeS :: forall c sig a . (Clock c, sig ~ Signal c, Eq a, Rep a) => sig a -> sig (Enabled a)
+changeS sig = mux (start .||. diff) (disabledS,enabledS sig)
+    where
+        start :: sig Bool
+        start = probeS "start" $ register True low
+
+        diff :: sig Bool
+        diff = probeS "diff" $ sig ./=. delay sig
+
 ---------------------------------------------------------------------------------
 -- Utilties
