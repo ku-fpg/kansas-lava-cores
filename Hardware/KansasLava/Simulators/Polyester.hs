@@ -9,6 +9,7 @@ module Hardware.KansasLava.Simulators.Polyester (
         , outPolyesterEvents
         , outPolyesterCount
         , writeFilePolyester
+        , writeSocketPolyester
         , inPolyester
         , readFilePolyester
         -- * Running the Fake Polyester
@@ -32,6 +33,9 @@ import Data.Char
 import Control.Monad.Fix
 import Data.Word
 import System.IO.Unsafe (unsafeInterleaveIO)
+import Control.Concurrent
+import Network
+import System.Directory
 
 -----------------------------------------------------------------------
 -- Monad
@@ -40,25 +44,29 @@ import System.IO.Unsafe (unsafeInterleaveIO)
 -- | The simulator uses its own 'Fabric', which connects not to pins on the chip, 
 -- but rather an ASCII picture of the board.
 
-data Polyester a = Polyester ([Maybe Char] -> ExecMode -> IO (a,[Stepper]))
+data Polyester a = Polyester ([Maybe Char] 
+                               -> ExecMode 
+                               -> (String -> IO Handle)
+                               -> IO (a,[Stepper]))
 
 
 instance Monad Polyester where
-        return a = Polyester $ \ _ _ -> return (a,[])
-        (Polyester f) >>= k = Polyester $ \ inp mode -> do
-                                (a,s1)  <- f inp mode
+        return a = Polyester $ \ _ _ _ -> return (a,[])
+        (Polyester f) >>= k = Polyester $ \ inp mode findSock -> do
+                                (a,s1)  <- f inp mode findSock
                                 let Polyester g = k a
-                                (b,s2)  <- g inp mode
+                                (b,s2)  <- g inp mode findSock
                                 return (b,s1 ++ s2)
         fail msg = error msg
 
 instance MonadFix Polyester where
         -- TODO: check this
-        mfix f = Polyester $ \ inp mode -> mfix (\ r ->  let (Polyester g) = f (fst r) 
-                                                      in g inp mode)
+        mfix f = Polyester $ \ inp mode findSock -> 
+                        mfix (\ r ->  let (Polyester g) = f (fst r) 
+                                      in g inp mode findSock)
 
 getPolyesterExecMode :: Polyester ExecMode
-getPolyesterExecMode = Polyester $ \ _ mode -> return (mode,[])
+getPolyesterExecMode = Polyester $ \ _ mode _ -> return (mode,[])
 
 -----------------------------------------------------------------------
 -- Ways out outputing from the Polyester
@@ -81,7 +89,7 @@ changed (a:as) = Just a : f a as
 
 -- | Turn a list of graphical events into a 'Polyester', without processing.
 outPolyesterEvents :: (Graphic g) => [Maybe g] -> Polyester ()
-outPolyesterEvents ogs = Polyester $ \ _ _ -> return ((),[stepper ogs])
+outPolyesterEvents ogs = Polyester $ \ _ _ _ -> return ((),[stepper ogs])
 
 -- | creates single graphical events, based on the number of Events,
 -- when the first real event is event 1, and there is a beginning of time event 0.
@@ -95,7 +103,8 @@ outPolyesterCount f = outPolyester f . loop 0
 -- | write a file from a clocked list input. Example of use is emulating
 -- RS232 (which only used empty or singleton strings), for the inside of a list.
 writeFilePolyester :: String -> [Maybe String] -> Polyester ()
-writeFilePolyester filename contents = Polyester $ \ _ _ -> do
+writeFilePolyester filename contents = Polyester $ \ _ _ _ -> do
+        print "writing RS232"
         opt_h <- try (openBinaryFile filename WriteMode)
         case opt_h of 
           Right h -> do
@@ -112,6 +121,29 @@ writeFilePolyester filename contents = Polyester $ \ _ _ -> do
                 hPutStr h bs
                 hFlush h
 
+writeSocketPolyester :: String -> [Maybe String] -> Polyester ()
+writeSocketPolyester filename contents = Polyester $ \ _ _ findSock -> do
+        opt_h <- findSock filename
+        case Right opt_h of 
+          Right h -> do
+                  hSetBuffering h NoBuffering
+                  return ((),[ ioStepper (map (f h) contents) ])
+          Left (_::IOException) -> throw (PolyesterException $ 
+                                    "Failed to open " ++ filename ++ " for writing, " ++ 
+                                    "(perhaps fifo with no reader?)")
+
+    where
+        f :: Handle -> Maybe String -> IO ()
+        f _ Nothing   = return ()
+        f h (Just bs) = do
+                hPutStr h bs
+                hFlush h
+
+{-
+writeSocketPolyester :: String -> [Maybe String] -> Polyester ()
+writeSocketPolyester socketname contents = Polyester $ \ _ _ -> do
+-}
+
 -----------------------------------------------------------------------
 -- Ways out inputting to the Polyester
 -----------------------------------------------------------------------
@@ -120,7 +152,7 @@ writeFilePolyester filename contents = Polyester $ \ _ _ -> do
 inPolyester :: a                           -- ^ initial 'a'
          -> (Char -> a -> a)            -- ^ how to interpreate a key press
          -> Polyester [a]
-inPolyester a interp = Polyester $ \ inp _ -> do
+inPolyester a interp = Polyester $ \ inp _ _ -> do
         let f' a' Nothing = a'
             f' a' (Just c) = interp c a'
             vals = scanl f' a inp
@@ -135,11 +167,23 @@ inPolyester a interp = Polyester $ \ inp _ -> do
 -- what is being observed on the screen; another
 -- process needs to do this.
 readFilePolyester :: String -> Polyester [Maybe Word8]
-readFilePolyester filename = Polyester $ \ inp _ -> do
+readFilePolyester filename = Polyester $ \ inp _ _ -> do
         h <- openBinaryFile filename ReadMode
         hSetBuffering h NoBuffering  
         ss <- hGetContentsStepwise h
         return (map (fmap (fromIntegral . ord)) ss,[])
+
+{-
+readSocketPolyester :: String -> Polyester [Maybe Word8]
+readSocketPolyester :: String -> Polyester [Maybe Word8]
+
+writeSocketPolyester :: String -> Polyester [Maybe Word8]
+ sock <- listenOn $ UnixSocket "dev/ttyS0"
+        print sock
+        (h1,h2,pn) <- accept sock
+        print (h1,h2,pn)
+
+-}
 
 -----------------------------------------------------------------------
 -- Running the Polyester
@@ -155,6 +199,7 @@ runPolyester :: ExecMode -> Polyester () -> IO ()
 runPolyester mode f = do
         
         setTitle "Kansas Lava"
+        putStrLn "[Booting Spartan3e simulator]"
         hSetBuffering stdin NoBuffering
         hSetEcho stdin False
         inputs <- hGetContentsStepwise stdin
@@ -170,7 +215,27 @@ runPolyester mode f = do
                                   else return () :: ANSI ()) quit
         
         let Polyester h = (do extras ; f)
-        (_,steps) <- h inputs mode
+        sockDB <- newMVar []
+        let findSock :: String -> IO Handle
+            findSock nm = do
+                sock_map <- takeMVar sockDB
+                case lookup nm sock_map of
+                  Just h -> do
+                        putMVar sockDB sock_map
+                        return h
+                  Nothing -> do
+                        h <- finally 
+                              (do sock <- listenOn $ UnixSocket nm
+                                  putStrLn $ "* Waiting for client for " ++ nm
+                                  (h,_,_) <- accept sock
+                                  putStrLn $ "* Found client for " ++ nm
+                                  return h)
+                              (removeFile nm)
+                        putMVar sockDB $ (nm,h) : sock_map
+                        return h
+
+        (_,steps) <- h inputs mode findSock
+        putStrLn "[Starting simulation]"
 	putStr "\ESC[2J\ESC[1;1H"
 
         let slowDown | mode == Fast = []

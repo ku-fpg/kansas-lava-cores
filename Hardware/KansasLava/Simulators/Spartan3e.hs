@@ -100,7 +100,7 @@ instance Board.Spartan3e Polyester where
         -- 10 bits per byte
         slow_count = 10 * Board.clockRate `div` baud
         fab inp = do
-                writeFilePolyester ("dev/" ++ serialName port ++ "_tx") 
+                writeSocketPolyester ("dev/" ++ serialName port)
                         $ map (fmap (\ i -> [chr (fromIntegral i)])) inp
                 outPolyesterCount (RS232 TX port) inp
 
