@@ -66,7 +66,8 @@ Executable kansas-lava-cores-tests
         data-default, containers, data-reify == 0.6, pretty,
         dotgen  >= 0.4.1, array, template-haskell,
         directory, random, netlist==0.3, netlist-to-vhdl==0.3, process,
-        fgl, filepath, data-default, unix, bytestring, mtl, strict, cmdargs
+        fgl, filepath, data-default, unix, bytestring, mtl, strict, cmdargs,
+        network
       buildable: True
       Other-modules:
     else
