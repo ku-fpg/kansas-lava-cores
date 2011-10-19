@@ -40,7 +40,12 @@ mm_text_driver m f =
 	g arg = pack (funMap (return . f) addr,u8)
 	   where (addr,u8) = unpack arg
 
-
+{-
+joinWrites :: (Clock clk, sig ~ Signal clk)
+           => Patch (Matrix x (sig (Enabled (loc,U8)))) (sig (Enabled (loc,U8)))
+                    (Matrix x (sig Ack))                (sig Ack)
+joinWrites = undefined
+-}
 -- | spining bar glyph; shows aliveness.
 -- rotates by 45 degrees for each pulse sent in.
 aliveGlyph :: forall c sig . (Clock c, sig ~ Signal c)
@@ -55,21 +60,23 @@ aliveGlyph
 	mapP (\ ab -> let (a,b) = unpack ab in a)
 
 
--- what ever you write appears on the right,
--- pushing everything to the right.
+-- | In a scrollbar, what ever you write appears on the right hand side, pushing everything to the left.
 
-window :: forall c sig x comb . (Clock c, sig ~ Signal c, c ~ (), Size x, Bounded x, Num x, Enum x)
-        => Patch (sig (Enabled U8))	(sig (Enabled (Matrix x U8)))
-	        (sig Ack)		(sig Ack)
-window = loopP patch 
+scrollBar :: forall c sig x comb . (Clock c, sig ~ Signal c, Size x, Bounded x, Num x, Enum x, Rep x)
+        => Patch (sig (Enabled U8))	(sig (Enabled (x,U8)))
+	         (sig Ack)		(sig Ack)
+scrollBar = 
+        prependP (matrix [32] :: Matrix X1 U8) $$
+        loopP patch             $$
+        mapP wt_cmds            $$
+        matrixToElementsP       
   where
      patch = 
         zipP $$ 
         mapP fn $$
         fifo1 $$
         dupP $$ 
-        fstP (prependP (matrix [pure 32] :: Matrix X1 (Matrix x U8))) $$
-        emptyP
+        fstP (prependP (matrix [pure 32] :: Matrix X1 (Matrix x U8)))
 
      fn :: forall comb . Signal comb (Matrix x U8,U8) -> Signal comb (Matrix x U8)
      fn  ab = let (a:: Signal comb (Matrix x U8),b :: Signal comb U8) = unpack ab
@@ -77,6 +84,11 @@ window = loopP patch
               in pack $  matrix ([ a' ! x 
                                  | x <- [1..maxBound]
                                  ] ++ [b])
+
+     wt_cmds :: forall comb . Signal comb (Matrix x U8) -> Signal comb (Matrix x (x,U8))
+     wt_cmds = pack . (\ m -> forAll $ \ i -> pack (pureS i,m M.! i)) . unpack
+     
+
 
 -- show a hex number
 hexForm :: forall c sig w .
@@ -95,3 +107,30 @@ hexForm
 		mapP (\ ch -> pack (pureS i,ch))) $$
     matrixMergeP PriorityMerge
 
+
+-- | ord for U8.
+ordU8 :: Char -> U8
+ordU8 = fromIntegral . ord
+
+-- | chr for U8.
+chrU8 :: U8 -> Char
+chrU8 = chr . fromIntegral
+
+-- | Turn a string into a 1D matrix
+rowU8 :: (Size x) => String -> Matrix x U8
+rowU8 = matrix . fmap ordU8
+
+-- | Turn a string into a 2D matrix, ready for background.
+boxU8 :: forall x row col . (Size x, Size row,Num row, Enum row, Size col, Num col, Enum col, x ~ MUL row col) 
+      => [String] 
+      -> Matrix x ((row,col),U8)
+boxU8 inp = matrix
+      [ ((row,col),ch)
+      | (chs,row) <- zip (fmap (fmap ordU8) inp) [0..]
+      , (ch,col)  <- zip chs [0..]
+      ]
+
+boxU8' :: forall row col . (Size row,Num row, Enum row, Size col, Num col, Enum col) 
+      => [String] 
+      -> Matrix (row,col) U8
+boxU8' = matrix . concat . fmap (fmap ordU8)
