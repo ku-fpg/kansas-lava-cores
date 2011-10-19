@@ -179,7 +179,7 @@ phy_Inst_4bit_LCD :: forall c sig . (Clock c, sig ~ Signal c)
 		 (sig Ack)			()
 phy_Inst_4bit_LCD = toCmds $$ prependP bootCmds $$ phy_4bit_LCD
    where
-	toCmds = mapP splitCmd $$ matrixExpandP
+	toCmds = mapP splitCmd $$ matrixToElementsP
 
 	bootCmds :: Matrix X4 (U5,U18)
 	bootCmds = matrix 
@@ -230,7 +230,7 @@ mm_LCD_Inst :: forall c sig . (Clock c, sig ~ Signal c)
 	=> Patch (sig (Enabled ((X2,X16),U8)))	(sig (Enabled LCDInstruction))
 		 (sig Ack)			(sig Ack)
 
-mm_LCD_Inst = mapP toInsts $$ matrixExpandP
+mm_LCD_Inst = mapP toInsts $$ matrixToElementsP
   where
 	toInsts :: forall comb . Signal comb ((X2,X16),U8) -> Signal comb (Matrix X2 LCDInstruction)
 	toInsts wr = pack (matrix [ setDDAddr dd_addr, writeChar ch ] :: Matrix X2 (Signal comb LCDInstruction))

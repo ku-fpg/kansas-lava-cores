@@ -135,7 +135,7 @@ chunkJoinHeader f = patch1 $$ patch2 $$ patch3
 				stackP (forwardP (mapEnabled f) $$ 
 				       fifo1 $$
 				       chunkCounter (Witness :: Witness x))
-				      (fifo1 $$ matrixExpandP $$ fifo1)
+				      (fifo1 $$ matrixToElementsP $$ fifo1)
 		          )
 			fifo1
 	patch2 = forwardP (\ ((a :> b) :> c) -> a :> b :> c) $$
@@ -151,7 +151,7 @@ chunkSplitHeader f =
 	loopP $
 		(fifo1 `stackP` fifo1) $$
 		deMuxP $$
-		(fstP (fifo1 $$ matrixContractP $$ dupP $$ fstP clicker)) $$
+		(fstP (fifo1 $$ matrixFromElementsP $$ dupP $$ fstP clicker)) $$
 		reorg
   where
       clicker = forwardP (mapEnabled f) $$ 
