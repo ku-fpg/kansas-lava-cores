@@ -107,7 +107,7 @@ instance Board.Spartan3e Polyester where
    rs232_rxP port baud = do
         -- 10 bits per byte
         let slow_count = 10 * Board.clockRate `div` baud
-        ss0 <- readFilePolyester ("dev/" ++ serialName port ++ "_rx")
+        ss0 <- readSocketPolyester ("dev/" ++ serialName port)
         let ss = concatMap (\ x -> x : replicate (fromIntegral slow_count) Nothing) ss0
         outPolyesterCount (RS232 RX port) ss
         return (outputP (toS (map (fmap fromIntegral) ss)))
@@ -149,13 +149,14 @@ instance Board.Spartan3e Polyester where
 	          | i <- [0..7]
 	          ]
 
+{-
    mm_vgaP = fromAckBox $$ forwardP fab
       where
         fab :: [Maybe ((X40, X80), (VGA.Attr, U7))] -> Polyester ()
         fab inp = do
                 writeFilePolyester ("dev/vga") 
                         ((Just $ VGA.init_VCG_ANSI) : map (fmap (VGA.show_VCG_ANSI)) inp)
-
+-}
 
    dial_button = do
         st <- ll_dial

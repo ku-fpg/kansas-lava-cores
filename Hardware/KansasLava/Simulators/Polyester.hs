@@ -8,10 +8,9 @@ module Hardware.KansasLava.Simulators.Polyester (
         , outPolyester
         , outPolyesterEvents
         , outPolyesterCount
-        , writeFilePolyester
         , writeSocketPolyester
         , inPolyester
-        , readFilePolyester
+        , readSocketPolyester
         -- * Running the Fake Polyester
         , runPolyester
         , ExecMode(..)
@@ -100,38 +99,13 @@ outPolyesterCount f = outPolyester f . loop 0
         loop n (Nothing:xs) = n : loop n xs
         loop n (Just _:xs)  = n : loop (succ n) xs
 
--- | write a file from a clocked list input. Example of use is emulating
+-- | write a socket from a clocked list input. Example of use is emulating
 -- RS232 (which only used empty or singleton strings), for the inside of a list.
-writeFilePolyester :: String -> [Maybe String] -> Polyester ()
-writeFilePolyester filename contents = Polyester $ \ _ _ _ -> do
-        print "writing RS232"
-        opt_h <- try (openBinaryFile filename WriteMode)
-        case opt_h of 
-          Right h -> do
-                  hSetBuffering h NoBuffering
-                  return ((),[ ioStepper (map (f h) contents) ])
-          Left (_::IOException) -> throw (PolyesterException $ 
-                                    "Failed to open " ++ filename ++ " for writing, " ++ 
-                                    "(perhaps fifo with no reader?)")
-
-    where
-        f :: Handle -> Maybe String -> IO ()
-        f _ Nothing   = return ()
-        f h (Just bs) = do
-                hPutStr h bs
-                hFlush h
 
 writeSocketPolyester :: String -> [Maybe String] -> Polyester ()
 writeSocketPolyester filename contents = Polyester $ \ _ _ findSock -> do
-        opt_h <- findSock filename
-        case Right opt_h of 
-          Right h -> do
-                  hSetBuffering h NoBuffering
-                  return ((),[ ioStepper (map (f h) contents) ])
-          Left (_::IOException) -> throw (PolyesterException $ 
-                                    "Failed to open " ++ filename ++ " for writing, " ++ 
-                                    "(perhaps fifo with no reader?)")
-
+        h <- findSock filename
+        return ((),[ ioStepper (map (f h) contents) ])
     where
         f :: Handle -> Maybe String -> IO ()
         f _ Nothing   = return ()
@@ -159,31 +133,18 @@ inPolyester a interp = Polyester $ \ inp _ _ -> do
         return (vals,[]) 
 
 
--- | 'readFilePolyester' reads the contents of a file.
+-- | 'readSocketPolyester' reads from a socket.
 -- The stream is on-demand, and is not controlled by any clock
 -- inside the function. Typically would be read one cons per
 -- clock, but slower reading is acceptable.
 -- This does not make any attempt to register
 -- what is being observed on the screen; another
 -- process needs to do this.
-readFilePolyester :: String -> Polyester [Maybe Word8]
-readFilePolyester filename = Polyester $ \ inp _ _ -> do
-        h <- openBinaryFile filename ReadMode
-        hSetBuffering h NoBuffering  
+readSocketPolyester :: String -> Polyester [Maybe Word8]
+readSocketPolyester filename = Polyester $ \ inp _ openSock -> do
+        h <- openSock filename
         ss <- hGetContentsStepwise h
         return (map (fmap (fromIntegral . ord)) ss,[])
-
-{-
-readSocketPolyester :: String -> Polyester [Maybe Word8]
-readSocketPolyester :: String -> Polyester [Maybe Word8]
-
-writeSocketPolyester :: String -> Polyester [Maybe Word8]
- sock <- listenOn $ UnixSocket "dev/ttyS0"
-        print sock
-        (h1,h2,pn) <- accept sock
-        print (h1,h2,pn)
-
--}
 
 -----------------------------------------------------------------------
 -- Running the Polyester
@@ -231,6 +192,7 @@ runPolyester mode f = do
                                   putStrLn $ "* Found client for " ++ nm
                                   return h)
                               (removeFile nm)
+                        hSetBuffering h NoBuffering
                         putMVar sockDB $ (nm,h) : sock_map
                         return h
 
