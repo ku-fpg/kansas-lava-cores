@@ -77,6 +77,7 @@ rateP :: forall c sig . (Clock c, sig ~ Signal c)
 	         ()	(sig Ack)
 rateP r = outputP (packEnabled r $ pureS ()) $$ enabledToAckBox
 
+-- | 'throttleP' throttles input based on a given rate counter.
 throttleP :: forall sig c a x . (sig ~ Signal c, Clock c, Rep a)
       => sig Bool
       -> Patch (sig (Enabled a)) (sig (Enabled a))
@@ -89,4 +90,21 @@ throttleP in_pred
    where
 	top = outputP (packEnabled in_pred (pureS ())) $$
 	      enabledToAckBox
-	
+
+
+-- | 'accurateTo' rounds up/down a number within a range, 
+-- in an attempt to be a integral reciprical (and therefore cheaper to implement in hardware).
+--accurateTo :: Rational -> Rational -> Rational
+accurateTo n ac
+        | diff > (1-ac) = error $ "can not find tolerance for "
+                               ++ show n ++ " : need " ++ show (fromRational (1 - diff) :: Float)
+        | otherwise  = nR
+  where
+        reci = 1 / n
+        nR = 1 /  (fromInteger $ round reci)
+        diff   = abs (n - nR)
+
+
+        
+        
+        
