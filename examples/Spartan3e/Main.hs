@@ -175,7 +175,7 @@ fabric _ "rs232in" = do
         let pow2s = iterate (*2) 1
         let res = head (dropWhile (> speed)
 -}
-        ticks <- tickTock (Witness :: Witness X16) 6
+        ticks <- tickTock (Witness :: Witness X24) 6
         runF $ patchF (rx
                  $$ enabledToAckBox
                  $$ fifo1
