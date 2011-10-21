@@ -11,6 +11,9 @@ module Hardware.KansasLava.Simulators.Polyester (
         , writeSocketPolyester
         , inPolyester
         , readSocketPolyester
+        , getPolyesterExecMode
+        , getPolyesterClkSpeed
+        , getPolyesterSimSpeed
         -- * Running the Fake Polyester
         , runPolyester
         , ExecMode(..)
