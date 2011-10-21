@@ -111,7 +111,8 @@ instance Board.Spartan3e Polyester where
 
    rs232_rxP port baud = do
         -- 10 bits per byte
-        let slow_count = 10 * Board.clockRate `div` baud
+        clkSpeed <- getPolyesterClkSpeed
+        let slow_count = 10 * clkSpeed `div` baud
         ss0 <- readSocketPolyester ("dev/" ++ serialName port)
         let ss = concatMap (\ x -> x : replicate (fromIntegral slow_count) Nothing) ss0
         outPolyesterCount (RS232 RX port) ss
