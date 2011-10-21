@@ -1,3 +1,5 @@
+{-# LANGUAGE ScopedTypeVariables #-}
+
 module Hardware.KansasLava.Boards.Spartan3e (
         -- * Class for the methods of the Spartan3e
           Spartan3e(..)
@@ -15,6 +17,8 @@ module Hardware.KansasLava.Boards.Spartan3e (
 
 import Language.KansasLava as KL
 import Hardware.KansasLava.LCD.ST7066U
+import Hardware.KansasLava.RS232
+import Hardware.KansasLava.Rate
 import Hardware.KansasLava.Boards.UCF
 import qualified Hardware.KansasLava.VGA as VGA
 
@@ -47,7 +51,7 @@ class MonadFix fabric => Spartan3e fabric where
    mm_lcdP :: FabricPatch fabric
                           (Seq (Enabled ((X2,X16),U8)))  ()
 	                  (Seq Ack)	                 ()
---   mm_lcdP = mm_LCD_Inst $$ lcdP
+   mm_lcdP = patchF mm_LCD_Inst |$| lcdP
 
 
 {-
@@ -58,8 +62,9 @@ class MonadFix fabric => Spartan3e fabric where
  
    -- | 'lcdP' gives a patch-level API to the LCD, based on LCDInstructions.
    --  Disables the StrataFlash (for now).
-   lcdP :: Patch (Seq (Enabled LCDInstruction)) (fabric ())
-	         (Seq Ack)	                ()
+   lcdP :: FabricPatch fabric
+                       (Seq (Enabled LCDInstruction)) ()
+	               (Seq Ack)	              ()
 
    -- | 'rs232_txP' gives a patch level API for transmission of bytes
    -- over one of the serial links.
@@ -146,13 +151,14 @@ instance Spartan3e Fabric where
   -- Patches
   ------------------------------------------------------------
 
-  lcdP = 
-	init_LCD $$ 
-	phy_Inst_4bit_LCD $$ 
-	forwardP (\ bus -> do 
-		let (rs,sf_d,e) = unpack bus
-		lcd rs sf_d e)
+  lcdP = patchF (init_LCD $$ phy_Inst_4bit_LCD) |$| buildF (\ (bus,_) -> do
+                let (rs,sf_d,e) = unpack bus
+                lcd rs sf_d e                
+                return ((),()))
 
+  rs232_rxP serial baud = do
+           inp :: Seq Bool <- inStdLogic ("RS232_" ++ show serial ++ "_RX") 
+           return (outputP inp $$ rs232in baud clockRate)
 
   ------------------------------------------------------------
   -- RAW APIs
@@ -184,6 +190,11 @@ instance Spartan3e Fabric where
         inStdLogic "ROT_CENTER"
 
   dial_rot = error "dial_rot is not (yet) supported in the hardware"
+
+
+  tickTock wit hz = do
+           return (rate wit (1 / (fromIntegral clockRate / fromIntegral hz)))
+
 
 -------------------------------------------------------------
 -- data structures
