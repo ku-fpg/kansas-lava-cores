@@ -12,6 +12,7 @@ import qualified Hardware.KansasLava.VGA as VGA
 import Hardware.KansasLava.VGA (Attr(..), fg, bg)
 
 import Control.Applicative
+import Data.Bits
 import Data.Sized.Ix
 import Data.Sized.Unsigned
 import Data.Sized.Arith
@@ -30,7 +31,6 @@ import qualified Hardware.KansasLava.Simulators.Polyester as Sim
 import Hardware.KansasLava.Boards.Spartan3e
 import Hardware.KansasLava.Simulators.Spartan3e
 
-import Network
 
 
 data Opts = Opts { demoFabric :: String, fastSim :: Bool, beat :: Integer, vhdl :: Bool }
@@ -63,8 +63,12 @@ simUseFabric :: Opts -> Sim.Polyester () -> IO ()
 simUseFabric opts fab = 
         Sim.runPolyester (case fastSim opts of
                          True -> Sim.Fast
-                         False -> Sim.Friendly) $ do
-                 fab
+                         False -> Sim.Friendly) 
+              (50 * 1000 * 1000)
+              (case fastSim opts of
+                         True -> 1000
+                         False -> 50)
+            $ fab
 
 -- The VHDL generators use of the Fabric
 vhdlUseFabric :: Opts -> KL.Fabric () -> IO ()
@@ -101,7 +105,7 @@ fabric _ "dial" = do
         leds (matrix $ [d, low] ++ M.toList ms ++ [low,low])
 
 fabric _ "lcd" = do
-        runP $ neverAckP $$ prependP msg $$ throttleP (powerOfTwoRate (Witness :: Witness X5)) $$ mm_lcdP
+        runF $ patchF (neverAckP $$ prependP msg $$ throttleP (powerOfTwoRate (Witness :: Witness X5))) |$| mm_lcdP
  where
          msg :: Matrix X32 ((X2,X16),U8)
          msg = boxU8 ["Example of Using", " the LCD driver "]
@@ -109,7 +113,7 @@ fabric _ "lcd" = do
 fabric _ "lcd_inputs" = do
         sw <- switches
         bu <- buttons
-        runP $ patch sw bu
+        runF $ patchF (patch sw bu) |$| mm_lcdP
  where
         patch sw bu = emptyP
              $$ forwardP (\ () -> pure ())
@@ -122,7 +126,6 @@ fabric _ "lcd_inputs" = do
              $$ matrixMergeP RoundRobinMerge
              $$ mm_text_driver msg active 
 --             $$ throttleP (powerOfTwoRate (Witness :: Witness X1))
-             $$ mm_lcdP
 
         msg :: Matrix (X2,X16) U8
         msg = boxU8' ["EXample of Using", " the LCD driver "]
@@ -153,7 +156,7 @@ fabric _ "vga" = do
 
 -}
 
-
+{-
 fabric _ "rs232out" = do
         runP $ cycleP msg $$ rs232_txP DCE (115200 * 100)
  where
@@ -161,7 +164,77 @@ fabric _ "rs232out" = do
          msg = matrix [ i
                       | i <- [32..126]
                       ]
+-}
 
+fabric _ "rs232in" = do
+        rx <- rs232_rxP DCE (115200)
+        runF $ patchF (rx
+                 $$ enabledToAckBox
+                 $$ fifo1
+                 $$ matrixDupP
+                 $$ matrixStackP (matrixOf (0 :: X3) 
+                        [ hexchain   $$ mapP (startAt 0)
+                        , count      $$ mapP (startAt 16)
+                        , asciichain $$ mapP (startAt 24)
+                        ])
+                 $$ matrixMergeP RoundRobinMerge
+                 $$ mm_text_driver msg active
+                 $$ witnessP (Witness :: Witness (Enabled ((X2,X16),U8)))) 
+            |$| mm_lcdP
+ where
+        startAt :: (Size w, Rep w, Rep a, a ~ U8) => Signal clk X32 -> Signal clk (w,a) -> Signal clk (X32,a)
+        startAt pos inp = pack (pos + (unsigned) w,a)
+             where
+                 (w,a) = unpack inp
+                 
+        hexchain :: Patch (Seq (Enabled U8)) (Seq (Enabled (X16,U8)))
+                          (Seq Ack)          (Seq Ack)
+        hexchain =
+                (mapP (\ ch -> packMatrix (matrixOf (0 :: X2) [hexVal ((unsigned) (ch `shiftR` 4)),hexVal ((unsigned) ch)]))
+                     $$ matrixToElementsP
+                     $$ scrollBar
+                     $$ witnessP (Witness :: Witness (Enabled (X16,U8)))
+                     )
+
+        asciichain :: Patch (Seq (Enabled U8)) (Seq (Enabled (X8,U8)))
+                          (Seq Ack)          (Seq Ack)
+        asciichain =
+                (mapP (\ ch -> mux (ch .>=. 32 .&&. ch .<=. 126) ((unsigned) $ pureS (ord '.'),ch))
+                     $$ scrollBar
+                     $$ witnessP (Witness :: Witness (Enabled (X8,U8)))
+                     )
+                     
+        count :: Patch (Seq (Enabled U8)) (Seq (Enabled (X4,U8)))
+                       (Seq Ack)          (Seq Ack)
+        count = stateP adder (0 :: U16)
+             $$ witnessP (Witness :: Witness (Enabled U16))
+             $$ hexForm
+             $$ witnessP (Witness :: Witness (Enabled (X4,U8)))
+
+        adder :: forall clk . (Signal clk U16,Signal clk U8) -> (Signal clk U16,Signal clk U16)
+        adder (a,_) = (a + 1,a + 1)
+{-
+                (hexForm
+                     $$ 
+                     $$ scrollBar
+                     $$ witnessP (Witness :: Witness (Enabled (X16,U8)))
+                     $$ mapP (startAt 16)
+                     )
+-}
+        hexVal :: Signal clk U4 -> Signal clk U8
+        hexVal = funMap (\ x -> if x >= 0 && x <= 9 
+                     then return (0x30 + fromIntegral x)
+                     else return (0x41 + fromIntegral x - 10))
+
+        witnessP :: (Witness w) -> Patch (Seq w) (Seq w)
+                                         (Seq a) (Seq a)
+        witnessP _ = emptyP
+         
+        msg :: Matrix (X2,X16) U8
+        msg = boxU8' ["                ","                "]
+        
+        active :: X32 -> (X2,X16)
+        active x = (fromIntegral (x `div` 16),fromIntegral (x `mod` 16))
 
 -- Remember when a value changes.
 changeS :: forall c sig a . (Clock c, sig ~ Signal c, Eq a, Rep a) => sig a -> sig (Enabled a)
@@ -175,3 +248,37 @@ changeS sig = mux (start .||. diff) (disabledS,enabledS sig)
 
 ---------------------------------------------------------------------------------
 -- Utilties
+{-
+type Socket f a b 
+              c d = (b,c) -> f (a,d)
+              
+applyPatch :: Socket fab a b c d -> Patch a b c d -> fab ()
+applyPatch = undefined
+
+rs232rx :: (MonadFix f) => Socket f (Seq (Enabled U8))  ()
+                                    (Seq Ack)           ()
+
+(|$|) :: Socket f a b c d -> Socket e f g h -> Socket (a
+-}
+
+    
+-- later, this will use a sub-Clock.
+
+stateP :: forall clk a b c sig . 
+          (Rep a, Rep b, Rep c, Clock clk, sig ~ Signal clk)
+       => (forall sig' clk' . (sig' ~ Signal clk') => (sig' a,sig' b) -> (sig' a,sig' c))
+       -> a
+       -> Patch (sig (Enabled b)) (sig (Enabled c))
+                (sig Ack)         (sig Ack)
+stateP st a = 
+        loopP $ 
+             fstP (prependP (matrixOf (0 :: X1) [a]))
+          $$ zipP
+          $$ mapP st'
+          $$ unzipP
+          $$ fstP (fifo1)
+  where
+        st' :: forall clk' . Signal clk' (a,b) -> Signal clk' (a,c)
+        st' s = pack (st (unpack s) :: (Signal clk' a, Signal clk' c))
+
+

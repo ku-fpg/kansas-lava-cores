@@ -85,16 +85,20 @@ instance Board.Spartan3e Polyester where
    -- Patches
    -----------------------------------------------------------------------
 
-   mm_lcdP = fromAckBox $$ forwardP fab
+-- (Seq (Enabled ((X2,X16),U8)))  ()
+-- (Seq Ack)	                 ()
+	                  
+   mm_lcdP = patchF fromAckBox |$| buildF (\ ~(inp_lhs,_) -> do
+           outPolyesterEvents $ map (just $ \ ((x,y),ch) -> Just (LCD (x,y) (Char.chr (fromIntegral ch)))) inp_lhs
+           return ((),()))
       where
-        fab inp = outPolyesterEvents $ map (just $ \ ((x,y),ch) -> Just (LCD (x,y) (Char.chr (fromIntegral ch)))) inp
-
         just :: (a -> Maybe b) -> Maybe a -> Maybe b
         just _ Nothing  = Nothing
         just k (Just a) = k a
 
    lcdP = error "lcdP is not supported in the simulator. Use mm_lcdP and the memory mapped API instead"
 
+{-
    rs232_txP port baud = shallowSlowDownAckBoxP slow_count $$ fromAckBox $$ forwardP fab
       where
         -- 10 bits per byte
@@ -103,6 +107,7 @@ instance Board.Spartan3e Polyester where
                 writeSocketPolyester ("dev/" ++ serialName port)
                         $ map (fmap (\ i -> [chr (fromIntegral i)])) inp
                 outPolyesterCount (RS232 TX port) inp
+-}
 
    rs232_rxP port baud = do
         -- 10 bits per byte

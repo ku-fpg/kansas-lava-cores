@@ -24,13 +24,13 @@ import Data.Sized.Matrix hiding (all)
 import Data.Char
 import System.IO
 import Control.Applicative
-
+import Control.Monad.Fix
 
 ------------------------------------------------------------
 -- The Spartan3e class
 ------------------------------------------------------------
 
-class Monad fabric => Spartan3e fabric where
+class MonadFix fabric => Spartan3e fabric where
    ----------------------------------------------------------------------------
 
    -- | 'board_init' sets up the use of the clock.
@@ -44,10 +44,18 @@ class Monad fabric => Spartan3e fabric where
 
    -- | 'mm_lcdP' gives a memory mappped (mm) API to the LCD.
    --  Disables the StrataFlash (for now).
-   mm_lcdP :: Patch (Seq (Enabled ((X2,X16),U8)))  (fabric ())
-	            (Seq Ack)	                   ()
-   mm_lcdP = mm_LCD_Inst $$ lcdP
+   mm_lcdP :: FabricPatch fabric
+                          (Seq (Enabled ((X2,X16),U8)))  ()
+	                  (Seq Ack)	                 ()
+--   mm_lcdP = mm_LCD_Inst $$ lcdP
 
+
+{-
+   test_idea :: EdgePatch
+   fabric (Patch (Seq U8) (fabric ())
+                              (Seq Ack) ())
+ -}
+ 
    -- | 'lcdP' gives a patch-level API to the LCD, based on LCDInstructions.
    --  Disables the StrataFlash (for now).
    lcdP :: Patch (Seq (Enabled LCDInstruction)) (fabric ())
@@ -57,8 +65,9 @@ class Monad fabric => Spartan3e fabric where
    -- over one of the serial links.
    rs232_txP :: Serial  -- ^ port
              -> Integer -- ^ baud rate 
-             -> Patch (Seq (Enabled U8))  (fabric ())
-	              (Seq Ack)	          ()
+             -> FabricPatch fabric
+                            (Seq (Enabled U8))    ()
+	                    (Seq Ack)	          ()
 
    -- | 'rs232_rxP' gives a patch level API for reception of bytes
    -- over one of the serial links. Note there is no hand-shaking

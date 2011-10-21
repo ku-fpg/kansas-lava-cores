@@ -43,29 +43,41 @@ import System.Directory
 -- | The simulator uses its own 'Fabric', which connects not to pins on the chip, 
 -- but rather an ASCII picture of the board.
 
+data PolyesterEnv = PolyesterEnv 
+                        { pExecMode   :: ExecMode
+                        , pFindSocket :: String -> IO Handle
+                        , pClkSpeed   :: Integer                -- clock speed, in Hz
+                        , pSimSpeed   :: Integer                -- how many cycles are we *actually* doing a second
+                        }
+                        
 data Polyester a = Polyester ([Maybe Char] 
-                               -> ExecMode 
-                               -> (String -> IO Handle)
+                               -> PolyesterEnv 
                                -> IO (a,[Stepper]))
 
 
 instance Monad Polyester where
-        return a = Polyester $ \ _ _ _ -> return (a,[])
-        (Polyester f) >>= k = Polyester $ \ inp mode findSock -> do
-                                (a,s1)  <- f inp mode findSock
+        return a = Polyester $ \ _ _ -> return (a,[])
+        (Polyester f) >>= k = Polyester $ \ inp st -> do
+                                (a,s1)  <- f inp st
                                 let Polyester g = k a
-                                (b,s2)  <- g inp mode findSock
+                                (b,s2)  <- g inp st
                                 return (b,s1 ++ s2)
         fail msg = error msg
 
 instance MonadFix Polyester where
         -- TODO: check this
-        mfix f = Polyester $ \ inp mode findSock -> 
+        mfix f = Polyester $ \ inp st -> 
                         mfix (\ r ->  let (Polyester g) = f (fst r) 
-                                      in g inp mode findSock)
+                                      in g inp st)
 
 getPolyesterExecMode :: Polyester ExecMode
-getPolyesterExecMode = Polyester $ \ _ mode _ -> return (mode,[])
+getPolyesterExecMode = Polyester $ \ _ st -> return (pExecMode st,[])
+
+getPolyesterClkSpeed :: Polyester Integer
+getPolyesterClkSpeed = Polyester $ \ _ st -> return (pClkSpeed st,[])
+
+getPolyesterSimSpeed :: Polyester Integer
+getPolyesterSimSpeed = Polyester $ \ _ st -> return (pSimSpeed st,[])
 
 -----------------------------------------------------------------------
 -- Ways out outputing from the Polyester
@@ -88,7 +100,7 @@ changed (a:as) = Just a : f a as
 
 -- | Turn a list of graphical events into a 'Polyester', without processing.
 outPolyesterEvents :: (Graphic g) => [Maybe g] -> Polyester ()
-outPolyesterEvents ogs = Polyester $ \ _ _ _ -> return ((),[stepper ogs])
+outPolyesterEvents ogs = Polyester $ \ _ _ -> return ((),[stepper ogs])
 
 -- | creates single graphical events, based on the number of Events,
 -- when the first real event is event 1, and there is a beginning of time event 0.
@@ -103,8 +115,8 @@ outPolyesterCount f = outPolyester f . loop 0
 -- RS232 (which only used empty or singleton strings), for the inside of a list.
 
 writeSocketPolyester :: String -> [Maybe String] -> Polyester ()
-writeSocketPolyester filename contents = Polyester $ \ _ _ findSock -> do
-        h <- findSock filename
+writeSocketPolyester filename contents = Polyester $ \ _ st -> do
+        h <- pFindSocket st filename
         return ((),[ ioStepper (map (f h) contents) ])
     where
         f :: Handle -> Maybe String -> IO ()
@@ -126,7 +138,7 @@ writeSocketPolyester socketname contents = Polyester $ \ _ _ -> do
 inPolyester :: a                           -- ^ initial 'a'
          -> (Char -> a -> a)            -- ^ how to interpreate a key press
          -> Polyester [a]
-inPolyester a interp = Polyester $ \ inp _ _ -> do
+inPolyester a interp = Polyester $ \ inp _ -> do
         let f' a' Nothing = a'
             f' a' (Just c) = interp c a'
             vals = scanl f' a inp
@@ -141,8 +153,8 @@ inPolyester a interp = Polyester $ \ inp _ _ -> do
 -- what is being observed on the screen; another
 -- process needs to do this.
 readSocketPolyester :: String -> Polyester [Maybe Word8]
-readSocketPolyester filename = Polyester $ \ inp _ openSock -> do
-        h <- openSock filename
+readSocketPolyester filename = Polyester $ \ inp st -> do
+        h <- pFindSocket st filename
         ss <- hGetContentsStepwise h
         return (map (fmap (fromIntegral . ord)) ss,[])
 
@@ -156,8 +168,8 @@ data ExecMode
   deriving (Eq, Show)
 
 -- | 'runPolyester' executes the Polyester, never returns, and ususally replaces 'reifyPolyester'.
-runPolyester :: ExecMode -> Polyester () -> IO ()
-runPolyester mode f = do
+runPolyester :: ExecMode -> Integer -> Integer -> Polyester () -> IO ()
+runPolyester mode clkSpeed simSpeed f = do
         
         setTitle "Kansas Lava"
         putStrLn "[Booting Spartan3e simulator]"
@@ -196,7 +208,12 @@ runPolyester mode f = do
                         putMVar sockDB $ (nm,h) : sock_map
                         return h
 
-        (_,steps) <- h inputs mode findSock
+        (_,steps) <- h inputs $ PolyesterEnv 
+                        { pExecMode   = mode
+                        , pFindSocket = findSock
+                        , pClkSpeed   = clkSpeed
+                        , pSimSpeed   = simSpeed
+                        }
         putStrLn "[Starting simulation]"
 	putStr "\ESC[2J\ESC[1;1H"
 
