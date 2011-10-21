@@ -47,6 +47,8 @@ import Control.Concurrent
 import System.IO.Unsafe
 import Data.Maybe
 
+import Hardware.KansasLava.Rate
+
 import Hardware.KansasLava.Simulators.Polyester
 
 ------------------------------------------------------------
@@ -81,6 +83,11 @@ instance Board.Spartan3e Polyester where
    -- can not do a hard reset.
    rot_as_reset = return ()
  
+   --tickTock :: (Size w) => Witness w -> Integer -> fabric (Seq Bool)
+   tickTock wit hz = do
+           simSpeed <- getPolyesterSimSpeed
+           return (rate wit (1 / ((fromIntegral simSpeed) / fromIntegral hz)))
+
    -----------------------------------------------------------------------
    -- Patches
    -----------------------------------------------------------------------

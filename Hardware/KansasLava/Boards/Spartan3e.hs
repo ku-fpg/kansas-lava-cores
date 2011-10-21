@@ -86,6 +86,14 @@ class MonadFix fabric => Spartan3e fabric where
    debounceP = return emptyP
 
    ----------------------------------------------------------------------------
+
+   -- | 'tickTock' generates 'n' pulses per second, 
+   -- based on the expected simulation, or clockrate on the board.
+   -- The purpose is for controlling real-time sampling, or for animations.
+   -- 
+   tickTock :: (Size w) => Witness w -> Integer -> fabric (Seq Bool)
+
+   ----------------------------------------------------------------------------
  
    -- | 'lcd' give raw access to the lcd bus. Disables the StrataFlash (for now).
    lcd :: Seq U1 -> Seq U4 -> Seq Bool -> fabric ()
