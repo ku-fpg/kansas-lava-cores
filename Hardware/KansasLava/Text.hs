@@ -53,7 +53,7 @@ aliveGlyph :: forall c sig . (Clock c, sig ~ Signal c)
 	      (sig Ack)			(sig Ack)
 aliveGlyph 
       = openP $$
-	fstP (cycleP (matrix $ map (fromIntegral . ord) "|/-\\" :: Matrix X4 U8) $$
+	fstP (cycleP (matrix $ map ordU8 "|/-\\" :: Matrix X4 U8) $$
 		  mapP (\ x -> pack (0,x))
 		 ) $$
 	zipP $$
