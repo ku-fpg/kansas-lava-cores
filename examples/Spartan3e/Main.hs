@@ -64,7 +64,7 @@ simUseFabric opts fab =
         Sim.runPolyester (case fastSim opts of
                          True -> Sim.Fast
                          False -> Sim.Friendly) 
-              (50 * 1000 * 1000)
+              (2 * 1000 * 1000)
               (case fastSim opts of
                          True -> 1000
                          False -> 50)
@@ -167,15 +167,27 @@ fabric _ "rs232out" = do
 -}
 
 fabric _ "rs232in" = do
-        rx <- rs232_rxP DCE (115200)
+        rx <- rs232_rxP DCE 115200
+{-
+        let cps = 1000 * 1000   -- one mill per second
+        let ticks = 10
+        let speed = cps `div` ticks
+        let pow2s = iterate (*2) 1
+        let res = head (dropWhile (> speed)
+-}
+        ticks <- tickTock (Witness :: Witness X16) 6
         runF $ patchF (rx
                  $$ enabledToAckBox
                  $$ fifo1
                  $$ matrixDupP
-                 $$ matrixStackP (matrixOf (0 :: X3) 
+                 $$ matrixStackP (matrixOf (0 :: X4) 
                         [ hexchain   $$ mapP (startAt 0)
-                        , count      $$ mapP (startAt 16)
+                        , count      $$ mapP (startAt 18)
                         , asciichain $$ mapP (startAt 24)
+                        , sinkAckP   $$ 
+                          alwaysAckP () $$ 
+                          throttleP ticks $$
+                          aliveGlyph $$ mapP (startAt 16)
                         ])
                  $$ matrixMergeP RoundRobinMerge
                  $$ mm_text_driver msg active
