@@ -51,20 +51,6 @@ class MonadFix fabric => Spartan3e fabric where
    mm_lcdP :: FabricPatch fabric
                           (Seq (Enabled ((X2,X16),U8)))  ()
 	                  (Seq Ack)	                 ()
-   mm_lcdP = patchF mm_LCD_Inst |$| lcdP
-
-
-{-
-   test_idea :: EdgePatch
-   fabric (Patch (Seq U8) (fabric ())
-                              (Seq Ack) ())
- -}
- 
-   -- | 'lcdP' gives a patch-level API to the LCD, based on LCDInstructions.
-   --  Disables the StrataFlash (for now).
-   lcdP :: FabricPatch fabric
-                       (Seq (Enabled LCDInstruction)) ()
-	               (Seq Ack)	              ()
 
    -- | 'rs232_txP' gives a patch level API for transmission of bytes
    -- over one of the serial links.
@@ -100,8 +86,8 @@ class MonadFix fabric => Spartan3e fabric where
 
    ----------------------------------------------------------------------------
  
-   -- | 'lcd' give raw access to the lcd bus. Disables the StrataFlash (for now).
-   lcd :: Seq U1 -> Seq U4 -> Seq Bool -> fabric ()
+--   -- | 'lcd' give raw access to the lcd bus. Disables the StrataFlash (for now).
+--   lcd :: Seq U1 -> Seq U4 -> Seq Bool -> fabric ()
 
    -- | 'switches' gives raw access to the position of the toggle switches.
    switches :: fabric (Matrix X4 (Seq Bool))
@@ -119,10 +105,12 @@ class MonadFix fabric => Spartan3e fabric where
    -- and if the rotation was clockwise
    dial_rot :: fabric (Seq (Enabled Bool))
 
+{-
    -- | 'mm_vgaP' gives a memory mapped API to the VGA port.
    -- Each charactor has an extra attribute
    mm_vgaP :: Patch (Seq (Enabled ((X40,X80),(VGA.Attr,U7)))) (fabric ())
                     (Seq Ack)	                              ()
+-}
 
 ------------------------------------------------------------
 -- initialization
@@ -151,10 +139,16 @@ instance Spartan3e Fabric where
   -- Patches
   ------------------------------------------------------------
 
-  lcdP = patchF (init_LCD $$ phy_Inst_4bit_LCD) |$| buildF (\ (bus,_) -> do
+  mm_lcdP = patchF (mm_LCD_Inst $$ init_LCD $$ phy_Inst_4bit_LCD) |$| buildF (\ (bus,_) -> do
                 let (rs,sf_d,e) = unpack bus
                 lcd rs sf_d e                
                 return ((),()))
+      where lcd rs sf_d e = do 
+		outStdLogic 	  "LCD_RS" rs
+		outStdLogicVector "SF_D" (appendS (0 :: Seq (U8)) sf_d  :: Seq U12)
+		outStdLogic       "LCD_E"  e
+		outStdLogic       "LCD_RW" low
+		outStdLogic       "SF_CE0" high
 
   rs232_rxP serial baud = do
            inp :: Seq Bool <- inStdLogic ("RS232_" ++ show serial ++ "_RX") 
@@ -164,12 +158,6 @@ instance Spartan3e Fabric where
   -- RAW APIs
   ------------------------------------------------------------
 
-  lcd rs sf_d e = do 
-		outStdLogic 	  "LCD_RS" rs
-		outStdLogicVector "SF_D" (appendS (0 :: Seq (U8)) sf_d  :: Seq U12)
-		outStdLogic       "LCD_E"  e
-		outStdLogic       "LCD_RW" low
-		outStdLogic       "SF_CE0" high
 
 
   switches = do

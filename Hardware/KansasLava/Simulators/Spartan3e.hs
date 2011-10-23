@@ -103,8 +103,6 @@ instance Board.Spartan3e Polyester where
         just _ Nothing  = Nothing
         just k (Just a) = k a
 
-   lcdP = error "lcdP is not supported in the simulator. Use mm_lcdP and the memory mapped API instead"
-
 {-
    rs232_txP port baud = shallowSlowDownAckBoxP slow_count $$ fromAckBox $$ forwardP fab
       where
@@ -128,8 +126,6 @@ instance Board.Spartan3e Polyester where
    -----------------------------------------------------------------------
    -- Native APIs
    -----------------------------------------------------------------------
-
-   lcd = error "lcd is not supported in the simulator. (to low level)"
 
    switches = do
         ms <- sequence [ do ss <- inPolyester False (sw i)
