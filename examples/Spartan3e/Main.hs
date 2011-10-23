@@ -133,51 +133,19 @@ fabric _ "lcd_inputs" = do
         active :: X4 -> (X2,X16)
         active x = (0,fromIntegral x)
 
-{-
-fabric _ "vga" = do
-        runP $ doP $$ mm_vgaP
- where
-        doP :: Patch () (Seq (Enabled ((X40,X80),(Attr,U7))))
-                     () (Seq Ack)
-        doP = undefined
-        
---        zipP (cycleP msg)
---                       (
-
-        asciiP :: Patch () (Seq (Enabled U7))
-                        () (Seq Ack)
-        asciiP = cycleP (matrix [ 33 .. 122 ] :: MSize X91)
-
-
-        -- just a list of positions
-        posP :: Patch () (Seq (Enabled (X40,X80)))
-                      () (Seq Ack)
-        posP = cycleP (matrix [(a,b) | a <- [0..39], b <- [0..79]] :: Matrix (MUL X80 X40) (X40,X80))
-
--}
-
-{-
 fabric _ "rs232out" = do
-        runP $ cycleP msg $$ rs232_txP DCE (115200 * 100)
+        runF $ patchF (cycleP msg) |$| rs232_txP DCE (115200 * 100)
  where
          msg :: Matrix X95 U8
          msg = matrix [ i
                       | i <- [32..126]
                       ]
--}
 
 fabric _ "rs232in" = do
-        rx <- rs232_rxP DCE 115200
-{-
-        let cps = 1000 * 1000   -- one mill per second
-        let ticks = 10
-        let speed = cps `div` ticks
-        let pow2s = iterate (*2) 1
-        let res = head (dropWhile (> speed)
--}
         ticks <- tickTock (Witness :: Witness X24) 6
-        runF $ patchF (rx
-                 $$ enabledToAckBox
+        runF $ rs232_rxP DCE 115200
+           |$| patchF (
+                    enabledToAckBox
                  $$ fifo1
                  $$ matrixDupP
                  $$ matrixStackP (matrixOf (0 :: X4) 

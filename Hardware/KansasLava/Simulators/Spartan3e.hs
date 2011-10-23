@@ -6,28 +6,6 @@ module Hardware.KansasLava.Simulators.Spartan3e
         ( Spartan3e(..)
         , Graphic(..)
         ) where
-{-        
-	-- * Initialization, and global settings.
-	  board_init
-	, rot_as_reset
-	, Board.clockRate
-	, showUCF
-	-- * Patch API's.
---	, lcdP              -- unsupported in the simulator
-	, mm_lcdP
-	, switchesP
-        , rs232_dce_rx
-        , rs232_dce_tx
---        , rs232_dte_rx
---        , rs232_dte_tx
-	 -- * Raw API's.
---	, lcd                   -- unsupported in the simulator
-	, switches
-        , dial  
-        , leds
-        , buttons
-	) where
--}
 
 import qualified Hardware.KansasLava.Boards.Spartan3e as Board
 import Hardware.KansasLava.Boards.Spartan3e -- (board_init, rot_as_reset)
@@ -103,25 +81,24 @@ instance Board.Spartan3e Polyester where
         just _ Nothing  = Nothing
         just k (Just a) = k a
 
-{-
-   rs232_txP port baud = shallowSlowDownAckBoxP slow_count $$ fromAckBox $$ forwardP fab
+   rs232_txP port baud = patchF (shallowSlowDownAckBoxP slow_count $$ fromAckBox) |$| buildF fab
       where
         -- 10 bits per byte
         slow_count = 10 * Board.clockRate `div` baud
-        fab inp = do
+        fab ~(inp,_) = do
                 writeSocketPolyester ("dev/" ++ serialName port)
                         $ map (fmap (\ i -> [chr (fromIntegral i)])) inp
                 outPolyesterCount (RS232 TX port) inp
--}
+                return ((),())
 
-   rs232_rxP port baud = do
+   rs232_rxP port baud = buildF (\ ~(_,_) -> do
         -- 10 bits per byte
         clkSpeed <- getPolyesterClkSpeed
         let slow_count = 10 * clkSpeed `div` baud
         ss0 <- readSocketPolyester ("dev/" ++ serialName port)
         let ss = concatMap (\ x -> x : replicate (fromIntegral slow_count) Nothing) ss0
         outPolyesterCount (RS232 RX port) ss
-        return (outputP (toS (map (fmap fromIntegral) ss)))
+        return ((), toS (map (fmap fromIntegral) ss)))
 
    -----------------------------------------------------------------------
    -- Native APIs

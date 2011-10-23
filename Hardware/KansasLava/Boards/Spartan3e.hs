@@ -66,15 +66,9 @@ class MonadFix fabric => Spartan3e fabric where
    -- ready.
    rs232_rxP :: Serial  -- ^ port
              -> Integer -- ^ baud rate
-             -> fabric (Patch () (Seq (Enabled U8))
-	                      () ())
-
-   -- | 'debounceP' gives a small debounce correction.
-   -- Use by on the (input) patches. The simulator 
-   -- does no debouncing; the real hardware needs to.
-   debounceP :: fabric (Patch (Seq Bool)   (Seq Bool)
-	                      ()	   ())
-   debounceP = return emptyP
+             -> FabricPatch fabric
+                            () (Seq (Enabled U8))
+	                    () ()
 
    ----------------------------------------------------------------------------
 
@@ -150,9 +144,10 @@ instance Spartan3e Fabric where
 		outStdLogic       "LCD_RW" low
 		outStdLogic       "SF_CE0" high
 
-  rs232_rxP serial baud = do
+  rs232_rxP serial baud = buildF (\ ~(_,_) -> do
            inp :: Seq Bool <- inStdLogic ("RS232_" ++ show serial ++ "_RX") 
-           return (outputP inp $$ rs232in baud clockRate)
+           let (_,out) = execP (rs232in baud clockRate) (inp,())
+           return ((),out))
 
   ------------------------------------------------------------
   -- RAW APIs
@@ -200,10 +195,9 @@ switchesP :: (Spartan3e fabric) =>
 	                   () (Matrix X4 ()))
 switchesP = do
 	sws <- switches
-        db <- debounceP
 	return (outputP sws $$ 
 	        backwardP (\ _mat -> ()) $$
-                matrixStackP (pure db))
+                matrixStackP (pure emptyP))
 
 
 -- | 'buttonsP' gives a patch-level API for the toggle switches.
@@ -212,10 +206,9 @@ buttonsP :: (Spartan3e fabric) =>
 	                   () (Matrix X4 ()))
 buttonsP = do
 	sws <- buttons
-        db <- debounceP
         return (outputP sws $$ 
 	        backwardP (\ _mat -> ()) $$
-                matrixStackP (pure db))
+                matrixStackP (pure emptyP))
 
 -- | 'ledP' gives a patch-level API for the leds.
 ledsP :: (Spartan3e fabric) =>
