@@ -32,12 +32,14 @@ Library
         Hardware.KansasLava.Rate
         Hardware.KansasLava.RS232
         Hardware.KansasLava.Chunker
+        Hardware.KansasLava.Text
 
         Hardware.KansasLava.LCD.ST7066U
         Hardware.KansasLava.Boards.UCF
         Hardware.KansasLava.Boards.Spartan3e
         Hardware.KansasLava.Simulators.Spartan3e
         Hardware.KansasLava.Simulators.Polyester
+        Paths_kansas_lava_cores
 
 --  Hs-Source-Dirs: ., ../kansas-lava
   Other-modules:
