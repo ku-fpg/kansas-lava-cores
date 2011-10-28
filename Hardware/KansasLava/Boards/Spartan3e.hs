@@ -20,7 +20,6 @@ import Hardware.KansasLava.LCD.ST7066U
 import Hardware.KansasLava.RS232
 import Hardware.KansasLava.Rate
 import Hardware.KansasLava.Boards.UCF
-import qualified Hardware.KansasLava.VGA as VGA
 
 import Data.Sized.Unsigned
 import Data.Sized.Ix hiding (all)
