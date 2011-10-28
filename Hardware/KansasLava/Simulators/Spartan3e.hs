@@ -9,7 +9,6 @@ module Hardware.KansasLava.Simulators.Spartan3e
 
 import qualified Hardware.KansasLava.Boards.Spartan3e as Board
 import Hardware.KansasLava.Boards.Spartan3e -- (board_init, rot_as_reset)
-import qualified Hardware.KansasLava.VGA as VGA
 import qualified Data.ByteString as B
 
 import Data.Sized.Ix
