@@ -1,7 +1,7 @@
 {-# LANGUAGE RankNTypes, TypeFamilies, ScopedTypeVariables #-}
 -- | The 'Clock' module provides a utility function for simulating clock rate
 -- downsampling.
-module Hardware.KansasLava.Rate(rate, powerOfTwoRate, rateP, throttleP) where
+module Hardware.KansasLava.Rate(rate, powerOfTwoRate, rateP, throttleP, accurateTo) where
 
 import Data.Ratio
 

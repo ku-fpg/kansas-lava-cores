@@ -10,7 +10,7 @@ import Data.Sized.Ix
 import Data.Sized.Unsigned as U
 import Data.Sized.Matrix as M
 
-import Hardware.KansasLava.Rate(rate)
+import Hardware.KansasLava.Rate
 import Hardware.KansasLava.FIFO(fifo)
 
 import Language.KansasLava 
@@ -146,19 +146,24 @@ rs232in baudRate clkRate ~(in_val0,()) = ((),out)
 	-- 16 times the baud rate for transmission,
 	-- so we can spot the start bit's edge.
 	fastTick :: Signal clk Bool 
-	fastTick = rate (Witness :: Witness X16) (16 * fromIntegral baudRate / fromIntegral clkRate)
+	fastTick = rate (Witness :: Witness X16) $
+                        accurateTo (16 * fromIntegral baudRate / fromIntegral clkRate)
+                                   0.99
 	
 
         -- the filter, currently length 4
-        in_vals = in_val0 : map (register True) (take 4 in_vals)
+--        in_vals = in_val0 : map (register True) (take 4 in_vals)
         
 	-- if 4 highs (lows) then go high (low), otherwise as you were.
+
+        inp = in_val0
+{-
         inp = register True 
                         (cASE [ (foldr1 (.&&.) in_vals, high)
                               , (foldr1 (.&&.) (map bitNot in_vals), low)
                               ]
                          inp)
-
+-}
 	findByte :: [sig Bool] -> sig U8
 	findByte xs = bitwise (pack (matrix xs :: M.Matrix X8 (sig Bool)) :: sig (M.Matrix X8 Bool))
 
@@ -177,9 +182,9 @@ rs232in baudRate clkRate ~(in_val0,()) = ((),out)
 				counter := 0
 				reading := high
                                         -- check to see the edge *is* an edge
-                             , IF ((reg counter .>. 0) .&&. (reg counter .<. 8) .&&. (inp .==. high)) $ do
-				counter := 0
-				reading := low
+--                             , IF ((reg counter .>. 0) .&&. (reg counter .<. 8) .&&. (inp .==. high)) $ do
+--				counter := 0
+--				reading := low
 			     , OTHERWISE $ do
 				counter := reg counter + 1
 			     ]
@@ -187,7 +192,7 @@ rs232in baudRate clkRate ~(in_val0,()) = ((),out)
 			-- We have a 3 sample average, so we wait an aditional 5
 			-- to be in the middle of the 16-times super-sample.
 			-- So, 5 is 16 / 2 - 3
-			WHEN ((reg reading .==. high) .&&. (lowCounter .==. 6)) $ CASE 
+			WHEN ((reg reading .==. high) .&&. (lowCounter .==. 8)) $ CASE 
 			     [ IF (highCounter .<. 9) $ do
 				theByte ((unsigned) highCounter) := inp
 			     , IF ((highCounter .==. 9) .&&.
