@@ -143,19 +143,20 @@ fabric _ "rs232out" = do
 
 fabric _ "rs232in" = do
         ticks <- tickTock (Witness :: Witness X24) 6
-        runF $ rs232_rxP DCE 115200
+        rot_as_reset
+        runF $ rs232_rxP DCE 9600 -- 115200
            |$| patchF (
                     enabledToAckBox
-                 $$ fifo1
+                 $$ fifo (Witness :: Witness X256) low
                  $$ matrixDupP
-                 $$ matrixStackP (matrixOf (0 :: X4) 
+                 $$ matrixStackP (matrixOf (0 :: X3)
                         [ hexchain   $$ mapP (startAt 0)
                         , count      $$ mapP (startAt 18)
                         , asciichain $$ mapP (startAt 24)
-                        , sinkAckP   $$ 
-                          alwaysAckP () $$ 
-                          throttleP ticks $$
-                          aliveGlyph $$ mapP (startAt 16)
+--                        , sinkAckP   $$ 
+--                          alwaysAckP () $$ 
+--                          throttleP ticks $$
+--                          aliveGlyph $$ mapP (startAt 16)
                         ])
                  $$ matrixMergeP RoundRobinMerge
                  $$ mm_text_driver msg active
