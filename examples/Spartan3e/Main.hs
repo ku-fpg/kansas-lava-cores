@@ -78,7 +78,7 @@ vhdlUseFabric opts fab = do
         KL.writeVhdlCircuit "main" "main.vhd" kleg
         return ()
 
-
+-- Should be in sized types lib!
 matrixOf :: (Size x) => x -> [a] -> Matrix x a
 matrixOf _ = matrix
 
@@ -125,16 +125,15 @@ fabric _ "lcd_inputs" = do
                              )
              $$ matrixMergeP RoundRobinMerge
              $$ mm_text_driver msg active 
---             $$ throttleP (powerOfTwoRate (Witness :: Witness X1))
 
         msg :: Matrix (X2,X16) U8
-        msg = boxU8' ["EXample of Using", " the LCD driver "]
+        msg = boxU8' ["                ","                "]
 
         active :: X4 -> (X2,X16)
         active x = (0,fromIntegral x)
 
 fabric _ "rs232out" = do
-        runF $ patchF (cycleP msg) |$| rs232_txP DCE (115200 * 100)
+        runF $ patchF (cycleP msg) |$| rs232_txP DCE 115200
  where
          msg :: Matrix X95 U8
          msg = matrix [ i
@@ -142,21 +141,17 @@ fabric _ "rs232out" = do
                       ]
 
 fabric _ "rs232in" = do
-        ticks <- tickTock (Witness :: Witness X24) 6
+        ticks <- tickTock (Witness :: Witness X24) 4
         rot_as_reset
-        runF $ rs232_rxP DCE 9600 -- 115200
+        runF $ rs232_rxP DCE 115200
            |$| patchF (
                     enabledToAckBox
                  $$ fifo (Witness :: Witness X256) low
                  $$ matrixDupP
                  $$ matrixStackP (matrixOf (0 :: X3)
                         [ hexchain   $$ mapP (startAt 0)
-                        , count      $$ mapP (startAt 18)
+                        , count      $$ mapP (startAt 16)
                         , asciichain $$ mapP (startAt 24)
---                        , sinkAckP   $$ 
---                          alwaysAckP () $$ 
---                          throttleP ticks $$
---                          aliveGlyph $$ mapP (startAt 16)
                         ])
                  $$ matrixMergeP RoundRobinMerge
                  $$ mm_text_driver msg active
@@ -185,23 +180,16 @@ fabric _ "rs232in" = do
                      $$ witnessP (Witness :: Witness (Enabled (X8,U8)))
                      )
                      
-        count :: Patch (Seq (Enabled U8)) (Seq (Enabled (X4,U8)))
+        count :: Patch (Seq (Enabled U8)) (Seq (Enabled (X6,U8)))
                        (Seq Ack)          (Seq Ack)
-        count = stateP adder (0 :: U16)
-             $$ witnessP (Witness :: Witness (Enabled U16))
+        count = stateP adder (0 :: U24)
+             $$ witnessP (Witness :: Witness (Enabled U24))
              $$ hexForm
-             $$ witnessP (Witness :: Witness (Enabled (X4,U8)))
+             $$ witnessP (Witness :: Witness (Enabled (X6,U8)))
 
-        adder :: forall clk . (Signal clk U16,Signal clk U8) -> (Signal clk U16,Signal clk U16)
+        adder :: forall clk . (Signal clk U24,Signal clk U8) -> (Signal clk U24,Signal clk U24)
         adder (a,_) = (a + 1,a + 1)
-{-
-                (hexForm
-                     $$ 
-                     $$ scrollBar
-                     $$ witnessP (Witness :: Witness (Enabled (X16,U8)))
-                     $$ mapP (startAt 16)
-                     )
--}
+
         hexVal :: Signal clk U4 -> Signal clk U8
         hexVal = funMap (\ x -> if x >= 0 && x <= 9 
                      then return (0x30 + fromIntegral x)
@@ -228,20 +216,6 @@ changeS sig = mux (start .||. diff) (disabledS,enabledS sig)
         diff = probeS "diff" $ sig ./=. delay sig
 
 ---------------------------------------------------------------------------------
--- Utilties
-{-
-type Socket f a b 
-              c d = (b,c) -> f (a,d)
-              
-applyPatch :: Socket fab a b c d -> Patch a b c d -> fab ()
-applyPatch = undefined
-
-rs232rx :: (MonadFix f) => Socket f (Seq (Enabled U8))  ()
-                                    (Seq Ack)           ()
-
-(|$|) :: Socket f a b c d -> Socket e f g h -> Socket (a
--}
-
     
 -- later, this will use a sub-Clock.
 
