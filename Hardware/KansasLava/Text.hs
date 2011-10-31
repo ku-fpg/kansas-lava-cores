@@ -46,14 +46,13 @@ joinWrites :: (Clock clk, sig ~ Signal clk)
                     (Matrix x (sig Ack))                (sig Ack)
 joinWrites = undefined
 -}
--- | spining bar glyph; shows aliveness.
--- rotates by 45 degrees for each pulse sent in.
+-- | Simple digit counter.
 aliveGlyph :: forall c sig . (Clock c, sig ~ Signal c)
      => Patch (sig (Enabled ()))	(sig (Enabled (X1,U8)))
 	      (sig Ack)			(sig Ack)
 aliveGlyph 
       = openP $$
-	fstP (cycleP (matrix $ map ordU8 "|/-\\" :: Matrix X4 U8) $$
+	fstP (cycleP (matrix $ map ordU8 ".oOo" :: Matrix X4 U8) $$
 		  mapP (\ x -> pack (0,x))
 		 ) $$
 	zipP $$
