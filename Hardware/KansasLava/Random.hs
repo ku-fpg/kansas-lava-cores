@@ -5,7 +5,7 @@ module Hardware.KansasLava.Random (randomBytes) where
 import Language.KansasLava
 import Data.Sized.Unsigned
 
---  Provides a pseudorandom stream of values.  The distinction between the 
+-- Provides a pseudorandom stream of values.  The distinction between the 
 --  pseudorandomsmall and the pseudorandom versions is the maximum output size.
 --  The pseudorandom can output up to 32-bits, whereas the pseudorandomsmall 
 --  can output a maximum of 8-bits.  This is a Lehmer Random Number Generator, 
@@ -22,6 +22,8 @@ import Data.Sized.Unsigned
 --  For more info, see:
 --      http://en.wikipedia.org/wiki/Lehmer_random_number_generator
 --
+
+-- | Provides a pseudorandom stream of values. 
 --  On a test using the first 100K bytes, all 256 values occurred with
 --  the same probability (390 or 391 times).
 
