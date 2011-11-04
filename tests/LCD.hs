@@ -2,6 +2,7 @@
 module LCD (tests) where
 
 import Language.KansasLava
+import Language.KansasLava.Test
 import Hardware.KansasLava.FIFO (fifo)
 --import Hardware.KansasLava.LCD (lcdBootP)
 

@@ -2,6 +2,7 @@
 module Rate (tests) where
 
 import Language.KansasLava
+import Language.KansasLava.Test
 import Hardware.KansasLava.Rate (rate)
 import Data.Sized.Ix
 import Data.Maybe 

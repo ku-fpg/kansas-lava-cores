@@ -2,6 +2,7 @@
 module Main (main) where
 
 import Language.KansasLava
+import Language.KansasLava.Test
 import Data.Default
 
 import Rate as Rate

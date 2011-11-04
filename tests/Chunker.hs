@@ -2,6 +2,7 @@
 module Chunker (tests) where
 
 import Language.KansasLava
+import Language.KansasLava.Test
 import Hardware.KansasLava.Chunker
 
 import Data.Sized.Unsigned

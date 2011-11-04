@@ -2,6 +2,7 @@
 module FIFO (tests) where
 
 import Language.KansasLava
+import Language.KansasLava.Test
 import Hardware.KansasLava.FIFO (fifo)
 
 import Data.Sized.Unsigned
