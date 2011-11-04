@@ -25,7 +25,7 @@ rate Witness n
     -- for power of two, a simple counter works
   | num == 1 && step == 2^sz = runRTL $ do
 	count <- newReg (0 :: (Unsigned x))
-	CASE [ OTHERWISE $ do count := reg count + 1 ]  -- TODO: fix this
+	count := reg count + 1
 	return  (reg count .==. 0)
 
   | num == 1 = runRTL $ do
