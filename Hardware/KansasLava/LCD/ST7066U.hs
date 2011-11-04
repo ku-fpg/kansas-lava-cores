@@ -195,7 +195,7 @@ splitCmd cmd = pack $ matrix
 	       , smallGap
 	       )
 	, pack ( low_op `appendS` mode
-	       , mux2 ((bitwise) cmd .<=. (0x03 :: Signal comb U9)) (hugeGap,bigGap)
+	       , mux ((bitwise) cmd .<=. (0x03 :: Signal comb U9)) (bigGap,hugeGap)
 	       )
 	]
     where

@@ -21,7 +21,7 @@ import System.IO
 
 -- | Make a sequence obey the given reset signal, returning given value on a reset.
 resetable :: forall a c. (Clock c, Rep a) => Signal c Bool -> a -> Signal c a -> Signal c a
-resetable rst val x = mux2 rst (pureS val,x)
+resetable rst val x = mux rst (x,pureS val)
 
 fifoFE :: forall c a counter ix sig .
          (Size counter
@@ -59,7 +59,7 @@ fifoFE w rst = ackToReadyBridge $$ fifoFE' w rst where
         wr_addr :: Signal c ix
         wr_addr = resetable rst 0
                 $ register 0
-                $ mux2 inp_done0 (loopingIncS wr_addr,wr_addr)
+                $ mux inp_done0 (wr_addr,loopingIncS wr_addr)
 
         in_counter0 :: Signal c counter
         in_counter0 = resetable rst 0
@@ -112,7 +112,7 @@ fifoBE Witness rst (mem_rd :> inc_by, out_ready) =
     let
         rd_addr0 :: Signal c ix
         rd_addr0 = resetable rst 0
-                 $ mux2 out_done0 (loopingIncS rd_addr1,rd_addr1)
+                 $ mux out_done0 (rd_addr1,loopingIncS rd_addr1)
 
         rd_addr1 = register 0
                  $ rd_addr0
@@ -333,10 +333,10 @@ splitWrite inp = M.forAll $ \ i -> let (g,v)   = unpackEnabled inp
 
 -}
 mulBy :: forall x sz c . (Clock c, Size sz, Num sz, Num x, Rep x) => Witness sz -> Signal c Bool -> Signal c x
-mulBy Witness trig = mux2 trig (pureS $ fromIntegral $ size (error "witness" :: sz),pureS 0)
+mulBy Witness trig = mux trig (pureS 0,pureS $ fromIntegral $ size (error "witness" :: sz))
 
 divBy :: forall x sz c . (Clock c, Size sz, Num sz, Rep sz, Num x, Rep x) => Witness sz -> Signal c Bool -> Signal c Bool -> Signal c x
-divBy Witness rst trig = mux2 issue (1,0)
+divBy Witness rst trig = mux issue (0,1)
         where
                 issue = trig .&&. (counter1 .==. (pureS $ fromIntegral (size (error "witness" :: sz) - 1)))
 
@@ -346,7 +346,7 @@ divBy Witness rst trig = mux2 issue (1,0)
                                 ] counter1
                 counter1 :: Signal c sz
                 counter1 = register 0
-                         $ mux2 issue (0,counter0)
+                         $ mux issue (counter0,0)
 
 
 
