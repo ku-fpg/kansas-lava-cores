@@ -178,6 +178,10 @@ runPolyester mode clkSpeed simSpeed f = do
         putStrLn "[Booting Spartan3e simulator]"
         hSetBuffering stdin NoBuffering
         hSetEcho stdin False
+
+        -- create the virtual device directory
+        createDirectoryIfMissing True "dev"
+
         inputs <- hGetContentsStepwise stdin
 
 --        let -- clockOut | mode == Fast = return ()
