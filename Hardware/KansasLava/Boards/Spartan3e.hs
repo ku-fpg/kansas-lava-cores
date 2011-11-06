@@ -143,6 +143,10 @@ instance Spartan3e Fabric where
 		outStdLogic       "LCD_RW" low
 		outStdLogic       "SF_CE0" high
 
+  rs232_txP serial baud = patchF (rs232out baud clockRate) |$| buildF (\ (bus,_) -> do
+          outStdLogic ("RS232_" ++ show serial ++ "_TX") bus
+          return ((),()))
+
   rs232_rxP serial baud = buildF (\ ~(_,_) -> do
            inp :: Seq Bool <- inStdLogic ("RS232_" ++ show serial ++ "_RX") 
            let (_,out) = execP (rs232in baud clockRate) (inp,())
