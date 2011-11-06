@@ -91,6 +91,7 @@ fabric _ "leds" = do
         bu <- buttons
         leds (sw `M.append` bu)
 
+{-
 fabric _ "dial" = do
         d <- dial_button
         r <- dial_rot
@@ -103,6 +104,7 @@ fabric _ "dial" = do
             ms = unpack ((bitwise) val :: Seq (Matrix X4 Bool))
 
         leds (matrix $ [d, low] ++ M.toList ms ++ [low,low])
+-}
 
 fabric _ "lcd" = do
         runF $ patchF (neverAckP $$ prependP msg $$ throttleP (powerOfTwoRate (Witness :: Witness X5))) |$| mm_lcdP
