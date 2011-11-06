@@ -15,7 +15,7 @@ Copyright:           (c) 2011 The University of Kansas
 Homepage:            http://ittc.ku.edu/~andygill/kansas-lava.php
 Stability:	     alpha
 build-type: 	     Simple
-Cabal-Version:       >= 1.6
+Cabal-Version:       >= 1.10
 Data-files: 
    UCF/*.ucf
 extra-source-files:   
@@ -28,17 +28,22 @@ Flag all
 
 Flag unit
   Description: Enable unit tests for every core
-  Default:     True
+  Default:     False
 
 Flag spartan3e
   Description: Enable demo spartan3 program
-  Default:     True
+  Default:     False
 
 Library
   Build-Depends: base >= 4, 
-                kansas-lava == 0.2.4,
-                sized-types >= 0.3.4,
-                ansi-terminal >= 0.5.5
+        kansas-lava == 0.2.4,
+        sized-types >= 0.3.4,
+        ansi-terminal >= 0.5.5,
+        data-default,
+        directory,
+        bytestring,
+        network
+
   Exposed-modules:
         Hardware.KansasLava.FIFO
         Hardware.KansasLava.Random
@@ -58,13 +63,20 @@ Library
 --  Hs-Source-Dirs: ., ../kansas-lava
   Other-modules:
   Ghc-Options: -fcontext-stack=100
+  default-language:    Haskell2010
 
 Executable spartan3e-demo
     if flag(spartan3e) || flag(all)
       Build-Depends: base >= 4,
         kansas-lava == 0.2.4,
         sized-types >= 0.3.4,
-        data-default
+        ansi-terminal >= 0.5.5,
+        data-default,
+        directory,
+        bytestring,
+        network,
+        random,
+        cmdargs==0.8
       buildable: True
    else
       Build-depends: base
@@ -73,18 +85,19 @@ Executable spartan3e-demo
    Hs-Source-Dirs: ., examples/Spartan3e
    Ghc-Options: -fcontext-stack=100
           -threaded -rtsopts
+  default-language:    Haskell2010
 
 Executable kansas-lava-cores-tests
     if flag(unit) || flag(all)
-      Build-Depends: 
-        base >= 4, 
+      Build-Depends: base >= 4,
         kansas-lava == 0.2.4,
         sized-types >= 0.3.4,
-        data-default, containers, data-reify == 0.6, pretty,
-        dotgen  >= 0.4.1, array, template-haskell,
-        directory, random, process,
-        fgl, filepath, data-default, unix, bytestring, mtl, strict, cmdargs,
-        network
+        ansi-terminal >= 0.5.5,
+        data-default,
+        directory,
+        bytestring,
+        network,
+        random
       buildable: True
       Other-modules:
          Chunker
@@ -101,7 +114,7 @@ Executable kansas-lava-cores-tests
     Ghc-Options: -fcontext-stack=100
           -threaded -rtsopts
 --        -Wall  -Werror 
-                        
+    default-language:    Haskell2010
 
 source-repository head
   type:     git
