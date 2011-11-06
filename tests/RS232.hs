@@ -21,8 +21,6 @@ tests test = do
 
         let clockRate = 50 * 1000
         
-        let baudRate = 1000
-
         let rs232Test :: Integer -> Rational -> StreamTest U8 U8
             rs232Test baud scale = StreamTest
                         { theStream = 
@@ -37,14 +35,14 @@ tests test = do
 --                                 trace (show ("outs",map show (take 100 outs))) $
                                 case () of
                                   () | outs /= take (length outs) ins -> return ("in/out differences: "  
-											++ show (zip outs ins))
+											++ show ins ++ show outs)
                                   () | length outs < count -> return $ "to few transfers (" ++ show (length outs) ++ ")"
                                      | otherwise -> Nothing
 			, theStreamTestCount  = count
-			, theStreamTestCycles = floor (100000 * (1000 / fromIntegral baud))
+			, theStreamTestCycles = floor ((fromIntegral clockRate / 4) * (1000 / fromIntegral baud))
                         , theStreamName = "rs232"
                         }
-	    count = 100
+	    count = 20
 
             noise = id
 --		  . fromS 
@@ -57,8 +55,8 @@ tests test = do
                 | (wib,scale) <- [ ("1",1), ("0.99",0.99), ("1.01",1.01) ]
                 ]
 
-        t "1000"  1000
-        t "2000"  2000
-        t "3000"  3000
+        t "100"  100
+        t "200"  200
+        t "300"  300
 
 	return ()
