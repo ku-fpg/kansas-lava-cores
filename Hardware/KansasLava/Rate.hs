@@ -1,7 +1,7 @@
 {-# LANGUAGE RankNTypes, TypeFamilies, ScopedTypeVariables #-}
 -- | The 'Clock' module provides a utility function for simulating clock rate
 -- downsampling.
-module Hardware.KansasLava.Rate(rate, powerOfTwoRate, rateP, throttleP, accurateTo) where
+module Hardware.KansasLava.Rate(rate, powerOfTwoRate, rateP, throttleP) where
 
 import Data.Ratio
 
@@ -91,7 +91,9 @@ throttleP in_pred
 	top = outputP (packEnabled in_pred (pureS ())) $$
 	      enabledToAckBox
 
-
+{-
+-- Wrong, omit for this release.
+--
 -- | 'accurateTo' rounds up/down a number within a range, 
 -- in an attempt to be a integral reciprical (and therefore cheaper to implement in hardware).
 --accurateTo :: Rational -> Rational -> Rational
@@ -103,8 +105,6 @@ accurateTo n ac
         reci = 1 / n
         nR = 1 /  (fromInteger $ round reci)
         diff   = abs (n - nR)
+-}
 
-
-        
-        
         

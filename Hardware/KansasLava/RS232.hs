@@ -90,7 +90,10 @@ rs232out baudRate clkRate ~(inp0,()) = (toAck (ready .&&. in_en),out)
   where
 	-- at the baud rate for transmission
 	fastTick :: Signal clk Bool 
-    	fastTick = rate (Witness :: Witness X16) (fromIntegral baudRate / fromIntegral clkRate)
+    	fastTick = rate (Witness :: Witness X16) $
+--    	        accurateTo 
+    	                (fromIntegral baudRate / fromIntegral clkRate)
+--    	                0.99
 
     	(in_en,in_val) 	= unpack inp0
 
@@ -147,8 +150,9 @@ rs232in baudRate clkRate ~(in_val0,()) = ((),out)
 	-- so we can spot the start bit's edge.
 	fastTick :: Signal clk Bool 
 	fastTick = rate (Witness :: Witness X16) $
-                        accurateTo (16 * fromIntegral baudRate / fromIntegral clkRate)
-                                   0.99
+--                        accurateTo 
+                                (16 * fromIntegral baudRate / fromIntegral clkRate)
+--                                0.99
 	
 
         -- the filter, currently length 4
