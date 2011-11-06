@@ -1,6 +1,2 @@
-IP Cores Written in Kansas Lava, including testing frameworks.
-
-
-# This means that you find the ucf and other files from the local location.
-export kansas_lava_cores_datadir=.
+FPGA Cores Written in Kansas Lava, including testing frameworks.
 
