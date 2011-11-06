@@ -8,8 +8,8 @@ import Hardware.KansasLava.FIFO
 import Hardware.KansasLava.LCD.ST7066U
 import Hardware.KansasLava.Text
 import Hardware.KansasLava.Rate
-import qualified Hardware.KansasLava.VGA as VGA
-import Hardware.KansasLava.VGA (Attr(..), fg, bg)
+--import qualified Hardware.KansasLava.VGA as VGA
+--import Hardware.KansasLava.VGA (Attr(..), fg, bg)
 
 import Control.Applicative
 import Data.Bits
