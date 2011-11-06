@@ -5,7 +5,7 @@ RUN := env KANSAS_LAVA_ROOT=$(KANSAS_LAVA_ROOT)
 N := 2
 
 test:
-	$(RUN) ../dist/build/kansas-lava-cores-tests/kansas-lava-cores-tests +RTS -N$(N)
+	$(RUN) ../dist/build/kansas-lava-cores-tests/kansas-lava-cores-tests +RTS -N$(N) -RTS $(ARGS)
 
 simulate:
 	$(DIR)/runsims
