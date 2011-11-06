@@ -107,7 +107,8 @@ fabric _ "dial" = do
 -}
 
 fabric _ "lcd" = do
-        runF $ patchF (neverAckP $$ prependP msg $$ throttleP (powerOfTwoRate (Witness :: Witness X5))) |$| mm_lcdP
+        ticks <- tickTock (Witness :: Witness X24) 4
+        runF $ patchF (neverAckP $$ prependP msg $$ throttleP ticks) |$| mm_lcdP
  where
          msg :: Matrix X32 ((X2,X16),U8)
          msg = boxU8 ["Example of Using", " the LCD driver "]
