@@ -35,7 +35,8 @@ Flag spartan3e
   Default:     False
 
 Library
-  Build-Depends: base >= 4, 
+  Build-Depends: 
+        base >= 4 && < 5,
         kansas-lava == 0.2.4,
         sized-types >= 0.3.4,
         ansi-terminal >= 0.5.5,
@@ -67,7 +68,8 @@ Library
 
 Executable spartan3e-demo
     if flag(spartan3e) || flag(all)
-      Build-Depends: base >= 4,
+      Build-Depends: 
+        base >= 4 && < 5,
         kansas-lava == 0.2.4,
         sized-types >= 0.3.4,
         ansi-terminal >= 0.5.5,
@@ -89,7 +91,8 @@ Executable spartan3e-demo
 
 Executable kansas-lava-cores-tests
     if flag(unit) || flag(all)
-      Build-Depends: base >= 4,
+      Build-Depends: 
+        base >= 4 && < 5,
         kansas-lava == 0.2.4,
         sized-types >= 0.3.4,
         ansi-terminal >= 0.5.5,
