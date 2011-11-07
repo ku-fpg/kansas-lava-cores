@@ -44,7 +44,7 @@ withTX_Send = funMap $ \ tx -> return $ case tx of
 instance BitRep RS232_TX where
     bitRep =
 	[ (TX_Idle, 	0) ] ++
-	[ (TX_Send v, 	fromIntegral v + 1) | v <- [0..9] ]
+	[ (TX_Send v, 	fromIntegral $ fromIntegral v + 1) | v <- [0..9] ]
 
 
 $(repBitRep ''RS232_TX 4)
