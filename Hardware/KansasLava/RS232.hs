@@ -13,7 +13,8 @@ import Data.Sized.Matrix as M
 import Hardware.KansasLava.Rate
 import Hardware.KansasLava.FIFO(fifo)
 
-import Language.KansasLava 
+import Language.KansasLava.RTL
+import Language.KansasLava hiding ((:=), var, IF)
 import qualified Language.KansasLava as KL
 import Data.Maybe as Maybe
 import Data.Char as Char

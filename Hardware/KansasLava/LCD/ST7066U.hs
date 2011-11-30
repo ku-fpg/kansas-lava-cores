@@ -11,7 +11,8 @@ module Hardware.KansasLava.LCD.ST7066U
 	, phy_4bit_LCD
 	) where
 
-import Language.KansasLava as KL
+import Language.KansasLava as KL hiding ((:=), var, IF)
+import Language.KansasLava.RTL
 import Data.Sized.Unsigned
 import Data.Sized.Ix
 import Data.Sized.Matrix as M

@@ -9,7 +9,8 @@ import Data.Sized.Unsigned
 import Data.Sized.Signed
 import Data.Sized.Ix
 
-import Language.KansasLava
+import Language.KansasLava as KL hiding ((:=), var, IF)
+import Language.KansasLava.RTL
 
 -- | 'rate' constructs a stream of enable bits used for clock-rate
 -- downsampling. For example, with a rate of n=1/2, every other value in the
