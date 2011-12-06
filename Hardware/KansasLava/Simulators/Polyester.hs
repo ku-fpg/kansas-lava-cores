@@ -8,9 +8,9 @@ module Hardware.KansasLava.Simulators.Polyester (
         , outPolyester
         , outPolyesterEvents
         , outPolyesterCount
-        , writeSocketPolyester
+--        , writeSocketPolyester
         , inPolyester
-        , readSocketPolyester
+--        , readSocketPolyester
         , getPolyesterExecMode
         , getPolyesterClkSpeed
         , getPolyesterSimSpeed
@@ -23,8 +23,16 @@ module Hardware.KansasLava.Simulators.Polyester (
         , ANSI(..)
         , Color(..)     -- from System.Console.ANSI
         , Graphic(..)
+        , CoreMonad(..)
+        , PolyesterMonad(..)
+        , initializedCores
         ) where
         
+
+import Language.KansasLava hiding (Fast)
+import Language.KansasLava.Fabric
+import Hardware.KansasLava.Core 
+
 import System.Console.ANSI
 import System.IO
 import Data.Typeable
@@ -32,12 +40,36 @@ import Control.Exception
 import Control.Concurrent
 import Control.Monad
 import Data.Char
+import Data.Monoid
 import Control.Monad.Fix
 import Data.Word
 import System.IO.Unsafe (unsafeInterleaveIO)
 import Control.Concurrent
 import Network
 import System.Directory
+
+-----------------------------------------------------------------------
+-- Hack for now
+
+
+instance CoreMonad Polyester where
+        core nm stmt = Polyester $ \ _ _ st -> do
+                                        r <- stmt 
+                                        return (r,[],st { pCores = nm : pCores st })
+
+-- PolyesterMonad implements a simulator for FPGA boards.
+class Monad fab => PolyesterMonad fab where
+        polyester  :: Polyester a -> fab a
+        fabric     :: Fabric a    -> fab a
+        init_board :: fab ()
+
+
+-- This means access the (virtual) board's fabric
+instance PolyesterMonad Polyester where
+        fabric stmt = Polyester $ \ _ env st ->
+                                let (a,outs) = runFabric stmt (pFabric env)
+                                in return (a,[PolyesterOutput outs],st)
+
 
 -----------------------------------------------------------------------
 -- Monad
@@ -51,36 +83,49 @@ data PolyesterEnv = PolyesterEnv
                         , pFindSocket :: String -> IO Handle
                         , pClkSpeed   :: Integer                -- clock speed, in Hz
                         , pSimSpeed   :: Integer                -- how many cycles are we *actually* doing a second
+                        , pFabric     :: [(String,Pad)]
                         }
-                        
+
+data PolyesterState = PolyesterState
+                        { pCores        :: [String]             --registered cores
+                        }
+                deriving Show
+
+data PolyesterOut = PolyesterStepper Stepper
+                  | PolyesterOutput [(String,Pad)]
+
 data Polyester a = Polyester ([Maybe Char] 
-                               -> PolyesterEnv 
-                               -> IO (a,[Stepper]))
+                               -> PolyesterEnv
+                               -> PolyesterState
+                               -> STMT (a,[PolyesterOut],PolyesterState))
 
 
 instance Monad Polyester where
-        return a = Polyester $ \ _ _ -> return (a,[])
-        (Polyester f) >>= k = Polyester $ \ inp st -> do
-                                (a,s1)  <- f inp st
+        return a = Polyester $ \ _ _ st -> return (a,mempty,st)
+        (Polyester f) >>= k = Polyester $ \ inp env st0 -> do
+                                (a,w1,st1)  <- f inp env st0
                                 let Polyester g = k a
-                                (b,s2)  <- g inp st
-                                return (b,s1 ++ s2)
+                                (b,w2,st2)  <- g inp env st1
+                                return (b,w1 `mappend` w2,st2)
         fail msg = error msg
 
 instance MonadFix Polyester where
         -- TODO: check this
-        mfix f = Polyester $ \ inp st -> 
-                        mfix (\ r ->  let (Polyester g) = f (fst r) 
-                                      in g inp st)
+        mfix f = Polyester $ \ inp env st -> 
+                        mfix (\ ~(r,_,_) ->  let (Polyester g) = f r
+                                      in g inp env st)
 
 getPolyesterExecMode :: Polyester ExecMode
-getPolyesterExecMode = Polyester $ \ _ st -> return (pExecMode st,[])
+getPolyesterExecMode = Polyester $ \ _ env st -> return (pExecMode env,mempty,st)
 
 getPolyesterClkSpeed :: Polyester Integer
-getPolyesterClkSpeed = Polyester $ \ _ st -> return (pClkSpeed st,[])
+getPolyesterClkSpeed = Polyester $ \ _ env st -> return (pClkSpeed env,mempty,st)
 
 getPolyesterSimSpeed :: Polyester Integer
-getPolyesterSimSpeed = Polyester $ \ _ st -> return (pSimSpeed st,[])
+getPolyesterSimSpeed = Polyester $ \ _ env st -> return (pSimSpeed env,mempty,st)
+
+initializedCores :: Polyester [String]
+initializedCores = Polyester $ \ _ env st -> return (pCores st,mempty,st)
 
 -----------------------------------------------------------------------
 -- Ways out outputing from the Polyester
@@ -103,7 +148,7 @@ changed (a:as) = Just a : f a as
 
 -- | Turn a list of graphical events into a 'Polyester', without processing.
 outPolyesterEvents :: (Graphic g) => [Maybe g] -> Polyester ()
-outPolyesterEvents ogs = Polyester $ \ _ _ -> return ((),[stepper ogs])
+outPolyesterEvents ogs = Polyester $ \ _ _ st -> return ((),[PolyesterStepper $ stepper ogs],st)
 
 -- | creates single graphical events, based on the number of Events,
 -- when the first real event is event 1, and there is a beginning of time event 0.
@@ -117,6 +162,7 @@ outPolyesterCount f = outPolyester f . loop 0
 -- | write a socket from a clocked list input. Example of use is emulating
 -- RS232 (which only used empty or singleton strings), for the inside of a list.
 
+{-
 writeSocketPolyester :: String -> [Maybe String] -> Polyester ()
 writeSocketPolyester filename contents = Polyester $ \ _ st -> do
         h <- pFindSocket st filename
@@ -127,10 +173,6 @@ writeSocketPolyester filename contents = Polyester $ \ _ st -> do
         f h (Just bs) = do
                 hPutStr h bs
                 hFlush h
-
-{-
-writeSocketPolyester :: String -> [Maybe String] -> Polyester ()
-writeSocketPolyester socketname contents = Polyester $ \ _ _ -> do
 -}
 
 -----------------------------------------------------------------------
@@ -141,11 +183,11 @@ writeSocketPolyester socketname contents = Polyester $ \ _ _ -> do
 inPolyester :: a                           -- ^ initial 'a'
          -> (Char -> a -> a)            -- ^ how to interpreate a key press
          -> Polyester [a]
-inPolyester a interp = Polyester $ \ inp _ -> do
+inPolyester a interp = Polyester $ \ inp _ st -> do
         let f' a' Nothing = a'
             f' a' (Just c) = interp c a'
             vals = scanl f' a inp
-        return (vals,[]) 
+        return (vals,mempty,st) 
 
 
 -- | 'readSocketPolyester' reads from a socket.
@@ -155,12 +197,13 @@ inPolyester a interp = Polyester $ \ inp _ -> do
 -- This does not make any attempt to register
 -- what is being observed on the screen; another
 -- process needs to do this.
+{-
 readSocketPolyester :: String -> Polyester [Maybe Word8]
 readSocketPolyester filename = Polyester $ \ inp st -> do
         h <- pFindSocket st filename
         ss <- hGetContentsStepwise h
-        return (map (fmap (fromIntegral . ord)) ss,[])
-
+        return (map (fmap (fromIntegral . ord)) ss,mempty)
+-}
 -----------------------------------------------------------------------
 -- Running the Polyester
 -----------------------------------------------------------------------
@@ -215,21 +258,48 @@ runPolyester mode clkSpeed simSpeed f = do
                         putMVar sockDB $ (nm,h) : sock_map
                         return h
 
-        (_,steps) <- h inputs $ PolyesterEnv 
+        let fab :: Fabric ((),[PolyesterOut],PolyesterState)
+            fab = compileToFabric $ h inputs env st
+            
+            env = PolyesterEnv 
                         { pExecMode   = mode
                         , pFindSocket = findSock
                         , pClkSpeed   = clkSpeed
                         , pSimSpeed   = simSpeed
+                        , pFabric     = out_names
                         }
+
+            st = PolyesterState 
+                        { pCores = []
+                        }
+
+                        -- break the abstaction
+            (((),output,st_out),in_names',out_names) = unFabric fab in_names
+            
+            in_names :: [(String,Pad)]
+            in_names = [ o | PolyesterOutput os <- output, o <- os ]
+
+--                  | PolyesterCore   String
+
+        print st_out
+        print (map fst out_names)
+        
+        let steps = [ o | PolyesterStepper o <- output ]
+
+        print (length steps)
+
         putStrLn "[Starting simulation]"
-	putStr "\ESC[2J\ESC[1;1H"
+--	putStr "\ESC[2J\ESC[1;1H"
 
         let slowDown | mode == Fast = []
                      | mode == Friendly =
                          [ ioStepper [ threadDelay (20 * 1000) 
                                      | _ <- [(0 :: Integer)..] ]]
 
+        return ()
         runSteppers (steps ++ slowDown)
+
+
 
 -----------------------------------------------------------------------
 -- Utils for building boards
@@ -297,12 +367,12 @@ data ANSI a where
         COLOR   :: Color -> ANSI ()        -> ANSI ()
         PRINT   :: String                  -> ANSI ()
         AT      :: ANSI () -> (Int,Int)    -> ANSI ()
-        BIND    :: ANSI b -> (b -> ANSI a) -> ANSI a
-        RETURN  :: a                       -> ANSI a
+        BIND'    :: ANSI b -> (b -> ANSI a) -> ANSI a
+        RETURN'  :: a                       -> ANSI a
         
 instance Monad ANSI where
-        return a = RETURN a
-        m >>= k  = BIND m k
+        return a = RETURN' a
+        m >>= k  = BIND' m k
 
 showANSI :: ANSI a -> IO a
 showANSI (REVERSE ascii) = do
@@ -321,8 +391,8 @@ showANSI (AT ascii (row,col)) = do
         showANSI ascii
         setCursorPosition 24 0
         hFlush stdout
-showANSI (RETURN a) = return a
-showANSI (BIND m k) = do
+showANSI (RETURN' a) = return a
+showANSI (BIND' m k) = do
         a <- showANSI m
         showANSI (k a)
 

@@ -1,4 +1,4 @@
-{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE ScopedTypeVariables,TypeFamilies, FlexibleContexts #-}
 
 module Hardware.KansasLava.Boards.Spartan3e (
         -- * Class for the methods of the Spartan3e
@@ -9,9 +9,12 @@ module Hardware.KansasLava.Boards.Spartan3e (
         -- * Data structures 
         , Serial(..)
         -- * Utilities for Board and Simulation use
-        , switchesP
-        , buttonsP
-        , ledsP
+--        , switchesP
+--        , buttonsP
+--        , ledsP
+        , LEDs(..)
+        , Switches(..)
+        , DialRotation(..)
 	) where
 
 
@@ -20,6 +23,8 @@ import Hardware.KansasLava.LCD.ST7066U
 import Hardware.KansasLava.RS232
 import Hardware.KansasLava.Rate
 import Hardware.KansasLava.Boards.UCF
+import Hardware.KansasLava.Peripherals
+import Hardware.KansasLava.Core
 
 import Data.Sized.Unsigned
 import Data.Sized.Ix hiding (all)
@@ -28,6 +33,16 @@ import Data.Char
 import System.IO
 import Control.Applicative
 import Control.Monad.Fix
+
+--class MonadFix fabric => LEDs fabric where
+--        leds :: fabric (Matrix X8 (REG Bool))
+
+-- This abstraction is at the STMT level.
+class (CoreMonad fab) => DialRotation fab where
+        -- | 'dialRotation' gives Enabled packets when dial is rotated,
+        -- and is Enabled True if the rotation was clockwise
+        dialRotation :: fab (EXPR (Enabled Bool))
+        dialButton   :: fab (EXPR Bool)
 
 ------------------------------------------------------------
 -- The Spartan3e class
@@ -42,6 +57,9 @@ class MonadFix fabric => Spartan3e fabric where
 
    -- | 'rot_as_reset' sets up the rotary dial as a reset switch.
    rot_as_reset :: fabric ()
+
+   leds8        :: fabric (Matrix X8 (REG Bool))
+   switches4    :: fabric (Matrix X4 (EXPR Bool))
 
    ----------------------------------------------------------------------------
 
@@ -83,13 +101,13 @@ class MonadFix fabric => Spartan3e fabric where
 --   lcd :: Seq U1 -> Seq U4 -> Seq Bool -> fabric ()
 
    -- | 'switches' gives raw access to the position of the toggle switches.
-   switches :: fabric (Matrix X4 (Seq Bool))
+--   switches :: fabric (Matrix X4 (Seq Bool))
 
    -- | 'buttons' gives raw access to the state of the buttons.
-   buttons :: fabric (Matrix X4 (Seq Bool))
+--   buttons :: fabric (Matrix X4 (Seq Bool))
   
    -- | 'leds' drives the leds
-   leds :: Matrix X8 (Seq Bool) -> fabric ()
+--   leds :: Matrix X8 (Seq Bool) -> fabric ()
 
    -- | 'dial_button' gives raw access to the state of the dial button
    dial_button :: fabric (Seq Bool)
@@ -157,20 +175,13 @@ instance Spartan3e Fabric where
   ------------------------------------------------------------
 
 
-
+{-
   switches = do
         inp <- inStdLogicVector "SW" :: Fabric (Seq (Matrix X4 Bool))
         return (unpack inp)
+-}
 
-
-  buttons = do
-        i0 <- inStdLogic "BTN_WEST"
-        i1 <- inStdLogic "BTN_NORTH"
-        i2 <- inStdLogic "BTN_EAST"
-        i3 <- inStdLogic "BTN_SOUTH"
-        return (matrix [i0,i1,i2,i3])
-
-  leds inp = outStdLogicVector "LED" (pack inp :: Seq (Matrix X8 Bool))
+--  leds inp = outStdLogicVector "LED" (pack inp :: Seq (Matrix X8 Bool))
 
   dial_button = 
         inStdLogic "ROT_CENTER"
@@ -192,6 +203,7 @@ data Serial = DCE | DTE deriving (Eq, Ord, Show)
 -- Utilites that can be shared
 -------------------------------------------------------------
 
+{-
 -- | 'switchesP' gives a patch-level API for the toggle switches.
 switchesP :: (Spartan3e fabric) =>
              fabric (Patch () (Matrix X4 (Seq Bool))
@@ -201,18 +213,10 @@ switchesP = do
 	return (outputP sws $$ 
 	        backwardP (\ _mat -> ()) $$
                 matrixStackP (pure emptyP))
+-}
 
 
--- | 'buttonsP' gives a patch-level API for the toggle switches.
-buttonsP :: (Spartan3e fabric) =>
-             fabric (Patch () (Matrix X4 (Seq Bool))
-	                   () (Matrix X4 ()))
-buttonsP = do
-	sws <- buttons
-        return (outputP sws $$ 
-	        backwardP (\ _mat -> ()) $$
-                matrixStackP (pure emptyP))
-
+{-
 -- | 'ledP' gives a patch-level API for the leds.
 ledsP :: (Spartan3e fabric) =>
              Patch (Matrix X8 (Seq Bool)) (fabric ())
@@ -220,6 +224,6 @@ ledsP :: (Spartan3e fabric) =>
 ledsP = 
         backwardP (\ () -> pure ()) $$
         forwardP leds
-
+-}
 
  

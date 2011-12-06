@@ -8,6 +8,8 @@ import Hardware.KansasLava.FIFO
 import Hardware.KansasLava.LCD.ST7066U
 import Hardware.KansasLava.Text
 import Hardware.KansasLava.Rate
+import Hardware.KansasLava.Core
+import Hardware.KansasLava.Peripherals
 --import qualified Hardware.KansasLava.VGA as VGA
 --import Hardware.KansasLava.VGA (Attr(..), fg, bg)
 
@@ -22,7 +24,7 @@ import System.CPUTime
 import Data.Char as C
 import Control.Concurrent
 
-import System.Console.CmdArgs as CmdArgs
+import System.Console.CmdArgs as CmdArgs hiding ((:=))
 
 import qualified Hardware.KansasLava.Boards.Spartan3e as Board 
 
@@ -55,9 +57,10 @@ main = do
 
         case vhdl opts of
           True ->  vhdlUseFabric opts fab
-          False -> simUseFabric opts fab
+--          False -> simUseFabric opts fab
 
 
+{-
 -- The simulator's use of the Fabric
 simUseFabric :: Opts -> Sim.Polyester () -> IO ()
 simUseFabric opts fab = 
@@ -69,6 +72,7 @@ simUseFabric opts fab =
                          True -> 1000
                          False -> 50)
             $ fab
+-}
 
 -- The VHDL generators use of the Fabric
 vhdlUseFabric :: Opts -> KL.Fabric () -> IO ()
@@ -85,12 +89,14 @@ matrixOf _ = matrix
 ------------------------------------------------------------------------------
 -- Sample fabrics
 
+--leds _ = return ()
+
 fabric :: (Spartan3e fabric) => Opts -> String -> fabric ()
 fabric _ "leds" = do
-        sw <- switches
-        bu <- buttons
-        leds (sw `M.append` bu)
-
+--        sw <- switches
+--        bu <- buttons
+--              leds (sw `M.append` bu)
+        return ()
 {-
 fabric _ "dial" = do
         d <- dial_button
@@ -105,7 +111,7 @@ fabric _ "dial" = do
 
         leds (matrix $ [d, low] ++ M.toList ms ++ [low,low])
 -}
-
+{-
 fabric _ "lcd" = do
         ticks <- tickTock (Witness :: Witness X24) 4
         runF $ patchF (neverAckP $$ prependP msg $$ throttleP ticks) |$| mm_lcdP
@@ -114,7 +120,7 @@ fabric _ "lcd" = do
          msg = boxU8 ["Example of Using", " the LCD driver "]
 
 fabric _ "lcd_inputs" = do
-        sw <- switches
+--        sw <- switches
         bu <- buttons
         runF $ patchF (patch sw bu) |$| mm_lcdP
  where
@@ -207,6 +213,8 @@ fabric _ "rs232in" = do
         
         active :: X32 -> (X2,X16)
         active x = (fromIntegral (x `div` 16),fromIntegral (x `mod` 16))
+-}
+
 
 -- Remember when a value changes.
 changeS :: forall c sig a . (Clock c, sig ~ Signal c, Eq a, Rep a) => sig a -> sig (Enabled a)
@@ -240,3 +248,113 @@ stateP st a =
         st' s = pack (st (unpack s) :: (Signal clk' a, Signal clk' c))
 
 
+----------------------------------------------------------------------
+{-
+class Monad fab => LCD_2x16 fab where
+        mm_lcdW :: fab (WriteAckBox ((X2,X16),U8))
+
+class Monad fab => LCD_2x16 fab where
+        mm_lcdW :: fab (WriteAckBox ((X2,X16),U8))
+
+class Monad fab => ST7066U fab where
+        fab_lcd8 :: (Matrix X8 (Seq Bool)) -> fab ()
+
+-}
+
+class Monad fab => LED8 fab where
+        fab_led8 :: (Matrix X8 (Seq Bool)) -> fab ()
+
+{-        
+data NativeSpartan3e a = NativeSpartan3e (Fabric a) 
+
+instance Monad NativeSpartan3e where
+        return = undefined
+        (>>=) = undefined
+        
+instance ST7066U NativeSpartan3e where
+        fab_lcd8W = undefined
+        
+data Spartan3eX a = Spartan3eX (STMT a)
+
+instance Monad Spartan3eX where
+        return = undefined
+        (>>=) = undefined
+
+
+-}
+
+{-
+fab_lcd8W :: (ST7066U imp) => imp -> (Matrix X8 (Seq Bool)) -> Fabric ()
+fab_led8W :: (LED8 imp) => imp -> (Matrix X8 (Seq Bool)) -> Fabric ()
+-}
+
+example :: Spartan3eSimulator ()
+example = do
+        ls <- leds
+--        ss <- switches
+        rot <- dialRotation
+
+        Sim.core "main" $ do
+                VAR reg :: VAR U8 <- SIGNAL $ var 0
+
+                SPARK $ \ loop -> do
+                        (OP1 isEnabled rot) :? 
+                                (((OP1 enabledVal rot) :? reg := reg + 1)
+                                   ||| ((OP1 (bitNot . enabledVal) rot) :? reg := reg - 1)
+                                ) ||| GOTO loop
+
+                SPARK $ \ loop -> do
+                        sequence_ [ ls M.! i := OP1 (flip testABit $ fromIntegral i) reg
+                                  | i <- [0..7]
+                                  ]
+--                        reg := reg + 1
+
+{-
+                        l M.! 0 := OP0 low
+                        l M.! 0 := OP0 low
+                        l M.! 0 := OP0 low
+                        l M.! 0 := OP0 low
+                        l M.! 0 := OP0 low
+                        l M.! 0 := OP0 low
+                        l M.! 0 := OP0 low
+                        l M.! 0 := OP0 low
+                        l M.! 0 := OP0 low
+                        l M.! 0 := OP0 high
+                        l M.! 0 := OP0 high
+                        l M.! 0 := OP0 high
+                        l M.! 0 := OP0 high
+                        l M.! 0 := OP0 high
+                        l M.! 0 := OP0 high
+                        l M.! 0 := OP0 high
+                        l M.! 0 := OP0 high
+                        l M.! 0 := OP0 high
+                        l M.! 0 := OP0 high
+                        l M.! 0 := OP0 high
+                        l M.! 0 := OP0 high
+                        l M.! 0 := OP0 high
+                        l M.! 0 := OP0 high
+                        l M.! 0 := OP0 high
+                        l M.! 0 := OP0 high
+                        l M.! 0 := OP0 high
+                        l M.! 0 := OP0 high
+                        l M.! 0 := OP0 high
+                        l M.! 0 := OP0 high
+                        l M.! 0 := OP0 high
+                        l M.! 0 := OP0 high
+                        l M.! 0 := OP0 high
+                        l M.! 0 := OP0 high
+                        l M.! 0 := OP0 high
+                        l M.! 0 := OP0 high
+-}
+                        GOTO loop
+
+        Sim.init_board
+        return ()
+
+main2 = do       
+        print "main2"
+        let (Spartan3eSimulator m) = example
+        Sim.runPolyester (Sim.Friendly) 
+                        (2 * 1000 * 1000)
+                        50
+                        m

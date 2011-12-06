@@ -1,11 +1,13 @@
+{-# LANGUAGE TypeFamilies, ScopedTypeVariables #-}
 -- | This API mirrors 'Hardware.KansasLava.Boards.Spartan3e' via a class
 -- abstaction. The other API also contains some Board specific utilties
 -- that can also be used for simulation.
 
 module Hardware.KansasLava.Simulators.Spartan3e 
-        ( Spartan3e(..)
-        , Graphic(..)
-        ) where
+--        ( Spartan3e(..)
+--        , Graphic(..)
+--        ) where
+        where
 
 import qualified Hardware.KansasLava.Boards.Spartan3e as Board
 import Hardware.KansasLava.Boards.Spartan3e -- (board_init, rot_as_reset)
@@ -23,11 +25,120 @@ import Data.Char as Char
 import Control.Concurrent
 import System.IO.Unsafe
 import Data.Maybe
+import Control.Monad.Fix
 
 import Hardware.KansasLava.Rate
 
 import Hardware.KansasLava.Simulators.Polyester
+import Hardware.KansasLava.Peripherals
 
+------------------------------------------------------------
+-- Spartan3eSimulator Monad
+------------------------------------------------------------
+
+data Spartan3eSimulator a = Spartan3eSimulator (Polyester a)
+
+instance Monad Spartan3eSimulator where
+        return = Spartan3eSimulator . return
+        (Spartan3eSimulator m) >>= k = Spartan3eSimulator $ do
+                                        r <- m
+                                        case k r of
+                                          Spartan3eSimulator r2 -> r2
+
+instance CoreMonad Spartan3eSimulator where
+        core nm m = Spartan3eSimulator (core nm m)
+         
+instance LEDs Spartan3eSimulator where
+        type LEDCount Spartan3eSimulator = X8
+        ledNames = return $ matrix ["led<" ++ show i ++ ">" | i <- [0..maxBound :: X8]]
+        
+instance Switches Spartan3eSimulator where
+        type SwitchCount Spartan3eSimulator = X4
+        switchNames = return $ matrix ["sw<" ++ show i ++ ">" | i <- [0..maxBound :: X4]]
+
+instance Buttons Spartan3eSimulator where
+        type ButtonCount Spartan3eSimulator = X4
+        buttonNames = return $ matrix ["BTN_NORTH","BTN_EAST","BTN_SOUTH","BTN_WEST"]
+        
+--instance MonadFix Spartan3eSimulator where
+
+instance DialRotation Spartan3eSimulator where
+        dialRotation = core "dialRotation" $ do
+                -- re-cast into U2
+                pos     :: EXPR U2 <- INPUT (inStdLogicVector "dial_pos")
+                VAR reg :: VAR U2  <- SIGNAL $ var 0
+                (diff :: REG U2, result  :: EXPR (Maybe Bool))
+                        <- mkChannel (\ x -> cASE [ (enabledVal x .==. 0, disabledS)
+                                                  , (enabledVal x .==. 1, enabledS low)
+                                                  , (enabledVal x .==. 3, enabledS high)
+                                                  ] undefinedS)
+
+                always $ do
+                        reg := pos
+
+                always $ do
+                        diff := reg - pos
+
+                return (result :: EXPR (Maybe Bool))
+                        
+
+instance PolyesterMonad Spartan3eSimulator where
+  fabric m = Spartan3eSimulator (fabric m)
+  polyester m = Spartan3eSimulator m
+  init_board = do
+        led_names <- ledNames
+        switch_names <- switchNames
+        button_names <- buttonNames
+        polyester $ do
+                generic_init BOARD CLOCK
+                cores <- initializedCores
+                -- light up the LEDs
+                when ("leds" `elem` cores) $
+                        sequence_ [ do o :: Seq Bool <- fabric $ inStdLogic nm
+                                       outPolyester (LED (fromIntegral i)) (fromS o)
+	                          | (i,nm) <- zip [0..] (M.toList led_names)
+	                          ]
+
+                -- (always) listen to the switches
+                id $ do let sw i ch old | key ! i == ch = not old       -- flip
+                                        | otherwise     = old           -- leave
+
+                            key :: Matrix X4 Char
+                            key = matrix "lkjh"
+
+                        sequence_ [ do ss <- inPolyester False (sw i)
+                                       outPolyester (TOGGLE i) ss
+                                       fabric $ outStdLogic nm (toS ss)
+                                  | (i,nm) <- zip [0..] (M.toList switch_names)
+                                  ]
+
+                -- (always) listen to the buttons
+                id $ do let sw i ch old | key ! i == ch = not old       -- flip
+                                        | otherwise     = old           -- leave
+
+                            key :: Matrix X4 Char
+                            key = matrix "aegx"
+
+                        sequence_ [ do ss <- inPolyester False (sw i)
+                                       outPolyester (BUTTON i) ss
+                                       fabric $ outStdLogic nm (toS ss)
+                                  | (i,nm) <- zip [0..3] (M.toList button_names)
+                                  ]
+
+                -- (always) listen to the dial
+                
+                id $ do let switch 'd' (Dial b p) = Dial (not b) p
+                            switch 's' (Dial b p) = Dial b (pred p)
+                            switch 'f' (Dial b p) = Dial b (succ p)
+                            switch _   other      = other
+
+                        sequence_ [ do ss <- inPolyester (Dial False 0) switch
+                                       outPolyester DIAL ss
+                                       fabric $ outStdLogic       "dial_button" $ toS (map (\ (Dial b _) -> b) ss)
+                                       fabric $ outStdLogicVector "dial_pos"    $ toS (map (\ (Dial _ p) -> p) ss)
+                                  | (i,nm) <- zip [0..3] (M.toList button_names)
+                                  ]
+                            
 ------------------------------------------------------------
 -- initialization
 ------------------------------------------------------------
@@ -35,6 +146,7 @@ import Hardware.KansasLava.Simulators.Polyester
 -- | 'board_init' sets up the use of the clock.
 -- Always call 'board_init' first. 
 -- Required.
+{-
 instance Board.Spartan3e Polyester where 
 
    board_init = do
@@ -59,7 +171,43 @@ instance Board.Spartan3e Polyester where
    -- This does nothing on the simulator, because the shallow circuits
    -- can not do a hard reset.
    rot_as_reset = return ()
- 
+
+--   leds8        :: fabric (Matrix X8 (REG Bool))
+   leds8 = do
+           sequence_ [ do o <- fabric $ inStdLogic ("led" ++ show i)
+                          outPolyester (LED (fromIntegral i)) (fromS o)
+	             | i <- [0..7]
+	             ]
+           core "" $ do
+                leds <- sequence
+                        [ OUTPUT (outStdLogic ("led" ++ show i) . enabledVal)
+                        | i <- [0..7] :: [Int]
+                        ]
+                return $ matrix leds
+
+--           return (matrix $ take 8 $ repeat low)
+        
+
+--   switches4    :: fabric (Matrix X4 (EXPR Bool))
+   switches4 = do
+        let sw i ch old | key ! i == ch = not old       -- flip
+                           | otherwise     = old           -- leave
+
+            key :: Matrix X4 Char
+            key = matrix "lkjh"
+
+        sequence_ [ do ss <- inPolyester False (sw i)
+                       fabric $ outStdLogic ("sw" ++ show i) (toS ss)
+                  | i <- [0..3]
+                  ]
+        sws <- core "" $ sequence
+                        [ INPUT (inStdLogic $ "sw" ++ show i)
+                        | i <- [0..3] :: [Int]
+                        ]
+        return (matrix sws)
+
+
+{- 
    --tickTock :: (Size w) => Witness w -> Integer -> fabric (Seq Bool)
    tickTock wit hz = do
            simSpeed <- getPolyesterSimSpeed
@@ -98,11 +246,11 @@ instance Board.Spartan3e Polyester where
         let ss = concatMap (\ x -> x : replicate (fromIntegral slow_count) Nothing) ss0
         outPolyesterCount (RS232 RX port) ss
         return ((), toS (map (fmap fromIntegral) ss)))
-
+-}
    -----------------------------------------------------------------------
    -- Native APIs
    -----------------------------------------------------------------------
-
+{-
    switches = do
         ms <- sequence [ do ss <- inPolyester False (sw i)
                             return ss
@@ -115,7 +263,7 @@ instance Board.Spartan3e Polyester where
          
         key :: Matrix X4 Char
         key = matrix "lkjh"
-
+-}
    buttons = do
         ms <- sequence [ do ss <- inPolyester False (sw i)
                             return ss
@@ -128,12 +276,12 @@ instance Board.Spartan3e Polyester where
          
         key :: Matrix X4 Char
         key = matrix "aegx"
-
+{-
    leds m = do
         sequence_ [ outPolyester (LED (fromIntegral i)) (fromS (m ! i))
 	          | i <- [0..7]
 	          ]
-
+-}
 {-
    mm_vgaP = fromAckBox $$ forwardP fab
       where
@@ -158,6 +306,7 @@ instance Board.Spartan3e Polyester where
           f 1 = Just False
           f 2 = error "turned dial twice in one cycle?"
           f 3 = Just True
+-}
 
 -----------------------------------------------------------------------
 -- Utilities uses in the class defintion.
