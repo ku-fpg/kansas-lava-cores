@@ -8,7 +8,7 @@ module Hardware.KansasLava.Simulators.Polyester (
         , outPolyester
         , outPolyesterEvents
         , outPolyesterCount
---        , writeSocketPolyester
+        , writeSocketPolyester
         , inPolyester
         , readSocketPolyester
         , getPolyesterExecMode
@@ -162,7 +162,7 @@ outPolyesterEvents ogs = Polyester $ \ _ _ st -> return ((),[PolyesterStepper $ 
 -- | creates single graphical events, based on the number of Events,
 -- when the first real event is event 1, and there is a beginning of time event 0.
 -- Example of use: count the number of bytes send or recieved on a device.
-outPolyesterCount :: (Graphic g) => (Integer -> g) -> [Maybe a] -> Polyester ()
+outPolyesterCount :: (Graphic g) => (Integer -> g) -> [Maybe ()] -> Polyester ()
 outPolyesterCount f = outPolyester f . loop 0
   where
         loop n (Nothing:xs) = n : loop n xs
@@ -171,18 +171,10 @@ outPolyesterCount f = outPolyester f . loop 0
 -- | write a socket from a clocked list input. Example of use is emulating
 -- RS232 (which only used empty or singleton strings), for the inside of a list.
 
-{-
-writeSocketPolyester :: String -> [Maybe String] -> Polyester ()
-writeSocketPolyester filename contents = Polyester $ \ _ st -> do
-        h <- pFindSocket st filename
-        return ((),[ ioStepper (map (f h) contents) ])
-    where
-        f :: Handle -> Maybe String -> IO ()
-        f _ Nothing   = return ()
-        f h (Just bs) = do
-                hPutStr h bs
-                hFlush h
--}
+writeSocketPolyester :: String -> String -> Int -> Polyester ()
+writeSocketPolyester filename portname speed = Polyester $ \ _ _ st -> 
+        return ((),[PolyesterSocket filename portname speed WriteMode],st)
+
 
 -----------------------------------------------------------------------
 -- Ways out inputting to the Polyester
@@ -321,6 +313,25 @@ runPolyester mode clkSpeed simSpeed f = do
 
         print (length steps)
 
+        socket_steppers :: [Stepper] <- sequence
+              [ do sock <- findSock $ filename
+                   let ss :: Seq (Enabled U8)
+                       ss = case lookup portname out_names of
+                           Nothing -> error $ "can not find output " ++ show portname
+                           Just p -> case fromUni p of
+                               Nothing -> error $ "type error in port " ++ show portname
+                               Just s -> s
+                       f (Just (Just ch)) = do
+                               hPutStr sock [chr $ fromIntegral ch] 
+                               hFlush sock
+                       f (Just Nothing)   = return ()
+                       f Nothing          = error "sock gone wrong (undefined output)"
+
+                   return $ ioStepper $ map f $ fromS ss
+                | PolyesterSocket filename portname speed WriteMode <- output 
+                ]                    
+
+
         putStrLn "[Starting simulation]"
 --	putStr "\ESC[2J\ESC[1;1H"
 
@@ -330,7 +341,7 @@ runPolyester mode clkSpeed simSpeed f = do
                                      | _ <- [(0 :: Integer)..] ]]
 
         return ()
-        runSteppers (steps ++ slowDown)
+        runSteppers (steps ++ {- slowDown ++ -} socket_steppers)
 
 
 

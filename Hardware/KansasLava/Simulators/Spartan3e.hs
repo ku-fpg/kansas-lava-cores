@@ -93,12 +93,56 @@ instance RS232 Spartan3eSimulator where
         rs232rx port baud = do
            let portname = show port
                rx = portname ++ "/rx"
-           polyester $ readSocketPolyester ("dev/" ++ portname)
-                                           rx
-                                           ((fromIntegral Board.clockRate `div` baud) * 10)
-           core "rs232rx/DCE" $ do
-                rx     :: EXPR (Enabled U8) <- INPUT (inStdLogicVector rx)
-                return $ rx 
+           polyester $ do
+                readSocketPolyester
+                        ("dev/" ++ portname)
+                        rx
+                        ((fromIntegral Board.clockRate `div` baud) * 10)
+                acks :: Seq Bool <- fabric $ inStdLogic (rx ++ "_ack")
+                outPolyesterCount (RS232 RX port) 
+                        $ fmap (\ a -> if a then Just () else Nothing)
+                        $ alwaysDefined "LCD bus failure"
+                        $ fromS
+                        $ acks
+
+           core ("rs232rx/" ++ portname) $ do
+                res :: EXPR (Enabled U8) <- INPUT (inStdLogicVector rx)
+                ack :: REG ()            <- OUTPUT (outStdLogic (rx ++ "_ack") . isEnabled)
+                always $ do
+                        (OP1 isEnabled res) :? ack := OP0 (pureS ())
+                return $ res
+
+        rs232tx port baud = do
+           let portname = show port
+               tx = portname ++ "/tx"
+
+           polyester $ do
+                writeSocketPolyester
+                        ("dev/" ++ portname)
+                        tx
+                        ((fromIntegral Board.clockRate `div` baud) * 10)
+                outs :: Seq (Enabled U8) <- fabric $ inStdLogicVector tx
+                outPolyesterCount (RS232 TX port) 
+                        $ fmap (fmap $ const ())
+                        $ alwaysDefined "LCD bus failure"
+                        $ fromS
+                        $ outs
+
+           core ("rs232tx/" ++ portname) $ do
+                (wt,rd) <- newAckBox
+                VAR ch :: VAR U8 <- SIGNAL (var 0)
+                out    :: REG U8 <- OUTPUT (outStdLogicVector tx)
+                SPARK $ \ loop -> do
+                        takeAckBox rd $ \ e -> out := e
+                        -- insert delay
+                        GOTO loop
+                return $ wt
+{-
+               core "lcd" $ do
+                wr ::   REG ((X2,X16),U8) <- OUTPUT (outStdLogicVector "lcd_wt")
+                wr_ack :: EXPR (Maybe ()) <- INPUT  (inStdLogic "lcd_wt_ack" >>= return . flip packEnabled (pureS ()))
+                return $ WriteAckBox wr wr_ack
+-}
 
 instance LCD Spartan3eSimulator where
         type LCDSize Spartan3eSimulator = (X2,X16)
@@ -181,8 +225,12 @@ instance PolyesterMonad Spartan3eSimulator where
 
                         outPolyesterEvents 
                                 $ map (just $ \ ((x,y),ch) -> Just (LCD (x,y) (Char.chr (fromIntegral ch))))
-                                $ map (\ x -> case x of { Just r -> r ; Nothing -> error "LCD bus failure" })
+                                $ alwaysDefined "LCD bus failure"
                                 $ fromS chs
+
+
+alwaysDefined :: String -> [Maybe a] -> [a]
+alwaysDefined msg = map $ \ x -> case x of { Just r -> r ; Nothing -> error msg }
 
 ------------------------------------------------------------
 -- initialization

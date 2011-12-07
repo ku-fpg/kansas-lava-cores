@@ -299,7 +299,8 @@ example = do
         rot <- dialRotation
         lcd_wt <- lcd 
 
---        rs232_in <- rs232rx DCE (115200 * 100)
+        rs232_in  <- rs232rx DCE (115200 * 100)
+        rs232_out <- rs232tx DCE (115200 * 100)
 
         Sim.core "main" $ do
                 VAR reg :: VAR U8 <- SIGNAL $ var 33
@@ -317,15 +318,26 @@ example = do
                                   ]
 --                        reg := reg + 1
                         GOTO loop
-{-
+
                 SPARK $ \ loop -> do
                         (OP1 isEnabled rs232_in) :? reg := OP1 enabledVal rs232_in
                                 ||| GOTO loop
--}
 
+{-
                 SPARK $ \ loop -> do
                         putAckBox lcd_wt $ tuple2 (tuple2 0 0) reg
                         reg := reg + 1
+                        GOTO loop
+-}      
+
+                SPARK $ \ loop -> do
+                        putAckBox rs232_out $ 0x31
+                        putAckBox rs232_out $ 0x32
+                        putAckBox rs232_out $ 0x33
+                        putAckBox rs232_out $ 0x34
+                        putAckBox rs232_out $ 0x35
+                        putAckBox rs232_out $ 0x36
+                        putAckBox rs232_out $ 0x10
                         GOTO loop
 
 
