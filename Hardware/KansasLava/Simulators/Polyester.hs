@@ -305,8 +305,9 @@ runPolyester mode clkSpeed simSpeed f = do
                     socket_reads <- sequence 
                               [ do sock <- findSock $ filename
                                    ss <- hGetContentsStepwise sock
+                                   let ss' = concatMap (\ x -> x : replicate (speed - 1) Nothing) ss
                                    return ( portname
-                                           , toUni (toS (fmap (fmap (fromIntegral . ord)) ss) :: Seq (Maybe U8))
+                                           , toUni (toS (fmap (fmap (fromIntegral . ord)) ss') :: Seq (Maybe U8))
                                            )
                                 | PolyesterSocket filename portname speed ReadMode <- output 
                                 ]

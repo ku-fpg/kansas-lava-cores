@@ -95,7 +95,7 @@ instance RS232 Spartan3eSimulator where
                rx = portname ++ "/rx"
            polyester $ readSocketPolyester ("dev/" ++ portname)
                                            rx
-                                           (fromIntegral Board.clockRate `div` (baud * 10))
+                                           ((fromIntegral Board.clockRate `div` baud) * 10)
            core "rs232rx/DCE" $ do
                 rx     :: EXPR (Enabled U8) <- INPUT (inStdLogicVector rx)
                 return $ rx 
