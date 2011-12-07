@@ -48,19 +48,25 @@ instance Monad Spartan3eSimulator where
 instance CoreMonad Spartan3eSimulator where
         core nm m = Spartan3eSimulator (core nm m)
          
+------------------------------------------------------------
+-- The instances for basic IO
+------------------------------------------------------------
+
 instance LEDs Spartan3eSimulator where
         type LEDCount Spartan3eSimulator = X8
-        ledNames = return $ matrix ["led<" ++ show i ++ ">" | i <- [0..maxBound :: X8]]
+        ledNames = return $ matrix ["LED<" ++ show i ++ ">" | i <- [0..maxBound :: X8]]
         
 instance Switches Spartan3eSimulator where
         type SwitchCount Spartan3eSimulator = X4
-        switchNames = return $ matrix ["sw<" ++ show i ++ ">" | i <- [0..maxBound :: X4]]
+        switchNames = return $ matrix ["SW<" ++ show i ++ ">" | i <- [0..maxBound :: X4]]
 
 instance Buttons Spartan3eSimulator where
         type ButtonCount Spartan3eSimulator = X4
         buttonNames = return $ matrix ["BTN_NORTH","BTN_EAST","BTN_SOUTH","BTN_WEST"]
-        
---instance MonadFix Spartan3eSimulator where
+
+------------------------------------------------------------
+-- The instances for higher level APIs
+------------------------------------------------------------
 
 instance DialRotation Spartan3eSimulator where
         dialRotation = core "dialRotation" $ do
@@ -80,7 +86,23 @@ instance DialRotation Spartan3eSimulator where
                         diff := reg - pos
 
                 return (result :: EXPR (Maybe Bool))
-                        
+        dialButton = error "dial Button"
+
+instance RS232 Spartan3eSimulator where
+        type RS232Count Spartan3eSimulator = Board.Serial
+        rs232rx port baud = do
+           let portname = show port
+               rx = portname ++ "/rx"
+           polyester $ readSocketPolyester ("dev/" ++ portname)
+                                           rx
+                                           (fromIntegral Board.clockRate `div` (baud * 10))
+           core "rs232rx/DCE" $ do
+                rx     :: EXPR (Enabled U8) <- INPUT (inStdLogicVector rx)
+                return $ rx 
+
+------------------------------------------------------------
+-- Spartan3eSimulator Initalization
+------------------------------------------------------------
 
 instance PolyesterMonad Spartan3eSimulator where
   fabric m = Spartan3eSimulator (fabric m)
@@ -138,7 +160,17 @@ instance PolyesterMonad Spartan3eSimulator where
                                        fabric $ outStdLogicVector "dial_pos"    $ toS (map (\ (Dial _ p) -> p) ss)
                                   | (i,nm) <- zip [0..3] (M.toList button_names)
                                   ]
-                            
+
+
+--                when ("rs232rx/DCE" `elem` cores) $
+--                        readSocketPolyester "DCE"
+{-
+                        sequence_ [ do o :: Seq Bool <- fabric $ inStdLogic "DCE/tx/
+                                       outPolyester (LED (fromIntegral i)) (fromS o)
+	                          | (i,nm) <- zip [0..] (M.toList led_names)
+	                          ]
+-}
+
 ------------------------------------------------------------
 -- initialization
 ------------------------------------------------------------

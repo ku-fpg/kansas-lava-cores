@@ -1,4 +1,4 @@
-{-# LANGUAGE ScopedTypeVariables, GADTs, DeriveDataTypeable #-}
+{-# LANGUAGE ScopedTypeVariables, GADTs, DeriveDataTypeable, DoRec #-}
 -- | * Remember to call init_board for your specific board.
 
 module Hardware.KansasLava.Simulators.Polyester (
@@ -10,7 +10,7 @@ module Hardware.KansasLava.Simulators.Polyester (
         , outPolyesterCount
 --        , writeSocketPolyester
         , inPolyester
---        , readSocketPolyester
+        , readSocketPolyester
         , getPolyesterExecMode
         , getPolyesterClkSpeed
         , getPolyesterSimSpeed
@@ -31,6 +31,8 @@ module Hardware.KansasLava.Simulators.Polyester (
 
 import Language.KansasLava hiding (Fast)
 import Language.KansasLava.Fabric
+import Language.KansasLava.Universal
+
 import Hardware.KansasLava.Core 
 
 import System.Console.ANSI
@@ -47,6 +49,8 @@ import System.IO.Unsafe (unsafeInterleaveIO)
 import Control.Concurrent
 import Network
 import System.Directory
+
+import Data.Sized.Unsigned
 
 -----------------------------------------------------------------------
 -- Hack for now
@@ -67,7 +71,7 @@ class Monad fab => PolyesterMonad fab where
 -- This means access the (virtual) board's fabric
 instance PolyesterMonad Polyester where
         fabric stmt = Polyester $ \ _ env st ->
-                                let (a,outs) = runFabric stmt (pFabric env)
+                                let (a,outs) = runFabric stmt (pOutNames env)
                                 in return (a,[PolyesterOutput outs],st)
 
 
@@ -83,7 +87,9 @@ data PolyesterEnv = PolyesterEnv
                         , pFindSocket :: String -> IO Handle
                         , pClkSpeed   :: Integer                -- clock speed, in Hz
                         , pSimSpeed   :: Integer                -- how many cycles are we *actually* doing a second
-                        , pFabric     :: [(String,Pad)]
+                        , pOutNames      :: [(String,Pad)]      -- The output from the generated circuit
+                                                                -- (passed back in, to allow (re)active panel)
+--                        , pExternalInput :: [(String,Pad)]      -- The outside world talking
                         }
 
 data PolyesterState = PolyesterState
@@ -93,6 +99,9 @@ data PolyesterState = PolyesterState
 
 data PolyesterOut = PolyesterStepper Stepper
                   | PolyesterOutput [(String,Pad)]
+                  | PolyesterSocket String String Int IOMode    -- socket name, (fabric) port name, 
+                                                                -- speed, and ReadMode vs WriteMode
+                                                                -- (AppendMode and ReadWriteMode not supported)
 
 data Polyester a = Polyester ([Maybe Char] 
                                -> PolyesterEnv
@@ -197,13 +206,11 @@ inPolyester a interp = Polyester $ \ inp _ st -> do
 -- This does not make any attempt to register
 -- what is being observed on the screen; another
 -- process needs to do this.
-{-
-readSocketPolyester :: String -> Polyester [Maybe Word8]
-readSocketPolyester filename = Polyester $ \ inp st -> do
-        h <- pFindSocket st filename
-        ss <- hGetContentsStepwise h
-        return (map (fmap (fromIntegral . ord)) ss,mempty)
--}
+
+readSocketPolyester :: String -> String -> Int -> Polyester ()
+readSocketPolyester filename portname speed = Polyester $ \ _ _ st -> 
+        return ((),[PolyesterSocket filename portname speed ReadMode],st)
+
 -----------------------------------------------------------------------
 -- Running the Polyester
 -----------------------------------------------------------------------
@@ -258,30 +265,55 @@ runPolyester mode clkSpeed simSpeed f = do
                         putMVar sockDB $ (nm,h) : sock_map
                         return h
 
-        let fab :: Fabric ((),[PolyesterOut],PolyesterState)
-            fab = compileToFabric $ h inputs env st
+------------------------------------------------------------------------------
+{- This is compiling the Fabric, and the board that goes with it.
+
+
+ [E Ch] +-------+  in_names   +-----------+
+------->|       |------------>|           |
+        | Board |             | Generated |
+        |       |             |  Fabric   |
+        |       |<------------| (STMT)    |
+        +-------+  out_names  +-----------+
+           IO |
+              +-----------------------------------------------> Panel
+
+-}
+
+        rec let fab :: Fabric ((),[PolyesterOut],PolyesterState)
+                fab = compileToFabric $ h inputs env st0
+
             
-            env = PolyesterEnv 
+                env = PolyesterEnv 
                         { pExecMode   = mode
                         , pFindSocket = findSock
                         , pClkSpeed   = clkSpeed
                         , pSimSpeed   = simSpeed
-                        , pFabric     = out_names
+                        , pOutNames   = out_names
                         }
 
-            st = PolyesterState 
+                st0 = PolyesterState 
                         { pCores = []
                         }
 
-                        -- break the abstaction
-            (((),output,st_out),in_names',out_names) = unFabric fab in_names
+                -- break the abstaction, building the (virtual) board
+                (((),output,st1),in_names',out_names) = unFabric fab in_names
             
-            in_names :: [(String,Pad)]
-            in_names = [ o | PolyesterOutput os <- output, o <- os ]
+--        in_names :: [(String,Pad)]
+            in_names :: [(String,Pad)] <- do
+                    -- later abstract out
+                    socket_reads <- sequence 
+                              [ do sock <- findSock $ filename
+                                   ss <- hGetContentsStepwise sock
+                                   return ( portname
+                                           , toUni (toS (fmap (fmap (fromIntegral . ord)) ss) :: Seq (Maybe U8))
+                                           )
+                                | PolyesterSocket filename portname speed ReadMode <- output 
+                                ]
+                    return $ [ o | PolyesterOutput os <- output, o <- os ]
+                          ++ socket_reads
 
---                  | PolyesterCore   String
-
-        print st_out
+        print st1
         print (map fst out_names)
         
         let steps = [ o | PolyesterStepper o <- output ]

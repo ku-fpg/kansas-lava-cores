@@ -2,12 +2,15 @@
 module Main where
 
 import qualified Language.KansasLava as KL
+import Language.KansasLava 
+import Language.KansasLava.Wakarusa
 import Language.KansasLava hiding (Fabric)
 import Hardware.KansasLava.RS232
 import Hardware.KansasLava.FIFO
 import Hardware.KansasLava.LCD.ST7066U
 import Hardware.KansasLava.Text
 import Hardware.KansasLava.Rate
+
 import Hardware.KansasLava.Core
 import Hardware.KansasLava.Peripherals
 --import qualified Hardware.KansasLava.VGA as VGA
@@ -48,17 +51,18 @@ options = Opts { demoFabric = "lcd_inputs"             &= help "demo fabric to b
         &= program "spartan3e-demo"
 
 
+{-
 main = do       
         opts <- cmdArgs options
         let fab :: (Spartan3e fabric) => fabric () 
             fab = do
-                board_init
+--                board_init
                 fabric opts (demoFabric opts)
 
         case vhdl opts of
           True ->  vhdlUseFabric opts fab
 --          False -> simUseFabric opts fab
-
+-}
 
 {-
 -- The simulator's use of the Fabric
@@ -73,7 +77,7 @@ simUseFabric opts fab =
                          False -> 50)
             $ fab
 -}
-
+{-
 -- The VHDL generators use of the Fabric
 vhdlUseFabric :: Opts -> KL.Fabric () -> IO ()
 vhdlUseFabric opts fab = do
@@ -214,7 +218,7 @@ fabric _ "rs232in" = do
         active :: X32 -> (X2,X16)
         active x = (fromIntegral (x `div` 16),fromIntegral (x `mod` 16))
 -}
-
+-}
 
 -- Remember when a value changes.
 changeS :: forall c sig a . (Clock c, sig ~ Signal c, Eq a, Rep a) => sig a -> sig (Enabled a)
@@ -229,7 +233,7 @@ changeS sig = mux (start .||. diff) (disabledS,enabledS sig)
 ---------------------------------------------------------------------------------
     
 -- later, this will use a sub-Clock.
-
+{-
 stateP :: forall clk a b c sig . 
           (Rep a, Rep b, Rep c, Clock clk, sig ~ Signal clk)
        => (forall sig' clk' . (sig' ~ Signal clk') => (sig' a,sig' b) -> (sig' a,sig' c))
@@ -247,7 +251,7 @@ stateP st a =
         st' :: forall clk' . Signal clk' (a,b) -> Signal clk' (a,c)
         st' s = pack (st (unpack s) :: (Signal clk' a, Signal clk' c))
 
-
+-}
 ----------------------------------------------------------------------
 {-
 class Monad fab => LCD_2x16 fab where
@@ -293,65 +297,33 @@ example = do
         ls <- leds
 --        ss <- switches
         rot <- dialRotation
+        rs232_in <- rs232rx DCE (50 * 1000 * 1000)
 
         Sim.core "main" $ do
                 VAR reg :: VAR U8 <- SIGNAL $ var 0
 
+{-
                 SPARK $ \ loop -> do
                         (OP1 isEnabled rot) :? 
                                 (((OP1 enabledVal rot) :? reg := reg + 1)
                                    ||| ((OP1 (bitNot . enabledVal) rot) :? reg := reg - 1)
                                 ) ||| GOTO loop
-
+-}
                 SPARK $ \ loop -> do
                         sequence_ [ ls M.! i := OP1 (flip testABit $ fromIntegral i) reg
                                   | i <- [0..7]
                                   ]
 --                        reg := reg + 1
-
-{-
-                        l M.! 0 := OP0 low
-                        l M.! 0 := OP0 low
-                        l M.! 0 := OP0 low
-                        l M.! 0 := OP0 low
-                        l M.! 0 := OP0 low
-                        l M.! 0 := OP0 low
-                        l M.! 0 := OP0 low
-                        l M.! 0 := OP0 low
-                        l M.! 0 := OP0 low
-                        l M.! 0 := OP0 high
-                        l M.! 0 := OP0 high
-                        l M.! 0 := OP0 high
-                        l M.! 0 := OP0 high
-                        l M.! 0 := OP0 high
-                        l M.! 0 := OP0 high
-                        l M.! 0 := OP0 high
-                        l M.! 0 := OP0 high
-                        l M.! 0 := OP0 high
-                        l M.! 0 := OP0 high
-                        l M.! 0 := OP0 high
-                        l M.! 0 := OP0 high
-                        l M.! 0 := OP0 high
-                        l M.! 0 := OP0 high
-                        l M.! 0 := OP0 high
-                        l M.! 0 := OP0 high
-                        l M.! 0 := OP0 high
-                        l M.! 0 := OP0 high
-                        l M.! 0 := OP0 high
-                        l M.! 0 := OP0 high
-                        l M.! 0 := OP0 high
-                        l M.! 0 := OP0 high
-                        l M.! 0 := OP0 high
-                        l M.! 0 := OP0 high
-                        l M.! 0 := OP0 high
-                        l M.! 0 := OP0 high
--}
                         GOTO loop
+
+                SPARK $ \ loop -> do
+                        (OP1 isEnabled rs232_in) :? reg := OP1 enabledVal rs232_in
+                                ||| GOTO loop
 
         Sim.init_board
         return ()
 
-main2 = do       
+main = do       
         print "main2"
         let (Spartan3eSimulator m) = example
         Sim.runPolyester (Sim.Friendly) 

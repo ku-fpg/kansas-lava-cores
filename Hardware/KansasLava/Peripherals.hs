@@ -4,6 +4,7 @@ module Hardware.KansasLava.Peripherals where
 
 import Data.Sized.Ix hiding (all)
 import Data.Sized.Matrix as M
+import Data.Sized.Unsigned (U8)
 import Hardware.KansasLava.Core 
 
 import Language.KansasLava
@@ -59,3 +60,15 @@ buttons = do
                         ]
                 return $ matrix ss
 
+------------------------------------------------------------
+-- Serial Connections
+------------------------------------------------------------
+
+class (CoreMonad fab) => RS232 fab where
+        type RS232Count fab
+        -- Requests the specific RS232 port for reading,
+        -- and the baud rate, gets back an enabled value.
+        rs232rx :: (RS232Count fab ~ x) => x -> Int -> fab (EXPR (Enabled U8))
+        -- Request the specific RS232 port for writing,
+        -- and the baud rate, gets back a Write AckBox.
+        rs232tx :: (RS232Count fab ~ x) => x -> Int -> fab (WriteAckBox U8)

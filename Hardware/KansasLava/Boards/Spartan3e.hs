@@ -1,7 +1,7 @@
 {-# LANGUAGE ScopedTypeVariables,TypeFamilies, FlexibleContexts #-}
 
 module Hardware.KansasLava.Boards.Spartan3e (
-        -- * Class for the methods of the Spartan3e
+        -- * The Spartan3e Monad
           Spartan3e(..)
 	-- * Initialization, and global settings.
 	, clockRate
@@ -9,11 +9,6 @@ module Hardware.KansasLava.Boards.Spartan3e (
         -- * Data structures 
         , Serial(..)
         -- * Utilities for Board and Simulation use
---        , switchesP
---        , buttonsP
---        , ledsP
-        , LEDs(..)
-        , Switches(..)
         , DialRotation(..)
 	) where
 
@@ -34,8 +29,16 @@ import System.IO
 import Control.Applicative
 import Control.Monad.Fix
 
---class MonadFix fabric => LEDs fabric where
---        leds :: fabric (Matrix X8 (REG Bool))
+------------------------------------------------------------
+-- The Spartan3e Monad
+------------------------------------------------------------
+
+data Spartan3e a = Spartan3e
+
+------------------------------------------------------------
+-- The Spartan3e classes and instances
+------------------------------------------------------------
+
 
 -- This abstraction is at the STMT level.
 class (CoreMonad fab) => DialRotation fab where
@@ -44,10 +47,7 @@ class (CoreMonad fab) => DialRotation fab where
         dialRotation :: fab (EXPR (Enabled Bool))
         dialButton   :: fab (EXPR Bool)
 
-------------------------------------------------------------
--- The Spartan3e class
-------------------------------------------------------------
-
+{-
 class MonadFix fabric => Spartan3e fabric where
    ----------------------------------------------------------------------------
 
@@ -122,6 +122,7 @@ class MonadFix fabric => Spartan3e fabric where
    mm_vgaP :: Patch (Seq (Enabled ((X40,X80),(VGA.Attr,U7)))) (fabric ())
                     (Seq Ack)	                              ()
 -}
+-}
 
 ------------------------------------------------------------
 -- initialization
@@ -138,7 +139,7 @@ writeUCF = copyUCF "Spartan3e.ucf"
 ------------------------------------------------------------
 -- instance
 ------------------------------------------------------------
-
+{-
 instance Spartan3e Fabric where
   board_init = do
 	-- we need to name and pull in the clock
@@ -192,13 +193,14 @@ instance Spartan3e Fabric where
   tickTock wit hz = do
            return (rate wit (1 / (fromIntegral clockRate / fromIntegral hz)))
 
-
+-}
 -------------------------------------------------------------
 -- data structures
 -------------------------------------------------------------
 
 data Serial = DCE | DTE deriving (Eq, Ord, Show)
-        
+
+{-        
 -------------------------------------------------------------
 -- Utilites that can be shared
 -------------------------------------------------------------
@@ -225,5 +227,5 @@ ledsP =
         backwardP (\ () -> pure ()) $$
         forwardP leds
 -}
-
+-}
  
