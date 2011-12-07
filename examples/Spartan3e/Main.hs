@@ -297,10 +297,12 @@ example = do
         ls <- leds
 --        ss <- switches
         rot <- dialRotation
-        rs232_in <- rs232rx DCE (50 * 1000 * 1000)
+        lcd_wt <- lcd 
+
+--        rs232_in <- rs232rx DCE (115200 * 100)
 
         Sim.core "main" $ do
-                VAR reg :: VAR U8 <- SIGNAL $ var 0
+                VAR reg :: VAR U8 <- SIGNAL $ var 33
 
 {-
                 SPARK $ \ loop -> do
@@ -315,13 +317,23 @@ example = do
                                   ]
 --                        reg := reg + 1
                         GOTO loop
-
+{-
                 SPARK $ \ loop -> do
                         (OP1 isEnabled rs232_in) :? reg := OP1 enabledVal rs232_in
                                 ||| GOTO loop
+-}
+
+                SPARK $ \ loop -> do
+                        putAckBox lcd_wt $ tuple2 (tuple2 0 0) reg
+                        reg := reg + 1
+                        GOTO loop
+
 
         Sim.init_board
         return ()
+
+tuple2 :: (Rep a, Rep b) => EXPR a -> EXPR b -> EXPR (a,b)
+tuple2 = OP2 (curry pack)
 
 main = do       
         print "main2"
