@@ -100,6 +100,13 @@ instance RS232 Spartan3eSimulator where
                 rx     :: EXPR (Enabled U8) <- INPUT (inStdLogicVector rx)
                 return $ rx 
 
+instance LCD Spartan3eSimulator where
+        type LCDSize Spartan3eSimulator = (X2,X16)
+        lcd = core "lcd" $ do
+                wr ::   REG ((X2,X16),U8) <- OUTPUT (outStdLogicVector "lcd_wt")
+                wr_ack :: EXPR (Maybe ()) <- INPUT  (inStdLogic "lcd_wt_ack" >>= return . flip packEnabled (pureS ()))
+                return $ WriteAckBox wr wr_ack
+
 ------------------------------------------------------------
 -- Spartan3eSimulator Initalization
 ------------------------------------------------------------
@@ -162,14 +169,20 @@ instance PolyesterMonad Spartan3eSimulator where
                                   ]
 
 
---                when ("rs232rx/DCE" `elem` cores) $
---                        readSocketPolyester "DCE"
-{-
-                        sequence_ [ do o :: Seq Bool <- fabric $ inStdLogic "DCE/tx/
-                                       outPolyester (LED (fromIntegral i)) (fromS o)
-	                          | (i,nm) <- zip [0..] (M.toList led_names)
-	                          ]
--}
+                when ("lcd" `elem` cores) $ do
+                        chs :: Seq (Enabled ((X2,X16),U8)) <- fabric $ do
+                                wt <- inStdLogicVector "lcd_wt" :: Fabric (Seq (Enabled ((X2,X16),U8)))
+                                outStdLogic "lcd_wt_ack" (isEnabled wt)
+                                return wt
+
+                        let just :: (a -> Maybe b) -> Maybe a -> Maybe b
+                            just _ Nothing  = Nothing
+                            just k (Just a) = k a
+
+                        outPolyesterEvents 
+                                $ map (just $ \ ((x,y),ch) -> Just (LCD (x,y) (Char.chr (fromIntegral ch))))
+                                $ map (\ x -> case x of { Just r -> r ; Nothing -> error "LCD bus failure" })
+                                $ fromS chs
 
 ------------------------------------------------------------
 -- initialization
