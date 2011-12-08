@@ -239,7 +239,7 @@ runPolyester mode clkSpeed simSpeed f = do
         
         let Polyester h = do
                 extras
-                circuit (init_board >> f)
+                circuit (f >> init_board)
         sockDB <- newMVar []
         let findSock :: String -> IO Handle
             findSock nm = do
