@@ -4,6 +4,7 @@
 module Hardware.KansasLava.Simulators.Polyester (
           -- * The (abstract) Fake Fabric Monad
           Polyester -- abstract
+        , board
           -- * The Polyester non-proper morphisms
         , outPolyester
         , outPolyesterEvents
@@ -62,15 +63,15 @@ instance CoreMonad Polyester where
                                         return (r,[],st { pCores = nm : pCores st })
 
 -- PolyesterMonad implements a simulator for FPGA boards.
+-- Perhaps call it the SimulatorMonad
 class Monad fab => PolyesterMonad fab where
         polyester  :: Polyester a -> fab a
-        fabric     :: Fabric a    -> fab a
         init_board :: fab ()
+        circuit    :: fab () -> Polyester ()
 
-
--- This means access the (virtual) board's fabric
-instance PolyesterMonad Polyester where
-        fabric stmt = Polyester $ \ _ env st ->
+-- call this polyesterBoard?
+board     :: Fabric a -> Polyester a
+board stmt = Polyester $ \ _ env st ->
                                 let (a,outs) = runFabric stmt (pOutNames env)
                                 in return (a,[PolyesterOutput outs],st)
 
@@ -213,7 +214,7 @@ data ExecMode
   deriving (Eq, Show)
 
 -- | 'runPolyester' executes the Polyester, never returns, and ususally replaces 'reifyPolyester'.
-runPolyester :: ExecMode -> Integer -> Integer -> Polyester () -> IO ()
+runPolyester :: (PolyesterMonad circuit) => ExecMode -> Integer -> Integer -> circuit () -> IO ()
 runPolyester mode clkSpeed simSpeed f = do
         
         setTitle "Kansas Lava"
@@ -236,7 +237,9 @@ runPolyester mode clkSpeed simSpeed f = do
                                   then error "Simulation Quit" 
                                   else return () :: ANSI ()) quit
         
-        let Polyester h = (do extras ; f)
+        let Polyester h = do
+                extras
+                circuit (init_board >> f)
         sockDB <- newMVar []
         let findSock :: String -> IO Handle
             findSock nm = do
@@ -305,12 +308,7 @@ runPolyester mode clkSpeed simSpeed f = do
                     return $ [ o | PolyesterOutput os <- output, o <- os ]
                           ++ socket_reads
 
-        print st1
-        print (map fst out_names)
-        
         let steps = [ o | PolyesterStepper o <- output ]
-
-        print (length steps)
 
         socket_steppers :: [Stepper] <- sequence
               [ do sock <- findSock $ filename

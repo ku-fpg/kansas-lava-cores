@@ -41,7 +41,7 @@ import Hardware.KansasLava.Simulators.Spartan3e
 data Opts = Opts { demoFabric :: String, fastSim :: Bool, beat :: Integer, vhdl :: Bool }
         deriving (Show, Data, Typeable)
 
-options = Opts { demoFabric = "lcd_inputs"             &= help "demo fabric to be executed or built"
+options = Opts { demoFabric = "leds"            &= help "demo fabric to be executed or built"
                , fastSim = False                &= help "if running board at full speed"
                , beat = (50 * 1000 * 1000)      &= help "approx number of clicks a second"
                , vhdl = False                   &= help "generate VDHL"
@@ -51,249 +51,65 @@ options = Opts { demoFabric = "lcd_inputs"             &= help "demo fabric to b
         &= program "spartan3e-demo"
 
 
-{-
-main = do       
+main = do
         opts <- cmdArgs options
-        let fab :: (Spartan3e fabric) => fabric () 
-            fab = do
---                board_init
-                fabric opts (demoFabric opts)
+        Sim.runPolyester 
+                (Sim.Friendly)
+                (50 * 1000 * 1000)
+                50
+                (example (demoFabric opts))
 
-        case vhdl opts of
-          True ->  vhdlUseFabric opts fab
---          False -> simUseFabric opts fab
--}
+-- This takes a left/right command, and outputs a number, based on this 
 
-{-
--- The simulator's use of the Fabric
-simUseFabric :: Opts -> Sim.Polyester () -> IO ()
-simUseFabric opts fab = 
-        Sim.runPolyester (case fastSim opts of
-                         True -> Sim.Fast
-                         False -> Sim.Friendly) 
-              (2 * 1000 * 1000)
-              (case fastSim opts of
-                         True -> 1000
-                         False -> 50)
-            $ fab
--}
-{-
--- The VHDL generators use of the Fabric
-vhdlUseFabric :: Opts -> KL.Fabric () -> IO ()
-vhdlUseFabric opts fab = do
-        kleg <- reifyFabric fab
-        Board.writeUCF "main.ucf" kleg
-        KL.writeVhdlCircuit "main" "main.vhd" kleg
-        return ()
+dialedValue :: forall ix . (Rep ix, Num ix, Ord ix) => (ix,ix) -> STMT (REG Bool, EXPR ix)
+dialedValue (lo,hi) = do
+        VAR number :: VAR ix <- SIGNAL $ var lo
+        (sig_in,sig_out) <- mkEnabled
 
--- Should be in sized types lib!
-matrixOf :: (Size x) => x -> [a] -> Matrix x a
-matrixOf _ = matrix
-
-------------------------------------------------------------------------------
--- Sample fabrics
-
---leds _ = return ()
-
-fabric :: (Spartan3e fabric) => Opts -> String -> fabric ()
-fabric _ "leds" = do
---        sw <- switches
---        bu <- buttons
---              leds (sw `M.append` bu)
-        return ()
-{-
-fabric _ "dial" = do
-        d <- dial_button
-        r <- dial_rot
-        let val :: Seq U4
-            val = register 0 $ val + cASE
-                [ (isEnabled r .&&. enabledVal r, 1)
-                , (isEnabled r .&&. bitNot (enabledVal r), -1)
-                ] 0
-        let ms :: Matrix X4 (Seq Bool)
-            ms = unpack ((bitwise) val :: Seq (Matrix X4 Bool))
-
-        leds (matrix $ [d, low] ++ M.toList ms ++ [low,low])
--}
-{-
-fabric _ "lcd" = do
-        ticks <- tickTock (Witness :: Witness X24) 4
-        runF $ patchF (neverAckP $$ prependP msg $$ throttleP ticks) |$| mm_lcdP
- where
-         msg :: Matrix X32 ((X2,X16),U8)
-         msg = boxU8 ["Example of Using", " the LCD driver "]
-
-fabric _ "lcd_inputs" = do
---        sw <- switches
-        bu <- buttons
-        runF $ patchF (patch sw bu) |$| mm_lcdP
- where
-        patch sw bu = emptyP
-             $$ forwardP (\ () -> pure ())
-             $$ backwardP (const ())
-             $$ matrixStackP (forAll $ \ (i::X4) ->
-                                    (outputP (changeS (sw M.! i)))
-                                 $$ enabledToAckBox
-                                 $$ mapP (\ s -> pack (pureS (fromIntegral i + 0), mux s (33,34)))
-                             )
-             $$ matrixMergeP RoundRobinMerge
-             $$ mm_text_driver msg active 
-
-        msg :: Matrix (X2,X16) U8
-        msg = boxU8' ["                ","                "]
-
-        active :: X4 -> (X2,X16)
-        active x = (0,fromIntegral x)
-
-fabric _ "rs232out" = do
-        runF $ patchF (cycleP msg) |$| rs232_txP DCE 115200
- where
-         msg :: Matrix X95 U8
-         msg = matrix [ i
-                      | i <- [32..126]
-                      ]
-
-fabric _ "rs232in" = do
-        ticks <- tickTock (Witness :: Witness X24) 4
-        rot_as_reset
-        runF $ rs232_rxP DCE 115200
-           |$| patchF (
-                    enabledToAckBox
-                 $$ fifo (Witness :: Witness X256) low
-                 $$ matrixDupP
-                 $$ matrixStackP (matrixOf (0 :: X3)
-                        [ hexchain   $$ mapP (startAt 0)
-                        , count      $$ mapP (startAt 16)
-                        , asciichain $$ mapP (startAt 24)
-                        ])
-                 $$ matrixMergeP RoundRobinMerge
-                 $$ mm_text_driver msg active
-                 $$ witnessP (Witness :: Witness (Enabled ((X2,X16),U8)))) 
-            |$| mm_lcdP
- where
-        startAt :: (Size w, Rep w, Rep a, a ~ U8) => Signal clk X32 -> Signal clk (w,a) -> Signal clk (X32,a)
-        startAt pos inp = pack (pos + (unsigned) w,a)
-             where
-                 (w,a) = unpack inp
-                 
-        hexchain :: Patch (Seq (Enabled U8)) (Seq (Enabled (X16,U8)))
-                          (Seq Ack)          (Seq Ack)
-        hexchain =
-                (mapP (\ ch -> packMatrix (matrixOf (0 :: X2) [hexVal ((unsigned) (ch `shiftR` 4)),hexVal ((unsigned) ch)]))
-                     $$ matrixToElementsP
-                     $$ scrollBar
-                     $$ witnessP (Witness :: Witness (Enabled (X16,U8)))
-                     )
-
-        asciichain :: Patch (Seq (Enabled U8)) (Seq (Enabled (X8,U8)))
-                          (Seq Ack)          (Seq Ack)
-        asciichain =
-                (mapP (\ ch -> mux (ch .>=. 32 .&&. ch .<=. 126) ((unsigned) $ pureS (ord '.'),ch))
-                     $$ scrollBar
-                     $$ witnessP (Witness :: Witness (Enabled (X8,U8)))
-                     )
-                     
-        count :: Patch (Seq (Enabled U8)) (Seq (Enabled (X6,U8)))
-                       (Seq Ack)          (Seq Ack)
-        count = stateP adder (0 :: U24)
-             $$ witnessP (Witness :: Witness (Enabled U24))
-             $$ hexForm
-             $$ witnessP (Witness :: Witness (Enabled (X6,U8)))
-
-        adder :: forall clk . (Signal clk U24,Signal clk U8) -> (Signal clk U24,Signal clk U24)
-        adder (a,_) = (a + 1,a + 1)
-
-        hexVal :: Signal clk U4 -> Signal clk U8
-        hexVal = funMap (\ x -> if x >= 0 && x <= 9 
-                     then return (0x30 + fromIntegral x)
-                     else return (0x41 + fromIntegral x - 10))
-
-        witnessP :: (Witness w) -> Patch (Seq w) (Seq w)
-                                         (Seq a) (Seq a)
-        witnessP _ = emptyP
-         
-        msg :: Matrix (X2,X16) U8
-        msg = boxU8' ["                ","                "]
+        let pred_inc =
+                OP2 and2 (OP1 enabledVal sig_out) 
+                         (OP1 (.<. pureS hi) number)
+        let pred_dec =
+                OP2 and2 (OP1 (bitNot . enabledVal) sig_out) 
+                         (OP1 (.>. pureS lo) number)
         
-        active :: X32 -> (X2,X16)
-        active x = (fromIntegral (x `div` 16),fromIntegral (x `mod` 16))
--}
--}
-
--- Remember when a value changes.
-changeS :: forall c sig a . (Clock c, sig ~ Signal c, Eq a, Rep a) => sig a -> sig (Enabled a)
-changeS sig = mux (start .||. diff) (disabledS,enabledS sig)
-    where
-        start :: sig Bool
-        start = probeS "start" $ register True low
-
-        diff :: sig Bool
-        diff = probeS "diff" $ sig ./=. delay sig
-
----------------------------------------------------------------------------------
-    
--- later, this will use a sub-Clock.
-{-
-stateP :: forall clk a b c sig . 
-          (Rep a, Rep b, Rep c, Clock clk, sig ~ Signal clk)
-       => (forall sig' clk' . (sig' ~ Signal clk') => (sig' a,sig' b) -> (sig' a,sig' c))
-       -> a
-       -> Patch (sig (Enabled b)) (sig (Enabled c))
-                (sig Ack)         (sig Ack)
-stateP st a = 
-        loopP $ 
-             fstP (prependP (matrixOf (0 :: X1) [a]))
-          $$ zipP
-          $$ mapP st'
-          $$ unzipP
-          $$ fstP (fifo1)
-  where
-        st' :: forall clk' . Signal clk' (a,b) -> Signal clk' (a,c)
-        st' s = pack (st (unpack s) :: (Signal clk' a, Signal clk' c))
-
--}
-----------------------------------------------------------------------
-{-
-class Monad fab => LCD_2x16 fab where
-        mm_lcdW :: fab (WriteAckBox ((X2,X16),U8))
-
-class Monad fab => LCD_2x16 fab where
-        mm_lcdW :: fab (WriteAckBox ((X2,X16),U8))
-
-class Monad fab => ST7066U fab where
-        fab_lcd8 :: (Matrix X8 (Seq Bool)) -> fab ()
-
--}
-
-class Monad fab => LED8 fab where
-        fab_led8 :: (Matrix X8 (Seq Bool)) -> fab ()
-
-{-        
-data NativeSpartan3e a = NativeSpartan3e (Fabric a) 
-
-instance Monad NativeSpartan3e where
-        return = undefined
-        (>>=) = undefined
+        let action = (pred_inc :? number := number + 1)
+                        |||
+                     (pred_dec :? number := number - 1)
         
-instance ST7066U NativeSpartan3e where
-        fab_lcd8W = undefined
-        
-data Spartan3eX a = Spartan3eX (STMT a)
+        always $ (OP1 isEnabled sig_out) :? action
 
-instance Monad Spartan3eX where
-        return = undefined
-        (>>=) = undefined
+        return (sig_in, number)
+
+(<==) :: Rep a => REG a -> EXPR (Enabled a) -> STMT ()
+(<==) reg expr = always $ 
+        (OP1 isEnabled expr) :? reg := (OP1 enabledVal expr)
+
+example :: String -> Spartan3eSimulator ()
+example "leds" = do
+        ls <- leds        
+        rot <- dialRotation
+        Sim.core "main" $ do
+                VAR reg :: VAR U32 <- SIGNAL $ var 0
+                VAR off :: VAR X32 <- SIGNAL $ var 0
+                                
+                (sig_in :: REG Bool, number :: EXPR U5) <- dialedValue (0,20)
+                
+                sig_in <== rot
+                off    <== OP1 (enabledS) (OP1 (unsigned) number)
+
+                SPARK $ \ loop -> do
+                        sequence_ [ ls M.! i := OP2 (testABit) 
+                                                    reg
+                                                    (OP1 (+ pureS (fromIntegral i)) off)
+                                  | i <- [0..7]
+                                  ]
+                        reg := reg + 1
+                        GOTO loop
 
 
--}
 
-{-
-fab_lcd8W :: (ST7066U imp) => imp -> (Matrix X8 (Seq Bool)) -> Fabric ()
-fab_led8W :: (LED8 imp) => imp -> (Matrix X8 (Seq Bool)) -> Fabric ()
--}
-
-example :: Spartan3eSimulator ()
-example = do
+example _ = do
         ls <- leds
 --        ss <- switches
         rot <- dialRotation
@@ -344,13 +160,7 @@ example = do
         Sim.init_board
         return ()
 
+
 tuple2 :: (Rep a, Rep b) => EXPR a -> EXPR b -> EXPR (a,b)
 tuple2 = OP2 (curry pack)
 
-main = do       
-        print "main2"
-        let (Spartan3eSimulator m) = example
-        Sim.runPolyester (Sim.Friendly) 
-                        (2 * 1000 * 1000)
-                        50
-                        m

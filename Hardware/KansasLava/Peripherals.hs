@@ -73,9 +73,10 @@ class (CoreMonad fab) => RS232 fab where
         -- and the baud rate, gets back a Write AckBox.
         rs232tx :: (RS232Count fab ~ x) => x -> Int -> fab (WriteAckBox U8)
 
+------------------------------------------------------------
+-- LCD display
+------------------------------------------------------------
+
 class (CoreMonad fab) => LCD fab where
         type LCDSize fab
-        -- Requests the specific RS232 port for reading,
-        -- and the baud rate, gets back an enabled value.
         lcd :: (LCDSize fab ~ pos) => fab (WriteAckBox (pos,U8))
-

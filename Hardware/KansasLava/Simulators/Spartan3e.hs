@@ -98,7 +98,7 @@ instance RS232 Spartan3eSimulator where
                         ("dev/" ++ portname)
                         rx
                         ((fromIntegral Board.clockRate `div` baud) * 10)
-                acks :: Seq Bool <- fabric $ inStdLogic (rx ++ "_ack")
+                acks :: Seq Bool <- board $ inStdLogic (rx ++ "_ack")
                 outPolyesterCount (RS232 RX port) 
                         $ fmap (\ a -> if a then Just () else Nothing)
                         $ alwaysDefined "LCD bus failure"
@@ -121,7 +121,7 @@ instance RS232 Spartan3eSimulator where
                         ("dev/" ++ portname)
                         tx
                         ((fromIntegral Board.clockRate `div` baud) * 10)
-                outs :: Seq (Enabled U8) <- fabric $ inStdLogicVector tx
+                outs :: Seq (Enabled U8) <- board $ inStdLogicVector tx
                 outPolyesterCount (RS232 TX port) 
                         $ fmap (fmap $ const ())
                         $ alwaysDefined "LCD bus failure"
@@ -150,8 +150,8 @@ instance LCD Spartan3eSimulator where
 ------------------------------------------------------------
 
 instance PolyesterMonad Spartan3eSimulator where
-  fabric m = Spartan3eSimulator (fabric m)
   polyester m = Spartan3eSimulator m
+  circuit (Spartan3eSimulator m) = m
   init_board = do
         led_names <- ledNames
         switch_names <- switchNames
@@ -161,7 +161,7 @@ instance PolyesterMonad Spartan3eSimulator where
                 cores <- initializedCores
                 -- light up the LEDs
                 when ("leds" `elem` cores) $
-                        sequence_ [ do o :: Seq Bool <- fabric $ inStdLogic nm
+                        sequence_ [ do o :: Seq Bool <- board $ inStdLogic nm
                                        outPolyester (LED (fromIntegral i)) (fromS o)
 	                          | (i,nm) <- zip [0..] (M.toList led_names)
 	                          ]
@@ -175,7 +175,7 @@ instance PolyesterMonad Spartan3eSimulator where
 
                         sequence_ [ do ss <- inPolyester False (sw i)
                                        outPolyester (TOGGLE i) ss
-                                       fabric $ outStdLogic nm (toS ss)
+                                       board $ outStdLogic nm (toS ss)
                                   | (i,nm) <- zip [0..] (M.toList switch_names)
                                   ]
 
@@ -188,7 +188,7 @@ instance PolyesterMonad Spartan3eSimulator where
 
                         sequence_ [ do ss <- inPolyester False (sw i)
                                        outPolyester (BUTTON i) ss
-                                       fabric $ outStdLogic nm (toS ss)
+                                       board $ outStdLogic nm (toS ss)
                                   | (i,nm) <- zip [0..3] (M.toList button_names)
                                   ]
 
@@ -201,14 +201,14 @@ instance PolyesterMonad Spartan3eSimulator where
 
                         sequence_ [ do ss <- inPolyester (Dial False 0) switch
                                        outPolyester DIAL ss
-                                       fabric $ outStdLogic       "dial_button" $ toS (map (\ (Dial b _) -> b) ss)
-                                       fabric $ outStdLogicVector "dial_pos"    $ toS (map (\ (Dial _ p) -> p) ss)
+                                       board $ outStdLogic       "dial_button" $ toS (map (\ (Dial b _) -> b) ss)
+                                       board $ outStdLogicVector "dial_pos"    $ toS (map (\ (Dial _ p) -> p) ss)
                                   | (i,nm) <- zip [0..3] (M.toList button_names)
                                   ]
 
 
                 when ("lcd" `elem` cores) $ do
-                        chs :: Seq (Enabled ((X2,X16),U8)) <- fabric $ do
+                        chs :: Seq (Enabled ((X2,X16),U8)) <- board $ do
                                 wt <- inStdLogicVector "lcd_wt" :: Fabric (Seq (Enabled ((X2,X16),U8)))
                                 outStdLogic "lcd_wt_ack" (isEnabled wt)
                                 return wt
