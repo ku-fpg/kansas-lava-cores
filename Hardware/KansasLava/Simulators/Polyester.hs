@@ -291,7 +291,6 @@ runPolyester mode clkSpeed simSpeed f = do
                 -- break the abstaction, building the (virtual) board
                 (((),output,st1),in_names',out_names) = unFabric fab in_names
             
---        in_names :: [(String,Pad)]
             in_names :: [(String,Pad)] <- do
                     -- later abstract out
                     socket_reads <- sequence 
@@ -325,7 +324,7 @@ runPolyester mode clkSpeed simSpeed f = do
                                hPutStr sock [chr $ fromIntegral ch] 
                                hFlush sock
                        f (Just Nothing)   = return ()
-                       f Nothing          = error "sock gone wrong (undefined output)"
+                       f Nothing          = error "socket gone wrong (undefined output)"
 
                    return $ ioStepper $ map f $ fromS ss
                 | PolyesterSocket filename portname speed WriteMode <- output 
@@ -333,6 +332,10 @@ runPolyester mode clkSpeed simSpeed f = do
 
 
         putStrLn "[Starting simulation]"
+        clearScreen
+        setCursorPosition 0 0
+        hFlush stdout
+        
 --	putStr "\ESC[2J\ESC[1;1H"
 
         let slowDown | mode == Fast = []
