@@ -54,6 +54,54 @@ class (CoreMonad fab) => DialRotation fab where
         dialRotation :: fab (EXPR (Enabled Bool))
         dialButton   :: fab (EXPR Bool)
 
+
+instance DialRotation Spartan3e where
+        dialRotation = do
+            core "dial" $ do
+                (reg :: REG Bool,ev :: EVENT Bool) <- mkEnabled
+                
+                a :: EXPR Bool <- INPUT (inStdLogic "ROT_A")
+                b :: EXPR Bool <- INPUT (inStdLogic "ROT_B")
+
+                -- These are a and b on the previous cycle
+                VAR a' <- SIGNAL $ var False
+                VAR b' <- SIGNAL $ var False
+                
+                always $ a' := a
+                always $ b' := b
+
+                SPARK $ \ loop -> do
+                        -- wait for both to be true
+                        ((OP1 bitNot $ OP2 and2 a b) :? GOTO loop)
+                                ||| a' :? reg := OP0 high
+                                ||| b' :? reg := OP0 low
+                        wait <- LABEL
+                        ((OP2 or2 a b) :? GOTO wait)
+                           ||| GOTO loop
+
+
+                return $ ev
+        dialButton   = return $ error "dialButton"
+        
+instance LEDs Spartan3e where
+        type LEDCount Spartan3e = X8
+        ledNames = return $ matrix ["LED<" ++ show i ++ ">" | i <- [0..maxBound :: X8]]
+        
+instance Switches Spartan3e where
+        type SwitchCount Spartan3e = X4
+        switchNames = return $ matrix ["SW<" ++ show i ++ ">" | i <- [0..maxBound :: X4]]
+
+instance Buttons Spartan3e where
+        type ButtonCount Spartan3e = X4
+        buttonNames = return $ matrix ["BTN_NORTH","BTN_EAST","BTN_SOUTH","BTN_WEST"]
+
+instance RS232 Spartan3e where
+        type RS232Count Spartan3e = Serial
+
+instance LCD Spartan3e where
+        type LCDSize Spartan3e = (X2,X16)
+
+
 ------------------------------------------------------------
 -- initialization
 ------------------------------------------------------------
@@ -69,8 +117,6 @@ writeUCF = copyUCF "Spartan3e.ucf"
 ------------------------------------------------------------
 -- instance
 ------------------------------------------------------------
-
-
 
 -------------------------------------------------------------
 -- data structures
