@@ -342,7 +342,7 @@ runPolyester mode clkSpeed simSpeed f = do
                                      | _ <- [(0 :: Integer)..] ]]
 
         return ()
-        runSteppers (steps ++ {- slowDown ++ -} socket_steppers)
+        runSteppers (steps ++ slowDown ++ socket_steppers)
 
 
 
