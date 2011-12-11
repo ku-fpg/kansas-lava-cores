@@ -46,15 +46,15 @@ instance Monad Spartan3eSimulator where
                                           Spartan3eSimulator r2 -> r2
 
 instance CoreMonad Spartan3eSimulator where
-        core nm m = Spartan3eSimulator (core nm m)
-         
+  core nm m = Spartan3eSimulator (core nm m)
+
 ------------------------------------------------------------
 -- The instances for basic IO
 ------------------------------------------------------------
 
 instance LEDs Spartan3eSimulator where
         type LEDCount Spartan3eSimulator = X8
-        ledNames = return $ matrix ["LED<" ++ show i ++ ">" | i <- [0..maxBound :: X8]]
+        ledNames = return $ matrix ["LED<" ++ show i ++ ">" | i <- [0..maxBound :: LEDCount Spartan3eSimulator]]
         
 instance Switches Spartan3eSimulator where
         type SwitchCount Spartan3eSimulator = X4
@@ -152,7 +152,8 @@ instance LCD Spartan3eSimulator where
 instance PolyesterMonad Spartan3eSimulator where
   polyester m = Spartan3eSimulator m
   circuit (Spartan3eSimulator m) = m
-  init_board = do
+
+  gen_board = do
         led_names <- ledNames
         switch_names <- switchNames
         button_names <- buttonNames

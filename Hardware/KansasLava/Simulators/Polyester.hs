@@ -1,5 +1,4 @@
 {-# LANGUAGE ScopedTypeVariables, GADTs, DeriveDataTypeable, DoRec #-}
--- | * Remember to call init_board for your specific board.
 
 module Hardware.KansasLava.Simulators.Polyester (
           -- * The (abstract) Fake Fabric Monad
@@ -54,8 +53,6 @@ import System.Directory
 import Data.Sized.Unsigned
 
 -----------------------------------------------------------------------
--- Hack for now
-
 
 instance CoreMonad Polyester where
         core nm stmt = Polyester $ \ _ _ st -> do
@@ -64,10 +61,10 @@ instance CoreMonad Polyester where
 
 -- PolyesterMonad implements a simulator for FPGA boards.
 -- Perhaps call it the SimulatorMonad
-class Monad fab => PolyesterMonad fab where
-        polyester  :: Polyester a -> fab a
-        init_board :: fab ()
-        circuit    :: fab () -> Polyester ()
+class CoreMonad fab => PolyesterMonad fab where
+        polyester :: Polyester a -> fab a      -- escape into the simulator 
+        circuit   :: fab () -> Polyester ()    -- extact the sim circuit, for interpretation
+        gen_board :: fab ()
 
 -- call this polyesterBoard?
 board     :: Fabric a -> Polyester a
@@ -239,7 +236,7 @@ runPolyester mode clkSpeed simSpeed f = do
         
         let Polyester h = do
                 extras
-                circuit (f >> init_board)
+                circuit (f >> gen_board)
         sockDB <- newMVar []
         let findSock :: String -> IO Handle
             findSock nm = do

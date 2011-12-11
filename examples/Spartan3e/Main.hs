@@ -12,6 +12,7 @@ import Hardware.KansasLava.FIFO
 import Hardware.KansasLava.LCD.ST7066U
 import Hardware.KansasLava.Text
 import Hardware.KansasLava.Rate
+import Hardware.KansasLava.Boards.Physical
 
 import Hardware.KansasLava.Core
 import Hardware.KansasLava.Peripherals
@@ -46,7 +47,7 @@ data Opts = Opts { demoFabric :: String, fastSim :: Bool, beat :: Integer, vhdl 
 options = Opts { demoFabric = "leds1"            &= help "demo fabric to be executed or built"
                , fastSim = False                &= help "if running board at full speed"
                , beat = (50 * 1000 * 1000)      &= help "approx number of clicks a second"
-               , vhdl = False                   &= help "generate VDHL"
+               , vhdl = True                    &= help "generate VDHL"
 
                } 
         &= summary "spartan3e-demo: run different examples for Spartan3e"
@@ -63,14 +64,20 @@ main = do
 simUseFabric :: Opts -> Spartan3eSimulator () -> IO ()
 simUseFabric _ fab =
         Sim.runPolyester 
-                (Sim.Fast)
+--                (Sim.Fast)
+                (Sim.Friendly)
                 (50 * 1000 * 1000)
                 50
                 fab
 
 vhdlUseFabric :: Opts -> Spartan3e () -> IO ()
-vhdlUseFabric opts (Spartan3e fab) = do
-        kleg <- reifyFabric (compileToFabric fab)
+vhdlUseFabric opts fab = do
+        kleg <- reifyFabric $ 
+                  do clk <- compileToFabric 
+                          $ run_physical 
+                          $ do fab 
+                               clk_physical
+                     theClk clk
         Board.writeUCF "main.ucf" kleg
         KL.writeVhdlCircuit "main" "main.vhd" kleg
         return ()
@@ -111,7 +118,25 @@ example
     , Switches m        , SwitchCount m ~ X4
     ) => String 
     -> m ()
+
+example "leds0" = do
+        ls <- leds        
+        Sim.core "main" $ do
+                SPARK $ \ loop -> do
+                        ls ! 0 := OP0 high ||| GOTO loop
 example "leds1" = do
+        ls <- leds        
+        Sim.core "main" $ do
+                VAR reg :: VAR U32 <- SIGNAL $ var 0
+                SPARK $ \ loop -> do
+                        sequence_ [ ls M.! i := OP2 (testABit) 
+                                                    reg
+                                                    (OP1 (+ pureS (fromIntegral i)) 0)
+                                  | i <- [minBound..maxBound]
+                                  ]
+                        reg := reg + 1
+                        GOTO loop
+example "leds2" = do
         ls <- leds        
         rot <- dialRotation
         Sim.core "main" $ do
@@ -127,7 +152,7 @@ example "leds1" = do
                                   ]
                         GOTO loop
 
-example "leds2" = do
+example "leds3" = do
         ls <- leds        
         rot <- dialRotation
         Sim.core "main" $ do

@@ -20,6 +20,7 @@ import Hardware.KansasLava.Rate
 import Hardware.KansasLava.Boards.UCF
 import Hardware.KansasLava.Peripherals
 import Hardware.KansasLava.Core
+import Hardware.KansasLava.Boards.Physical
 
 import Data.Sized.Unsigned
 import Data.Sized.Ix hiding (all)
@@ -41,7 +42,11 @@ instance Monad Spartan3e where
                                 m >>= \ r -> let (Spartan3e o) = k r in o
 
 instance CoreMonad Spartan3e where
-        core _ m = Spartan3e m
+  core _ m = Spartan3e m
+
+instance PhysicalMonad Spartan3e where
+  run_physical (Spartan3e m) = m
+  clk_physical = return "CLK_50MHZ"      -- wire the Spartan3e clock
 
 ------------------------------------------------------------
 -- The Spartan3e classes and instances
@@ -85,11 +90,11 @@ instance DialRotation Spartan3e where
         
 instance LEDs Spartan3e where
         type LEDCount Spartan3e = X8
-        ledNames = return $ matrix ["LED<" ++ show i ++ ">" | i <- [0..maxBound :: X8]]
+        ledNames = return $ matrix ["LED<" ++ show i ++ ">" | i <- [0..maxBound :: LEDCount Spartan3e]]
         
 instance Switches Spartan3e where
         type SwitchCount Spartan3e = X4
-        switchNames = return $ matrix ["SW<" ++ show i ++ ">" | i <- [0..maxBound :: X4]]
+        switchNames = return $ matrix ["SW<" ++ show i ++ ">" | i <- [0..maxBound :: SwitchCount Spartan3e]]
 
 instance Buttons Spartan3e where
         type ButtonCount Spartan3e = X4
