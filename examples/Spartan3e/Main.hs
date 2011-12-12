@@ -82,32 +82,6 @@ vhdlUseFabric opts fab = do
         return ()
 
 
--- This takes a left/right command, and outputs a number, based on this 
-
-dialedValue :: forall ix . (Rep ix, Num ix, Ord ix) => (ix,ix) -> STMT (REG Bool, EXPR ix)
-dialedValue (lo,hi) = do
-        VAR number :: VAR ix <- SIGNAL $ var lo
-        (sig_in,sig_out) <- mkEnabled
-
-        let pred_inc =
-                OP2 and2 (OP1 enabledVal sig_out) 
-                         (OP1 (.<. pureS hi) number)
-        let pred_dec =
-                OP2 and2 (OP1 (bitNot . enabledVal) sig_out) 
-                         (OP1 (.>. pureS lo) number)
-        
-        let action = (pred_inc :? number := number + 1)
-                        |||
-                     (pred_dec :? number := number - 1)
-        
-        always $ (OP1 isEnabled sig_out) :? action
-
-        return (sig_in, number)
-
-
-(<==) :: Rep a => REG a -> EXPR (Enabled a) -> STMT ()
-(<==) reg expr = always $
-        (OP1 isEnabled expr) :? reg := (OP1 enabledVal expr)
 
 example
  :: ( DialRotation m
@@ -187,8 +161,7 @@ example "rs232in" = do
 
                 SPARK $ \ loop -> do
                         VAR ch :: VAR U8 <- SIGNAL $ var 0
-                        ((OP1 (bitNot . isEnabled) rs232_in) :? GOTO loop)
-                                ||| ch := (OP1 enabledVal rs232_in)
+                        takeEnabled rs232_in $ \ e -> ch := e
                         putAckBox wt_rs ch
                         GOTO loop
 
@@ -254,8 +227,6 @@ example _ = do
         return ()
 -}
 
-tuple2 :: (Rep a, Rep b) => EXPR a -> EXPR b -> EXPR (a,b)
-tuple2 = OP2 (curry pack)
 
 
 ex1 = do
@@ -305,6 +276,37 @@ test = do
         print [ x | Just (Just x) <- fromS o0 ]
    
 ---------------------------------------------------------------     
+-- Utilites; to be moved elsewhere.
+
+tuple2 :: (Rep a, Rep b) => EXPR a -> EXPR b -> EXPR (a,b)
+tuple2 = OP2 (curry pack)
+
+-- This takes a left/right command, and outputs a number, based on this 
+
+dialedValue :: forall ix . (Rep ix, Num ix, Ord ix) => (ix,ix) -> STMT (REG Bool, EXPR ix)
+dialedValue (lo,hi) = do
+        VAR number :: VAR ix <- SIGNAL $ var lo
+        (sig_in,sig_out) <- mkEnabled
+
+        let pred_inc =
+                OP2 and2 (OP1 enabledVal sig_out) 
+                         (OP1 (.<. pureS hi) number)
+        let pred_dec =
+                OP2 and2 (OP1 (bitNot . enabledVal) sig_out) 
+                         (OP1 (.>. pureS lo) number)
+        
+        let action = (pred_inc :? number := number + 1)
+                        |||
+                     (pred_dec :? number := number - 1)
+        
+        always $ (OP1 isEnabled sig_out) :? action
+
+        return (sig_in, number)
+
+
+(<==) :: Rep a => REG a -> EXPR (Enabled a) -> STMT ()
+(<==) reg expr = always $
+        (OP1 isEnabled expr) :? reg := (OP1 enabledVal expr)
 
 lcdHexDump
   :: ReadAckBox U8                              -- incoming bytes
@@ -378,3 +380,9 @@ lcdHexDump inp view_addr mode lcd_wt = do
                           view_addr' := OP1 loopingIncS view_addr'
 
                         GOTO loop
+
+takeEnabled :: Rep a => EXPR (Maybe a) -> (EXPR a -> STMT ()) -> STMT ()
+takeEnabled inp assign = do
+        loop <- LABEL
+        ((OP1 (bitNot . isEnabled) inp) :? GOTO loop)
+                ||| assign (OP1 enabledVal inp)
