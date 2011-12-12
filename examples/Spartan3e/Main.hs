@@ -44,10 +44,10 @@ import Hardware.KansasLava.Simulators.Spartan3e
 data Opts = Opts { demoFabric :: String, fastSim :: Bool, beat :: Integer, vhdl :: Bool }
         deriving (Show, Data, Typeable)
 
-options = Opts { demoFabric = "leds1"            &= help "demo fabric to be executed or built"
+options = Opts { demoFabric = "rs232in"            &= help "demo fabric to be executed or built"
                , fastSim = False                &= help "if running board at full speed"
                , beat = (50 * 1000 * 1000)      &= help "approx number of clicks a second"
-               , vhdl = True                    &= help "generate VDHL"
+               , vhdl = False                    &= help "generate VDHL"
 
                } 
         &= summary "spartan3e-demo: run different examples for Spartan3e"
@@ -180,77 +180,27 @@ example "rs232in" = do
         sw <- switches
 
         Sim.core "main" $ do
-                (dialed, view_addr) <- dialedValue (0 :: X256, 62)
+                (dialed, view_addr) <- dialedValue (0 :: X63, 62)
                 dialed <== rot
+                (wt_rs,rd_rs)   <- newAckBox
 
-                VAR reg :: VAR U8 <- SIGNAL $ var 0
-                VAR addr :: VAR X256 <- SIGNAL $ var 0
---                VAR view_addr :: VAR X256 <- SIGNAL $ var 0
-                mem :: Memory X256 U8 <- memory
+                lcdHexDump rd_rs view_addr (sw ! 0) lcd_wt 
 
                 SPARK $ \ loop -> do
+                        VAR ch :: VAR U8 <- SIGNAL $ var 0
                         ((OP1 (bitNot . isEnabled) rs232_in) :? GOTO loop)
-                                ||| writeM mem := tuple2 addr
-                                                        (OP1 enabledVal rs232_in)
-                        addr := addr + 1
-                        -- perhaps signal ?
+                                ||| ch := (OP1 enabledVal rs232_in)
+                        putAckBox wt_rs ch
                         GOTO loop
 
 
-                let toHex :: (Rep n, Num n) => Signal clk n -> Signal clk U8
-                    toHex n = funMap (\ (x :: X16) -> return $ fromIntegral $ ord (hex !! fromIntegral x)) $
-                                     (unsigned) n
-                    hex = "0123456789ABCDEF"
-
-                let showHex width (row :: EXPR X2,col :: EXPR X16) n = do
-                        VAR tmp :: VAR U32 <- SIGNAL $ var 0
-                        tmp := n
-                        for 0 (width - 1) $ \ (i :: EXPR X16) -> do
-                           putAckBox lcd_wt $ tuple2 (tuple2 row (col - i))
-                                                     (OP1 toHex (OP1 (`mod` 16) tmp))
-                           tmp := OP1 (`div` 16) tmp
+example "lambda-bridge" = do
+        -- Read a packet, please
+        return ()
 
 
-                SPARK $ \ loop -> do
-                        VAR view_addr' :: VAR X256 <- SIGNAL $ var 0
-                        view_addr' := OP1 (unsigned) view_addr * 4
+        
 
-                        showHex 7 (0,6) $ OP1 (unsigned) view_addr'
-                        showHex 7 (1,6) $ OP1 (unsigned) (view_addr' + 4)
-
-                        let theRow :: Signal u X8 -> Signal u X2
-                            theRow = funMap (return . f) where f n | n < 4     = 0
-                                                                   | otherwise = 1
-                        let theCol :: Signal u X8 -> Signal u X16
-                            theCol = funMap (return . f) where f n = fromIntegral (n `mod` 4) * 2 + 9
-
-                        let theCh  :: Signal u U8 -> Signal u U8
-                            theCh = funMap (return . f) where f n | n < 0x20 = 0x2e
-                                                                  | n > 0x7e = 0x2e
-                                                                  | otherwise = n
-
-
-                        for 0 7 $ \ (i :: EXPR X8) -> do
-                          VAR tmp :: VAR U8 <- SIGNAL $ var 0
-                          IF (OP2 (.>.) addr (OP1 (unsigned) view_addr')) (do
-                                  readM mem := (OP1 (unsigned) view_addr') ||| tmp := valueM mem
-                                  IF (sw ! 0) (do
-                                        showHex 2 (OP1 theRow i,OP1 theCol i) (OP1 (unsigned) tmp)
-                                      )(do 
-                                        putAckBox lcd_wt $ tuple2 (tuple2 (OP1 theRow i) (OP1 theCol i))
-                                                                  (OP1 theCh tmp)
-                                        putAckBox lcd_wt $ tuple2 (tuple2 (OP1 theRow i) (OP1 theCol i - 1))
-                                                            0x20                  
-                                      )
-                             )( do
-                                  putAckBox lcd_wt $ tuple2 (tuple2 (OP1 theRow i) (OP1 theCol i))
-                                                            0x20
-                                  putAckBox lcd_wt $ tuple2 (tuple2 (OP1 theRow i) (OP1 theCol i - 1))
-                                                            0x20                  
-                             )
-                          view_addr' := OP1 loopingIncS view_addr'
-
-                        GOTO loop
 {-
 
 example _ = do
@@ -354,4 +304,78 @@ test = do
         let o0 = fromUni' out :: Seq (Maybe Bool)
            
         print [ x | Just (Just x) <- fromS o0 ]
-        
+   
+---------------------------------------------------------------     
+
+lcdHexDump
+  :: ReadAckBox U8                              -- incoming bytes
+  -> EXPR X63                                   -- line to display
+  -> EXPR Bool                                  -- the mode (hex vs ascii)
+  -> WriteAckBox ((X2, X16), Unsigned X8)       -- LCD display
+  -> STMT ()
+lcdHexDump inp view_addr mode lcd_wt = do
+
+                VAR reg :: VAR U8 <- SIGNAL $ var 0
+                VAR addr :: VAR X256 <- SIGNAL $ var 0
+                mem :: Memory X256 U8 <- memory
+
+                SPARK $ \ loop -> do
+                        takeAckBox inp $ \ e -> 
+                                writeM mem := tuple2 addr e
+                        addr := addr + 1
+                        GOTO loop
+
+                let toHex :: (Rep n, Num n) => Signal clk n -> Signal clk U8
+                    toHex n = funMap (\ (x :: X16) -> return $ fromIntegral $ ord (hex !! fromIntegral x)) $
+                                     (unsigned) n
+                    hex = "0123456789ABCDEF"
+
+                let showHex width (row :: EXPR X2,col :: EXPR X16) n = do
+                        VAR tmp :: VAR U32 <- SIGNAL $ var 0
+                        tmp := n
+                        for 0 (width - 1) $ \ (i :: EXPR X16) -> do
+                           putAckBox lcd_wt $ tuple2 (tuple2 row (col - i))
+                                                     (OP1 toHex (OP1 (`mod` 16) tmp))
+                           tmp := OP1 (`div` 16) tmp
+
+
+                SPARK $ \ loop -> do
+                        VAR view_addr' :: VAR X256 <- SIGNAL $ var 0
+                        view_addr' := OP1 (unsigned) view_addr * 4
+
+                        showHex 7 (0,6) $ OP1 (unsigned) view_addr'
+                        showHex 7 (1,6) $ OP1 (unsigned) (view_addr' + 4)
+
+                        let theRow :: Signal u X8 -> Signal u X2
+                            theRow = funMap (return . f) where f n | n < 4     = 0
+                                                                   | otherwise = 1
+                        let theCol :: Signal u X8 -> Signal u X16
+                            theCol = funMap (return . f) where f n = fromIntegral (n `mod` 4) * 2 + 9
+
+                        let theCh  :: Signal u U8 -> Signal u U8
+                            theCh = funMap (return . f) where f n | n < 0x20 = 0x2e
+                                                                  | n > 0x7e = 0x2e
+                                                                  | otherwise = n
+
+
+                        for 0 7 $ \ (i :: EXPR X8) -> do
+                          VAR tmp :: VAR U8 <- SIGNAL $ var 0
+                          IF (OP2 (.>.) addr (OP1 (unsigned) view_addr')) (do
+                                  readM mem := (OP1 (unsigned) view_addr') ||| tmp := valueM mem
+                                  IF (mode) (do
+                                        showHex 2 (OP1 theRow i,OP1 theCol i) (OP1 (unsigned) tmp)
+                                      )(do 
+                                        putAckBox lcd_wt $ tuple2 (tuple2 (OP1 theRow i) (OP1 theCol i))
+                                                                  (OP1 theCh tmp)
+                                        putAckBox lcd_wt $ tuple2 (tuple2 (OP1 theRow i) (OP1 theCol i - 1))
+                                                            0x20                  
+                                      )
+                             )( do
+                                  putAckBox lcd_wt $ tuple2 (tuple2 (OP1 theRow i) (OP1 theCol i))
+                                                            0x20
+                                  putAckBox lcd_wt $ tuple2 (tuple2 (OP1 theRow i) (OP1 theCol i - 1))
+                                                            0x20                  
+                             )
+                          view_addr' := OP1 loopingIncS view_addr'
+
+                        GOTO loop
