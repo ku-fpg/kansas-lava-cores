@@ -62,10 +62,9 @@ main = do
           False -> simUseFabric opts $ example nm
 
 simUseFabric :: Opts -> Spartan3eSimulator () -> IO ()
-simUseFabric _ fab =
+simUseFabric opts fab =
         Sim.runPolyester 
---                (Sim.Fast)
-                (Sim.Friendly)
+                (if fastSim opts then Sim.Fast else Sim.Friendly)
                 (50 * 1000 * 1000)
                 50
                 fab
