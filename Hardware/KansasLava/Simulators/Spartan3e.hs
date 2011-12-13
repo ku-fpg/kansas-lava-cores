@@ -1,4 +1,4 @@
-{-# LANGUAGE TypeFamilies, ScopedTypeVariables #-}
+{-# LANGUAGE TypeFamilies, ScopedTypeVariables, FlexibleContexts #-}
 -- | This API mirrors 'Hardware.KansasLava.Boards.Spartan3e' via a class
 -- abstaction. The other API also contains some Board specific utilties
 -- that can also be used for simulation.

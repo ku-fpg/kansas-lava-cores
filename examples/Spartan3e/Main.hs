@@ -44,7 +44,7 @@ import Hardware.KansasLava.Simulators.Spartan3e
 data Opts = Opts { demoFabric :: String, fastSim :: Bool, beat :: Integer, vhdl :: Bool }
         deriving (Show, Data, Typeable)
 
-options = Opts { demoFabric = "lcd0"            &= help "demo fabric to be executed or built"
+options = Opts { demoFabric = "lcd1"            &= help "demo fabric to be executed or built"
                , fastSim = False                &= help "if running board at full speed"
                , beat = (50 * 1000 * 1000)      &= help "approx number of clicks a second"
                , vhdl = True                    &= help "generate VDHL"
@@ -268,27 +268,35 @@ example "lcd0" = do
                         for 0 3 $ \ (i :: EXPR X4) -> do
                                 putAckBox send_cmd (OP1 startCmd i)
 
-{-
-                        issue theLCD (0,0x28)
-                        issue theLCD (0,0x06)
-                        issue theLCD (0,0x0C)
-                        issue theLCD (0,0x01)
-
--}
-
                         ls ! 2 := OP0 high
                         
                         waitFor 200000
-                        
-                        issue theLCD (0,0x80)   -- set the address to zero
 
-                        issue theLCD (1,0x31)
-                        issue theLCD (1,0x32)
-                        issue theLCD (1,0x33)
+                        (wr :: WriteAckBox ((X2,X16),U8),rd :: ReadAckBox ((X2,X16),U8)) <- newAckBox
                         
+                        cmd_loop <- LABEL
+                        
+                        VAR row :: VAR X2  <- SIGNAL $ undefinedVar
+                        VAR col :: VAR X16 <- SIGNAL $ undefinedVar
+                        VAR ch  :: VAR U8  <- SIGNAL $ undefinedVar
+                        takeAckBox rd $ \ e -> 
+                                        row := OP1 (\e -> case unpack e of (x,_) -> fst (unpack x)) e 
+                                    ||| col := OP1 (\e -> case unpack e of (x,_) -> snd (unpack x)) e 
+                                    ||| ch  := OP1 (\e -> case unpack e of (_,x) -> x) e 
+
+
+                        putAckBox send_cmd (OP2 (\ r c -> 0x80 + (unsigned r) * 0x40 + (unsigned) c) row col)
+                        putAckBox send_cmd (OP1 (+ 0x100) $ OP1 (unsigned) ch)
                         ls ! 3 := OP0 high
+                
+                        GOTO cmd_loop
 
-                        GOTO loop
+                        SPARK $ \ loop -> do
+                                putAckBox wr (tuple2 (tuple2 0 1) 0x31)
+                                putAckBox wr (tuple2 (tuple2 0 2) 0x32)
+                                putAckBox wr (tuple2 (tuple2 0 3) 0x33)
+                                putAckBox wr (tuple2 (tuple2 1 4) 0x34)
+                                GOTO loop
                 
 
 

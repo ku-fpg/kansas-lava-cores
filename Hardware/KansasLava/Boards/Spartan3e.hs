@@ -129,13 +129,8 @@ instance LCD Spartan3e where
         type LCDSize Spartan3e = (X2,X16)
 
         lcd = do
-                let patch = probeAckBoxP "in1" $$ mm_LCD_Inst $$ probeAckBoxP "in2" $$ init_LCD $$ probeAckBoxP "in3" $$ phy_Inst_4bit_LCD
-
                 core ("lcd") $ do
 
---RS, SF_D[11:8], LCD_E
--- assuming LCD_RW is set always low
-                        
                         rs   :: REG (U1,U4,Bool) <- OUTPUT $ \ out -> do
                                 let (rs :: Seq U1,sf :: Seq U4,e :: Seq Bool) = unpack (enabledVal out)
                                 let sf' :: Matrix X4 (Seq Bool) = unpack (bitwise sf :: Seq (Matrix X4 Bool))
@@ -150,23 +145,9 @@ instance LCD Spartan3e where
                                 outStdLogic "LCD_RW"   low
                                 outStdLogic "SF_CE0"   high
                                 return ()
-                        (a_r,b_e,c_e,d_r) <- PATCH (patchLhsAck $$ patch $$ patchRhsUnit $$ patchRhsEnabled)
 
-                        always $
-                                rs := OP1 enabledVal b_e
-{-
-
-                        ([i0],[o0,o1]) <- GENERIC $ do
-                                a <- inStdLogicVector "i0" :: Fabric (Seq (Enabled ((X2,X16),U8)))
-                                let (b,c) = id (a,packEnabled high (pureS ()))
-                                outStdLogicVector "o0" (probeS "o0" (b :: Seq (Enabled ((X2,X16),U8))))
-                                outStdLogic "o1" (c :: Seq (Enabled ()))
-
---                        (r,w) <- newAckBox 
--}
---                        return $ WriteAckBox (R i0) (OP0 (packEnabled high $ pureS ()))
-                                
-                        return $ WriteAckBox a_r c_e
+                        -- and call the controller
+                        st7066U_controller rs
 
 
 instance Monitor Spartan3e where
