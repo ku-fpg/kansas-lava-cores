@@ -145,6 +145,24 @@ instance LCD Spartan3eSimulator where
                 wr_ack :: EXPR (Maybe ()) <- INPUT  (inStdLogic "lcd_wt_ack" >>= return . flip packEnabled (pureS ()))
                 return $ WriteAckBox wr wr_ack
 
+instance Monitor Spartan3eSimulator where
+        monitor probename = monitor' where 
+          --- Too allow the forall type to work with the instance 
+          monitor' :: forall a . (Rep a, Size (W (Enabled a))) => Spartan3eSimulator (REG a)
+          monitor' = do
+            polyester $ do
+                ss :: Seq (Enabled a) <- board $ inStdLogicVector ("monitor/" ++ probename)
+                outPolyesterEvents [ case vs of
+                                        Nothing -> Nothing
+                                        Just Nothing -> Nothing
+                                        Just _       -> Just DEBUG
+                                   | vs <- fromS ss
+                                   ]
+            core "monitor" $ do
+                OUTPUT (\ a -> outStdLogicVector ("monitor/" ++ probename) (probeS probename a :: Seq (Enabled a)))
+
+
+
 ------------------------------------------------------------
 -- Spartan3eSimulator Initalization
 ------------------------------------------------------------
@@ -290,6 +308,7 @@ data Output
         | DIAL Dial
         | QUIT Bool
         | RS232 DIR Serial Integer
+        | DEBUG
 
 data DIR  = RX | TX
 
@@ -353,3 +372,5 @@ instance Graphic Output where
         col = case dir of
                    RX -> 3
                    TX -> 2
+ drawGraphic (DEBUG) = return () -- perhaps flash a light?
+ 
