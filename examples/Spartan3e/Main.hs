@@ -44,10 +44,10 @@ import Hardware.KansasLava.Simulators.Spartan3e
 data Opts = Opts { demoFabric :: String, fastSim :: Bool, beat :: Integer, vhdl :: Bool }
         deriving (Show, Data, Typeable)
 
-options = Opts { demoFabric = "rs232in"            &= help "demo fabric to be executed or built"
+options = Opts { demoFabric = "lcd0"            &= help "demo fabric to be executed or built"
                , fastSim = False                &= help "if running board at full speed"
                , beat = (50 * 1000 * 1000)      &= help "approx number of clicks a second"
-               , vhdl = False                    &= help "generate VDHL"
+               , vhdl = True                    &= help "generate VDHL"
 
                } 
         &= summary "spartan3e-demo: run different examples for Spartan3e"
@@ -62,7 +62,9 @@ main = do
           False -> simUseFabric opts $ example nm
 
 simUseFabric :: Opts -> Spartan3eSimulator () -> IO ()
-simUseFabric opts fab =
+simUseFabric opts fab = do
+        writeFile "LOG" "-- starting log\n"
+        setProbesAsTrace (appendFile "LOG")
         Sim.runPolyester 
                 (if fastSim opts then Sim.Fast else Sim.Friendly)
                 (50 * 1000 * 1000)
@@ -82,13 +84,13 @@ vhdlUseFabric opts fab = do
         return ()
 
 
-
 example
  :: ( DialRotation m
     , LEDs m            , LEDCount m   ~ X8
     , RS232 m           , RS232Count m ~ Serial
     , LCD m             , LCDSize m    ~ (X2,X16)
     , Switches m        , SwitchCount m ~ X4
+    , Monitor m
     ) => String 
     -> m ()
 
@@ -99,6 +101,7 @@ example "leds0" = do
                         ls ! 0 := OP0 high ||| GOTO loop
 example "leds1" = do
         ls <- leds        
+        debug <- monitor "M1"
         Sim.core "main" $ do
                 VAR reg :: VAR U32 <- SIGNAL $ var 0
                 SPARK $ \ loop -> do
@@ -107,13 +110,14 @@ example "leds1" = do
                                                     (OP1 (+ pureS (fromIntegral i)) 0)
                                   | i <- [minBound..maxBound]
                                   ]
+                        debug := reg
                         reg := reg + 1
                         GOTO loop
 example "leds2" = do
         ls <- leds        
         rot <- dialRotation
         Sim.core "main" $ do
-                (sig_in :: REG Bool, number :: EXPR U8) <- dialedValue (0,255)
+                (sig_in :: REG Bool, number :: EXPR U8) <- dialedValue (20,200)
                 
                 sig_in <== rot
 
@@ -145,6 +149,145 @@ example "leds3" = do
                                   ]
                         reg := reg + 1
                         GOTO loop
+
+example "lcd0" = do
+        ls <- leds
+
+
+
+        Sim.core "main" $ do
+                theLCD :: REG (U1,U4,Bool) <- OUTPUT $ \ out -> do
+                        let (rs :: Seq U1,sf :: Seq U4,e :: Seq Bool) = unpack (enabledVal out)
+                        let sf' :: Matrix X4 (Seq Bool) = unpack (bitwise sf :: Seq (Matrix X4 Bool))
+                        let gate :: Seq Bool -> Seq Bool
+                            gate = registerEnabled False . packEnabled (isEnabled out)
+                        outStdLogic "LCD_RS"   $ gate ((bitwise) rs)
+                        outStdLogic "SF_D<11>" $ gate (sf' ! 3)
+                        outStdLogic "SF_D<10>" $ gate (sf' ! 2)
+                        outStdLogic "SF_D<9>"  $ gate (sf' ! 1)
+                        outStdLogic "SF_D<8>"  $ gate (sf' ! 0)
+                        outStdLogic "LCD_E"    $ gate e
+                        outStdLogic "LCD_RW"   low
+                        outStdLogic "SF_CE0"   high
+
+                let waitFor :: EXPR U32 -> STMT ()
+                    waitFor n = do 
+                            VAR i :: VAR U32 <- SIGNAL $ var 0
+                            i := OP1 (\ x -> x - 2) n
+                            loop <- LABEL
+                            i := i - 1
+                                ||| (OP2 (.>.) i 0) :? GOTO loop
+
+
+                send_nibble <- do
+                            (wr :: WriteAckBox (U1,U4,U18),rd :: ReadAckBox (U1,U4,U18)) <- newAckBox
+                            VAR rs :: VAR U1 <- SIGNAL $ undefinedVar
+                            VAR sf :: VAR U4 <- SIGNAL $ undefinedVar
+                            VAR wait :: VAR U18 <- SIGNAL $ undefinedVar
+                            SPARK $ \ loop -> do
+                                    takeAckBox rd $ \ e -> 
+                                                        rs   := OP1 (\e -> case unpack e of (x,_,_) -> x) e 
+                                                    ||| sf   := OP1 (\e -> case unpack e of (_,x,_) -> x) e 
+                                                    ||| wait := OP1 (\e -> case unpack e of (_,_,x) -> x) e 
+                                    theLCD := OP2 (\ a b -> pack (a,b,low)) rs sf
+                                    waitFor 2
+                                    theLCD := OP2 (\ a b -> pack (a,b,high)) rs sf
+                                    waitFor 12
+                                    theLCD := OP2 (\ a b -> pack (a,b,low)) rs sf
+                                    waitFor (OP1 (signed) wait)
+                                    GOTO loop
+
+                            return wr
+{-
+                send_cmd <- do
+                            (wr :: WriteAckBox ,rd :: ReadAckBox (U1,U4)) <- newAckBox
+                            VAR rs :: VAR U1 <- SIGNAL $ undefinedVar
+                            VAR sf :: VAR U4 <- SIGNAL $ undefinedVar
+                            SPARK $ \ loop -> do
+                                    takeAckBox rd $ \ e -> rs := OP1 (fst . unpack) e ||| sf := OP1 (snd . unpack) e
+                                    theLCD := OP2 (\ a b -> pack (a,b,low)) rs sf
+                                    waitFor 2
+                                    theLCD := OP2 (\ a b -> pack (a,b,high)) rs sf
+                                    waitFor 12
+                                    theLCD := OP2 (\ a b -> pack (a,b,low)) rs sf
+                                    GOTO loop
+
+                            return wr
+-}
+
+                let issue :: forall clk . REG (U1,U4,Bool) -> (U1,U8) -> STMT ()
+                    issue theLCD (isCmd,cmd) = do
+                            send theLCD (isCmd,fromIntegral $ (cmd `div` 16) `mod` 16)
+                            waitFor 50
+                            send theLCD (isCmd,fromIntegral $ cmd `mod` 16)
+                            waitFor 2000
+
+                    send :: forall clk . REG (U1,U4,Bool) -> (U1,U4) -> STMT ()
+                    send theLCD (rs,sf) = do
+                            theLCD := OP0 (pack (fromIntegral rs,fromIntegral sf,low))
+                            waitFor 2
+                            theLCD := OP0 (pack (fromIntegral rs,fromIntegral sf,high))
+                            waitFor 12
+                            theLCD := OP0 (pack (fromIntegral rs,fromIntegral sf,low))
+                            waitFor 2
+
+                SPARK $ \ loop -> do
+--                        rs := OP0 (pack (0,0,False) :: Signal u (U1,U4,Bool))
+                        ls ! 0 := OP0 high
+                        
+                        let bootCmd :: Signal u X4 -> Signal u (U1,U4,U18)
+                            bootCmd = funMap (return . f)
+                                                where f 0 = (0,3,205000)
+                                                      f 1 = (0,3,5000)
+                                                      f 2 = (0,3,2000)
+                                                      f 3 = (0,2,2000)
+
+                        waitFor 750000
+                        for 0 3 $ \ (i :: EXPR X4) -> do
+                                putAckBox send_nibble (OP1 bootCmd i)
+
+                        ls ! 1 := OP0 high
+
+                        issue theLCD (0,0x28)
+                        issue theLCD (0,0x06)
+                        issue theLCD (0,0x0C)
+                        issue theLCD (0,0x01)
+                        waitFor 90000
+
+                        ls ! 2 := OP0 high
+                        
+                        issue theLCD (0,0x80)   -- set the address to zero
+
+                        issue theLCD (1,0x31)
+                        issue theLCD (1,0x32)
+                        issue theLCD (1,0x33)
+                        
+                        ls ! 3 := OP0 high
+
+                        GOTO loop
+                
+
+
+ where
+                 
+
+        
+example "lcd1" = do
+        lcd_wt <- lcd 
+        ls <- leds        
+        Sim.core "main" $ do
+                SPARK $ \ loop -> do
+                        ls ! 0 := OP0 high
+                        putAckBox lcd_wt (tuple2 (tuple2 0 0) 0x30)
+                        ls ! 1 := OP0 high
+                        putAckBox lcd_wt (tuple2 (tuple2 0 1) 0x31)
+                        putAckBox lcd_wt (tuple2 (tuple2 0 2) 0x32)
+                        putAckBox lcd_wt (tuple2 (tuple2 0 3) 0x33)
+                        putAckBox lcd_wt (tuple2 (tuple2 0 4) 0x34)
+                        ls ! 2 := OP0 high
+                        ls ! 0 := OP0 low
+                        GOTO loop
+
 
 example "rs232in" = do
         rs232_in  <- rs232rx DCE (115200 * 100)
@@ -229,51 +372,6 @@ example _ = do
 
 
 
-ex1 = do
-                (reg :: REG Bool,ev :: EVENT Bool) <- mkEnabled
-                
-                -- These are a and b on the previous cycle
-                a :: EXPR Bool <- INPUT (inStdLogic "ROT_A")
-                b :: EXPR Bool <- INPUT (inStdLogic "ROT_B")
-                
-                -- These are a and b on the previous cycle
-                VAR a' <- SIGNAL $ var False
-                VAR b' <- SIGNAL $ var False
-
-                always $ a' := a
-                always $ b' := b
-
-                SPARK $ \ loop -> do
-                        -- wait for both to be true
-                        ((OP1 bitNot $ OP2 and2 a b) :? GOTO loop)
-                                ||| a' :? reg := OP0 high
-                                ||| b' :? reg := OP0 low
-                        wait <- LABEL
-                        ((OP2 or2 a b) :? GOTO wait)
-                           ||| GOTO loop
-
-
-                return $ ev
-test = do
-        let fab1 = compileToFabric $ do 
-                res :: EXPR (Enabled Bool) <- ex1
-                o0 :: REG Bool <- OUTPUT (outStdLogicVector "o0")
-                o0 <== res
-
---        k <- reifyFabric fab1
---        print k
-        let a, b :: Seq Bool
-            a = toS $ map (== '1') $ f 00 $ cycle "0001010111111111111111111111111101000000000000000"
-            b = toS $ map (== '1') $ f 10 $ cycle "0001010111111111111111111111111101000000000000000"
-            f n xs = replicate n '0' ++ xs
-
-        let (_,[("o0",out)])
-                = runFabric fab1 [ ("ROT_A", toUni $ a)
-                                 , ("ROT_B", toUni $ b)
-                                 ]
-        let o0 = fromUni' out :: Seq (Maybe Bool)
-           
-        print [ x | Just (Just x) <- fromS o0 ]
    
 ---------------------------------------------------------------     
 -- Utilites; to be moved elsewhere.
@@ -289,7 +387,7 @@ dialedValue (lo,hi) = do
         (sig_in,sig_out) <- mkEnabled
 
         let pred_inc =
-                OP2 and2 (OP1 enabledVal sig_out) 
+                OP2 and2 (OP1 (enabledVal) sig_out) 
                          (OP1 (.<. pureS hi) number)
         let pred_dec =
                 OP2 and2 (OP1 (bitNot . enabledVal) sig_out) 
