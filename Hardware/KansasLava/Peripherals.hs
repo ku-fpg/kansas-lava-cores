@@ -80,3 +80,13 @@ class (CoreMonad fab) => RS232 fab where
 class (CoreMonad fab) => LCD fab where
         type LCDSize fab
         lcd :: (LCDSize fab ~ pos) => fab (WriteAckBox (pos,U8))
+
+
+------------------------------------------------------------
+-- Debugging signal.
+------------------------------------------------------------
+
+class (CoreMonad fab) => Monitor fab where
+        monitor :: (Rep a, Size (W (Enabled a))) => String -> fab (REG a)
+
+
