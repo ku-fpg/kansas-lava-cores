@@ -78,7 +78,7 @@ instance BitRep LCDInstruction where
 	] ++ 
 	[ (FunctionSet (bool a) 
 		       (bool b)
-		       (bool c),		"0010" & a & b & c & ("XX" :: BitPat X2))
+		       (bool c),		"0001" & a & b & c & ("XX" :: BitPat X2))
 		| a <- every
 		, b <- every
 		, c <- every
