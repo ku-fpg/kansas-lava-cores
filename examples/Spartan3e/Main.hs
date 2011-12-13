@@ -194,26 +194,35 @@ example "lcd0" = do
                                     theLCD := OP2 (\ a b -> pack (a,b,high)) rs sf
                                     waitFor 12
                                     theLCD := OP2 (\ a b -> pack (a,b,low)) rs sf
-                                    waitFor (OP1 (signed) wait)
+                                    waitFor (OP1 (unsigned) wait)
                                     GOTO loop
 
                             return wr
-{-
+
                 send_cmd <- do
-                            (wr :: WriteAckBox ,rd :: ReadAckBox (U1,U4)) <- newAckBox
-                            VAR rs :: VAR U1 <- SIGNAL $ undefinedVar
-                            VAR sf :: VAR U4 <- SIGNAL $ undefinedVar
+                            (wr :: WriteAckBox U9,rd :: ReadAckBox U9) <- newAckBox
+                            VAR cmd :: VAR U9 <- SIGNAL $ undefinedVar
                             SPARK $ \ loop -> do
-                                    takeAckBox rd $ \ e -> rs := OP1 (fst . unpack) e ||| sf := OP1 (snd . unpack) e
-                                    theLCD := OP2 (\ a b -> pack (a,b,low)) rs sf
-                                    waitFor 2
-                                    theLCD := OP2 (\ a b -> pack (a,b,high)) rs sf
-                                    waitFor 12
-                                    theLCD := OP2 (\ a b -> pack (a,b,low)) rs sf
+                                    takeAckBox rd $ \ e -> cmd := e
+                                    let isCmd :: EXPR U1
+                                        isCmd = OP1 bitwise $ OP2 testABit cmd 8
+
+                                        low_nibble :: EXPR U4
+                                        low_nibble = OP1 (unsigned) cmd
+
+                                        high_nibble :: EXPR U4
+                                        high_nibble = OP1 (\ e -> unsigned (shiftR e 4)) cmd
+
+                                        timing = OP3 (\ a b c -> mux a (b,c)) 
+                                                        (OP2 (.<=.) cmd 0x03) 
+                                                          2000
+                                                        100000
+                                        
+                                    putAckBox send_nibble $ OP2 (\ a b -> pack (a,b,50)) isCmd high_nibble
+                                    putAckBox send_nibble $ OP3 (\ a b c -> pack (a,b,c)) isCmd low_nibble timing
                                     GOTO loop
 
                             return wr
--}
 
                 let issue :: forall clk . REG (U1,U4,Bool) -> (U1,U8) -> STMT ()
                     issue theLCD (isCmd,cmd) = do
@@ -248,13 +257,28 @@ example "lcd0" = do
 
                         ls ! 1 := OP0 high
 
+                        let startCmd :: Signal u X4 -> Signal u U9
+                            startCmd = funMap (return . f)
+                                                where f 0 = 0x28
+                                                      f 1 = 0x06
+                                                      f 2 = 0x0C
+                                                      f 3 = 0x01
+
+
+                        for 0 3 $ \ (i :: EXPR X4) -> do
+                                putAckBox send_cmd (OP1 startCmd i)
+
+{-
                         issue theLCD (0,0x28)
                         issue theLCD (0,0x06)
                         issue theLCD (0,0x0C)
                         issue theLCD (0,0x01)
-                        waitFor 90000
+
+-}
 
                         ls ! 2 := OP0 high
+                        
+                        waitFor 200000
                         
                         issue theLCD (0,0x80)   -- set the address to zero
 
