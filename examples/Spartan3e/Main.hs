@@ -44,7 +44,7 @@ import Hardware.KansasLava.Simulators.Spartan3e
 data Opts = Opts { demoFabric :: String, fastSim :: Bool, beat :: Integer, vhdl :: Bool }
         deriving (Show, Data, Typeable)
 
-options = Opts { demoFabric = "lcd1"            &= help "demo fabric to be executed or built"
+options = Opts { demoFabric = "rs232in"            &= help "demo fabric to be executed or built"
                , fastSim = False                &= help "if running board at full speed"
                , beat = (50 * 1000 * 1000)      &= help "approx number of clicks a second"
                , vhdl = True                    &= help "generate VDHL"
@@ -299,10 +299,6 @@ example "lcd0" = do
                                 GOTO loop
                 
 
-
- where
-                 
-
         
 example "lcd1" = do
         lcd_wt <- lcd 
@@ -322,7 +318,7 @@ example "lcd1" = do
 
 
 example "rs232in" = do
-        rs232_in  <- rs232rx DCE (115200 * 100)
+        rs232_in  <- rs232rx DCE (115200) --  * 100)
         lcd_wt <- lcd 
         rot <- dialRotation
         sw <- switches
