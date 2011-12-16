@@ -15,6 +15,8 @@ module Hardware.KansasLava.Boards.Spartan3e (
 
 
 import Language.KansasLava as KL
+import Language.KansasLava.Fabric
+import Language.KansasLava.Universal
 import Hardware.KansasLava.LCD.ST7066U
 import Hardware.KansasLava.RS232
 import Hardware.KansasLava.Rate
@@ -65,13 +67,71 @@ class (CoreMonad fab) => DialRotation fab where
         dialButton   :: fab (EXPR Bool)
 
 
+waitFor :: EXPR U32 -> STMT ()
+waitFor n = do 
+        VAR i :: VAR U32 <- SIGNAL $ var 0
+        i := OP1 (\ x -> x - 2) n
+        loop <- LABEL
+        i := i - 1
+                ||| (OP2 (.>.) i 0) :? GOTO loop
+
+-- add to a class at some point
+debounce :: forall sample count . (Size sample, Size count) => Witness sample -> Witness count -> EXPR Bool -> STMT (EXPR Bool)
+debounce sample count expr = do
+        pulse      :: EXPR (Enabled ())    <- INPUT (return $ packEnabled (powerOfTwoRate sample) (pureS ()))
+        VAR n      :: VAR (Unsigned count) <- SIGNAL $ var 0
+        VAR result :: VAR Bool             <- SIGNAL $ var False
+        
+        let waitForPulse = do
+                loop <- LABEL
+                OP1 (bitNot . isEnabled) pulse :? GOTO loop
+
+        let wait p = do
+                n := 0
+                loop <- LABEL
+                waitForPulse
+                IF p (do
+                        n := n + 1
+                  )(do
+                        n := 0
+                  )
+                (OP2 (./=.) n (fromIntegral (maxBound :: Unsigned count))) :? GOTO loop
+
+        SPARK $ \ start -> do
+                wait expr
+                result := OP0 high
+                wait (OP1 bitNot expr)
+                result := OP0 low
+                GOTO start
+                
+        return $ result
+        
+
+str1 =         "............****************************************...........##....#...#...........................**************************************************......................................"
+test = do
+        inp <- INPUT (return $ toS $ map (== '*') $ str1)
+        out <- debounce (Witness :: Witness X1) (Witness :: Witness X3) inp
+        r <- OUTPUT (outStdLogic "o0" . enabledVal)
+        always $ r := out
+
+
+test0 :: Pad
+test0 = case runFabric (compileToFabric test) [] of
+          (_,[(_,n)])-> n
+
+str2 = take 200 [ if x then '*' else '.' | (Just x) <- fromS $ fromUni' test0 ]
+
+        
 instance DialRotation Spartan3e where
         dialRotation = do
             core "dial" $ do
                 (reg :: REG Bool,ev :: EXPR (Maybe Bool)) <- mkEnabled
                 
-                a :: EXPR Bool <- INPUT (inStdLogic "ROT_A")
-                b :: EXPR Bool <- INPUT (inStdLogic "ROT_B")
+                aI :: EXPR Bool <- INPUT (inStdLogic "ROT_A")
+                bI :: EXPR Bool <- INPUT (inStdLogic "ROT_B")
+
+                a <- debounce (Witness :: Witness X15) (Witness :: Witness X4) aI
+                b <- debounce (Witness :: Witness X15) (Witness :: Witness X4) bI
 
                 -- These are a and b on the previous cycle
                 VAR a' <- SIGNAL $ var False
@@ -81,7 +141,7 @@ instance DialRotation Spartan3e where
                 always $ b' := b
 
                 SPARK $ \ loop -> do
-                        -- wait for both to be true
+                        -- wait for both to be false (the diagram in manual is backwards!)
                         ((OP2 or2 a b) :? GOTO loop)
                                 ||| a' :? reg := OP0 high
                                 ||| b' :? reg := OP0 low
