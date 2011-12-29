@@ -101,7 +101,7 @@ instance RS232 Spartan3eSimulator where
                 acks :: Seq Bool <- board $ inStdLogic (rx ++ "_ack")
                 outPolyesterCount (RS232 RX port) 
                         $ fmap (\ a -> if a then Just () else Nothing)
-                        $ alwaysDefined "LCD bus failure"
+                        $ alwaysDefined "RS232 rx bus failure"
                         $ fromS
                         $ acks
 
@@ -124,7 +124,7 @@ instance RS232 Spartan3eSimulator where
                 outs :: Seq (Enabled U8) <- board $ inStdLogicVector tx
                 outPolyesterCount (RS232 TX port) 
                         $ fmap (fmap $ const ())
-                        $ alwaysDefined "LCD bus failure"
+                        $ alwaysDefined "RS232 tx bus failure"
                         $ fromS
                         $ outs
 
