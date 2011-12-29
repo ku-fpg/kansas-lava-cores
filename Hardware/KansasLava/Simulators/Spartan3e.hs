@@ -338,7 +338,7 @@ instance Graphic Output where
  drawGraphic (LCD (row,col) ch) =
         PRINT [ch] `at` (13 + fromIntegral row,20 + fromIntegral col)
  drawGraphic BOARD = do
-        PRINT boardASCII `at` (1,1)
+        PRINT boardASCII `at` (1,0)
         COLOR Red $ PRINT ['o'] `at` (2,4)
  drawGraphic (BUTTON x b) = 
         (if b then REVERSE else id) $
