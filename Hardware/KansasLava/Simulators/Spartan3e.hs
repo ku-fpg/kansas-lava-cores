@@ -146,21 +146,30 @@ instance LCD Spartan3eSimulator where
                 return $ WriteAckBox wr wr_ack
 
 instance Monitor Spartan3eSimulator where
-        monitor probename = monitor' where 
+        monitor = do
+                let mon :: forall a . (Rep a, Size (W (Enabled a))) => String -> STMT (REG a)
+                    mon probename = 
+                            OUTPUT (\ a -> outStdLogicVector ("monitor/" ++ probename) 
+                                        $ mapEnabled (\ _ -> pureS ())
+                                        $ (probeS probename a :: Seq (Enabled a)))
+                return $ MONITOR mon
+{-
+                 probename = monitor' where 
           --- Too allow the forall type to work with the instance 
           monitor' :: forall a . (Rep a, Size (W (Enabled a))) => Spartan3eSimulator (REG a)
           monitor' = do
             polyester $ do
                 ss :: Seq (Enabled a) <- board $ inStdLogicVector ("monitor/" ++ probename)
                 outPolyesterEvents [ case vs of
-                                        Nothing -> Nothing
+                                        Nothing      -> Nothing
                                         Just Nothing -> Nothing
                                         Just _       -> Just DEBUG
                                    | vs <- fromS ss
                                    ]
+           -- For simulation, because we have the probeS, we pass a Seq (Maybe ()).
             core "monitor" $ do
-                OUTPUT (\ a -> outStdLogicVector ("monitor/" ++ probename) (probeS probename a :: Seq (Enabled a)))
-
+-}
+--- Seq (Enabled a) -> Seq (Enabled ())
 
 
 ------------------------------------------------------------

@@ -1,4 +1,4 @@
-{-# LANGUAGE ScopedTypeVariables,TypeFamilies, FlexibleContexts #-}
+{-# LANGUAGE ScopedTypeVariables,TypeFamilies, FlexibleContexts, RankNTypes #-}
 
 module Hardware.KansasLava.Peripherals where
 
@@ -83,10 +83,12 @@ class (CoreMonad fab) => LCD fab where
 
 
 ------------------------------------------------------------
--- Debugging signal.
+-- Rank2 debugging port genertor.
 ------------------------------------------------------------
 
+newtype MONITOR = MONITOR (forall a. (Rep a, Size (W (Enabled a))) => String -> STMT (REG a))
+
 class (CoreMonad fab) => Monitor fab where
-        monitor :: (Rep a, Size (W (Enabled a))) => String -> fab (REG a)
+        monitor :: fab MONITOR
 
 

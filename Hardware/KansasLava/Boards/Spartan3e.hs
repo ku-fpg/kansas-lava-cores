@@ -211,13 +211,10 @@ instance LCD Spartan3e where
 
 
 instance Monitor Spartan3e where
-        monitor probename = monitor' where 
-          --- Too allow the forall type to work with the instance 
-          monitor' :: forall a . (Rep a, Size (W (Enabled a))) => Spartan3e (REG a)
-          monitor' = do
-            core "monitor" $ do
-                OUTPUT (\ a -> outStdLogicVector ("monitor_" ++ probename) (probeS probename a :: Seq (Enabled a)))
-
+        monitor = do
+                let mon :: forall a . (Rep a, Size (W (Enabled a))) => String -> STMT (REG a)
+                    mon probename  = OUTPUT (\ a -> outStdLogicVector probename (probeS probename a :: Seq (Enabled a)))
+                return $ MONITOR mon
 
 -- Utils (to move)
 

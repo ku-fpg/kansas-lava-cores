@@ -1,4 +1,4 @@
-{-# LANGUAGE ScopedTypeVariables, FlexibleContexts, TypeFamilies, NoMonomorphismRestriction, DeriveDataTypeable, RankNTypes, ImpredicativeTypes #-}
+{-# LANGUAGE ScopedTypeVariables, FlexibleContexts, TypeFamilies, DoRec, NoMonomorphismRestriction, DeriveDataTypeable, RankNTypes, ImpredicativeTypes #-}
 module Main where
 
 import qualified Language.KansasLava as KL
@@ -44,10 +44,10 @@ import Hardware.KansasLava.Simulators.Spartan3e
 data Opts = Opts { demoFabric :: String, fastSim :: Bool, beat :: Integer, vhdl :: Bool }
         deriving (Show, Data, Typeable)
 
-options = Opts { demoFabric = "rs232in"            &= help "demo fabric to be executed or built"
-               , fastSim = False                &= help "if running board at full speed"
-               , beat = (50 * 1000 * 1000)      &= help "approx number of clicks a second"
-               , vhdl = True                    &= help "generate VDHL"
+options = Opts { demoFabric = "lambda-bridge"    &= help "demo fabric to be executed or built"
+               , fastSim = True                 &= help "if running board at full speed"
+               , beat = (50 * 1000 * 1000)       &= help "approx number of clicks a second"
+               , vhdl = False                    &= help "generate VDHL"
 
                } 
         &= summary "spartan3e-demo: run different examples for Spartan3e"
@@ -101,7 +101,7 @@ example "leds0" = do
                         ls ! 0 := OP0 high ||| GOTO loop
 example "leds1" = do
         ls <- leds        
-        debug <- monitor "M1"
+--        debug <- monitor "M1"
         Sim.core "main" $ do
                 VAR reg :: VAR U32 <- SIGNAL $ var 0
                 SPARK $ \ loop -> do
@@ -110,7 +110,7 @@ example "leds1" = do
                                                     (OP1 (+ pureS (fromIntegral i)) 0)
                                   | i <- [minBound..maxBound]
                                   ]
-                        debug := reg
+--                        debug := reg
                         reg := reg + 1
                         GOTO loop
 example "leds2" = do
@@ -318,7 +318,7 @@ example "lcd1" = do
 
 
 example "rs232in" = do
-        rs232_in  <- rs232rx DCE (115200) --  * 100)
+        rs232_in  <- rs232rx DCE (115200 * 100)
         lcd_wt <- lcd 
         rot <- dialRotation
         sw <- switches
@@ -332,15 +332,269 @@ example "rs232in" = do
 
                 SPARK $ \ loop -> do
                         VAR ch :: VAR U8 <- SIGNAL $ var 0
-                        takeEnabled rs232_in $ \ e -> ch := e
+                        readEnabled rs232_in $ \ e -> ch := e
                         putAckBox wt_rs ch
                         GOTO loop
 
 
-example "lambda-bridge" = do
-        -- Read a packet, please
-        return ()
 
+example "lambda-bridge" = do
+        rs232_in  <- rs232rx DCE (115200 * 10)
+        lcd_wt <- lcd 
+        rot <- dialRotation
+        sw <- switches
+
+        debug <- monitor
+
+        Sim.core "main" $ do
+                (dialed, view_addr) <- dialedValue (0 :: X63, 62)
+                dialed <== rot
+
+                -- The lambda-bridge FIFO 
+                (wt_out_fifo, rd_out_fifo :: ReadAckBox U8) <- newAckBox
+                lcdHexDump rd_out_fifo view_addr (sw ! 0) lcd_wt 
+
+                VAR reg  :: VAR U8         <- SIGNAL $ var 0
+
+                VAR addr :: VAR X256       <- SIGNAL $ var 0
+                mem      :: Memory X256 U8 <- memory
+                -- how much space the buffer has (1 always used)
+
+                (inc_p1, dec_p1, rd_p1 :: EXPR X256) <- mkChannel2 $ \ e1 e2 ->
+                        let val = register 0
+                                 (val + defaultedEnabledVal 0 e1
+                                      - defaultedEnabledVal 0 e2)
+                        in val
+
+                (inc_p2, dec_p2, rd_p2 :: EXPR X256) <- mkChannel2 $ \ e1 e2 ->
+                        let val = register 255
+                                 (val + defaultedEnabledVal 0 e1
+                                      - defaultedEnabledVal 0 e2)
+                        in val
+                        
+                VAR in_space :: VAR U8 <- SIGNAL $ var 0
+                -- how much is read
+                VAR out_space :: VAR U8 <- SIGNAL $ var 0
+
+
+                -- Hack, fill memory with stuff so display does not crash
+
+                SPARK $ \ loop -> do
+                  for 0 255 $ \ (i :: EXPR X256) -> do
+                        writeM mem := tuple2 i 0x71
+
+                  putAckBox wt_out_fifo 99
+                  putAckBox wt_out_fifo 100
+                  inc_p1 := 255
+                  -- TODO: make a macro
+                  stop <- LABEL
+                  GOTO stop
+
+{-
+                -- accept the RS232 input, and put into a buffer
+                SPARK $ \ loop -> do
+                        -- TODO: invent macro
+                        -- Wait for p2 to not be zero 
+                        (OP2 (.==.) rd_p2 0) :? 
+                                GOTO loop
+
+                        -- Yes, this can miss things if
+                        -- the protocol slows down
+                        takeEnabled rs232_in $ \ e -> 
+                                writeM mem := tuple2 addr e
+                                        ||| dec_p2 := 1
+                        addr := addr + 1
+                        inc_p1 := 1     -- allow a single char to be read
+                        GOTO loop
+-}
+
+                -- Box to transmit a read packet size, which passed a CRC check.
+                (wt_pkt,rd_pkt :: ReadAckBox X256) <- newAckBox
+
+                SPARK $ \ loop -> do
+
+                        VAR addr       :: VAR X256       <- SIGNAL $ var 0 -- The address of the current char
+                        VAR start_addr :: VAR X256       <- SIGNAL $ var 0 -- The address of the start of the packet
+                        VAR ch         :: VAR U8         <- SIGNAL $ var 0
+
+                        VAR len        :: VAR U8         <- SIGNAL $ var 0
+
+
+                        let readChar :: (EXPR U8 -> STMT ()) -> STMT ()
+                            readChar = readEnabled rs232_in
+
+                        -- wait for a 0xf0
+                        header0 <- LABEL
+                        readChar $ \ e -> ch := e
+                        (OP2 (./=.) ch 0xf0) :? GOTO header0
+
+                        -- The previous char was the header tag
+                        header1 <- LABEL
+                        readChar $ \ e -> len := e
+
+                        header2 <- LABEL
+                        (OP2 (.==.) len tag) :? GOTO header1
+                        (OP2 (.>.) len maxFrameSize) :? GOTO header0
+
+                        -- We ignore the CRC for now
+                        headerCRC0 <- LABEL
+                        readChar $ \ e -> ch := e
+                        (OP2 (.==.) ch tag) :? GOTO header1
+
+                        headerCRC1 <- LABEL
+                        readChar $ \ e -> ch := e
+                        (OP2 (.==.) ch tag) :? GOTO header1
+
+                        payload <- LABEL
+                        addr := start_addr
+                        -- TODO: check for fit once
+
+                        for 0 (len + 1) $ \ (i :: EXPR U8) -> do
+                                readChar $ \ e -> ch := e
+                                IF (OP2 (.==.) ch tag) (do
+                                        readChar $ \ e -> ch := e
+                                        (OP2 (.==.) ch tag) :? 
+                                                (len := ch 
+                                                  ||| GOTO header2)
+                                   )(do
+                                        return ()       -- nothing required
+                                   )
+                                -- note we write the CRC, but never read it
+                                IF(OP2 (.<.) i len)  (do
+                                        writeM mem := tuple2 addr ch
+                                        addr := OP1 loopingIncS addr
+                                    )(do
+                                        return ()
+                                    )
+
+                        -- reset the starting addresss, and transmit the packet length
+                        start_addr := addr
+                        putAckBox wt_pkt (OP1 (unsigned) len)
+
+                        GOTO header0
+                
+                -- handle the packets
+                lambdaBridgeARQ debug rd_pkt mem wt_out_fifo
+  where
+                maxFrameSize = 0xef
+                tag          = 0xf0
+
+
+
+lambdaBridgeARQ (MONITOR mon) rd_pkt mem wt_out_fifo = do
+                (wtDataPkt,rdDataPkt :: ReadAckBox (Bool,U16)) <- newAckBox
+                local_in_mem :: Memory X256 U8 <- memory
+                local_out_mem :: Memory X256 U8 <- memory
+
+                d0 :: REG U8 <- mon "i1"
+                d1 :: REG U9 <- mon "i1"
+
+                --- Now we read the packet, figuring out the headers, etc.
+                SPARK $  \ loop -> do
+                        VAR addr       :: VAR X256      <- SIGNAL $ var 0 -- The address of the current char
+                        VAR len        :: VAR X256      <- SIGNAL $ var 0 -- The length of payload
+                        VAR ch         :: VAR U8        <- SIGNAL $ var 0       -- placeholder
+
+--                        d0 := message0 "Hello"
+
+                        -- This is how many bytes have been approved for reading
+                        readAckBox rd_pkt $ \ e -> len := e
+                                
+                                
+--                        d0 := message1 "(%d)" len
+--                        d0 := 1
+                        
+                        -- we assume 1 packet per frame right now
+                        readMemory mem addr $ \ e -> ch := e
+                        addr := OP1 loopingIncS addr
+
+                        -- We pull the rest into a ARQ-local buffer
+                        -- TODO: make this 1-per channel, or GC them
+                        for 0 (len - 1) $ \ (i :: EXPR X256) -> do
+                                -- Stash our packet locally
+                                readMemory mem addr $ \ e -> 
+                                        writeM local_in_mem := tuple2 i e
+                                addr := OP1 loopingIncS addr
+                
+                        -- we've got a local copy of the frame/packet now,
+                        -- so we can ack the message.
+                        takeAckBox rd_pkt $ \ _ -> return ()
+
+                        -- Decode the tag byte
+                        let ty :: EXPR X4
+                            ty = OP1 (unsigned)
+                               $ OP1 (\ byte -> byte .&. 0x03)
+                               $ ch
+
+                            ab :: EXPR Bool
+                            ab = OP1 (\ b -> testABit b 2)
+                               $ ch
+
+                            chan :: EXPR U5
+                            chan = OP1 (unsigned)
+                                 $ OP1 (\ b -> shiftR b 3)
+                                 $ ch
+
+
+                        -- Incomming data packet
+                        IF (OP2 (.==.) ty 0x0) (do
+                                -- assume chan == 0
+                                VAR a1 :: VAR U8 <- SIGNAL $ var 0
+                                VAR a2 :: VAR U8 <- SIGNAL $ var 0
+                                putAckBox wt_out_fifo 0x55
+                                readMemory local_in_mem 0 $ \ e -> a1 := e
+                                putAckBox wt_out_fifo a1
+                                readMemory local_in_mem 1 $ \ e -> a2 := e
+                                putAckBox wt_out_fifo a2
+                                -- The rest of the packet is 
+                                putAckBox wtDataPkt (tuple2 ab (OP1 bitwise (tuple2 a1 a2)))
+                           ) $ return ()
+
+                        -- and read the next frame, please
+                        GOTO loop
+
+
+                
+                VAR datPkt :: VAR (Bool,U16) <- SIGNAL $ undefinedVar
+
+                SPARK $ \ startRecv -> do
+                    VAR m   :: VAR Bool <- SIGNAL $ var False
+                    VAR len :: VAR U16  <- SIGNAL $ var 0
+                    rec takeAckBox rdDataPkt $ \ e -> datPkt := e
+                        -- TODO: check for out of order number
+                        m   := OP1 (fst . unpack) datPkt
+                        len := OP1 (snd . unpack) datPkt
+                        GOTO recv'dRecv
+
+                        -- variable m is set, which is the same as pid in the model
+                        recv'dRecv <- LABEL
+                        -- now we assume we need blocking, so send a "block"
+--                        putAckBox wt_ack (OP1 (\ ab -> ab `shiftR` 2 .|. 0x2) m)
+
+{-
+                        for 2 (OP1 (unsigned) len + 1) $ \ (i :: EXPR X256) -> do
+                          VAR ch :: VAR U8 <- SIGNAL $ var 0 
+                          readMemory local_in_mem 0 $ \ e -> ch := e
+                          putAckBox wt_out_fifo ch
+-}
+                        stop <- LABEL
+                        GOTO stop
+
+                        return ()
+                    
+                    
+                    return ()
+
+
+
+{-
+                        -- push the packet forward
+                        for 1 len $ \ (i :: EXPR X256) -> do
+                                readMemory mem addr $ \ e -> ch := e
+                                addr := OP1 loopingIncS addr
+                                putAckBox wt_out_fifo ch
+
+-}
 
         
 
@@ -399,6 +653,16 @@ example _ = do
 -}
 
 
+{-
+                        let readChar :: (EXPR U8 -> STMT ()) -> STMT ()
+                            readChar cont = do
+                                loop <- LABEL
+                                -- wait for something to read
+                                (OP2 (.==.) rd_p1 0) :? GOTO loop
+                                readM mem := (OP1 (unsigned) addr)
+                                        ||| addr := addr + 1
+                                        ||| cont (valueM mem)
+-}
 
    
 ---------------------------------------------------------------     
@@ -406,6 +670,9 @@ example _ = do
 
 tuple2 :: (Rep a, Rep b) => EXPR a -> EXPR b -> EXPR (a,b)
 tuple2 = OP2 (curry pack)
+
+tuple3 :: (Rep a, Rep b, Rep c) => EXPR a -> EXPR b -> EXPR c -> EXPR (a,b,c)
+tuple3 = OP3 (\ a b c -> pack (a,b,c)) 
 
 -- This takes a left/right command, and outputs a number, based on this 
 
@@ -438,7 +705,7 @@ lcdHexDump
   :: ReadAckBox U8                              -- incoming bytes
   -> EXPR X63                                   -- line to display
   -> EXPR Bool                                  -- the mode (hex vs ascii)
-  -> WriteAckBox ((X2, X16), Unsigned X8)       -- LCD display
+  -> WriteAckBox ((X2, X16), U8)       -- LCD display
   -> STMT ()
 lcdHexDump inp view_addr mode lcd_wt = do
 
@@ -449,7 +716,7 @@ lcdHexDump inp view_addr mode lcd_wt = do
                 SPARK $ \ loop -> do
                         takeAckBox inp $ \ e -> 
                                 writeM mem := tuple2 addr e
-                        addr := addr + 1
+                        addr := OP1 loopingIncS addr
                         GOTO loop
 
                 let toHex :: (Rep n, Num n) => Signal clk n -> Signal clk U8
@@ -507,8 +774,76 @@ lcdHexDump inp view_addr mode lcd_wt = do
 
                         GOTO loop
 
-takeEnabled :: Rep a => EXPR (Maybe a) -> (EXPR a -> STMT ()) -> STMT ()
-takeEnabled inp assign = do
-        loop <- LABEL
-        ((OP1 (bitNot . isEnabled) inp) :? GOTO loop)
-                ||| assign (OP1 enabledVal inp)
+lcdHexDump2
+  :: Memory X256 U8                     -- memory to observe
+  -> EXPR X63                           -- line to display
+  -> EXPR Bool                          -- the mode (hex vs ascii)
+  -> WriteAckBox ((X2, X16), U8)        -- LCD display
+  -> STMT ()
+lcdHexDump2 mem view_addr mode lcd_wt = do
+
+                VAR reg :: VAR U8 <- SIGNAL $ var 0
+                VAR addr :: VAR X256 <- SIGNAL $ var 0
+
+                let toHex :: (Rep n, Num n) => Signal clk n -> Signal clk U8
+                    toHex n = funMap (\ (x :: X16) -> return $ fromIntegral $ ord (hex !! fromIntegral x)) $
+                                     (unsigned) n
+                    hex = "0123456789ABCDEF"
+
+                let showHex width (row :: EXPR X2,col :: EXPR X16) n = do
+                        VAR tmp :: VAR U32 <- SIGNAL $ var 0
+                        tmp := n
+                        for 0 (width - 1) $ \ (i :: EXPR X16) -> do
+                           putAckBox lcd_wt $ tuple2 (tuple2 row (col - i))
+                                                     (OP1 toHex (OP1 (`mod` 16) tmp))
+                           tmp := OP1 (`div` 16) tmp
+
+
+                SPARK $ \ loop -> do
+                        VAR view_addr' :: VAR X256 <- SIGNAL $ var 0
+                        view_addr' := OP1 (unsigned) view_addr * 4
+
+                        showHex 7 (0,6) $ OP1 (unsigned) view_addr'
+                        showHex 7 (1,6) $ OP1 (unsigned) (view_addr' + 4)
+
+                        let theRow :: Signal u X8 -> Signal u X2
+                            theRow = funMap (return . f) where f n | n < 4     = 0
+                                                                   | otherwise = 1
+                        let theCol :: Signal u X8 -> Signal u X16
+                            theCol = funMap (return . f) where f n = fromIntegral (n `mod` 4) * 2 + 9
+
+                        let theCh  :: Signal u U8 -> Signal u U8
+                            theCh = funMap (return . f) where f n | n < 0x20 = 0x2e
+                                                                  | n > 0x7e = 0x2e
+                                                                  | otherwise = n
+
+
+                        for 0 7 $ \ (i :: EXPR X8) -> do
+                          VAR tmp :: VAR U8 <- SIGNAL $ var 0
+                          IF (OP0 high {- OP2 (.>.) addr (OP1 (unsigned) view_addr')-}) (do
+                                  readM mem := (OP1 (unsigned) view_addr') ||| tmp := valueM mem
+                                  IF (mode) (do
+                                        showHex 2 (OP1 theRow i,OP1 theCol i) (OP1 (unsigned) tmp)
+                                      )(do 
+                                        putAckBox lcd_wt $ tuple2 (tuple2 (OP1 theRow i) (OP1 theCol i))
+                                                                  (OP1 theCh tmp)
+                                        putAckBox lcd_wt $ tuple2 (tuple2 (OP1 theRow i) (OP1 theCol i - 1))
+                                                            0x20                  
+                                      )
+                             )( do
+                                  putAckBox lcd_wt $ tuple2 (tuple2 (OP1 theRow i) (OP1 theCol i))
+                                                            0x20
+                                  putAckBox lcd_wt $ tuple2 (tuple2 (OP1 theRow i) (OP1 theCol i - 1))
+                                                            0x20                  
+                             )
+                          view_addr' := OP1 loopingIncS view_addr'
+
+                        GOTO loop
+
+
+{-
+message0 :: String -> EXPR (Message a)
+message0 = undefined
+message1 :: String -> EXPR a -> EXPR Message
+message1 = undefined
+-}

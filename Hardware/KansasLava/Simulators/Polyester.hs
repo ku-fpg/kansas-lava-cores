@@ -42,6 +42,7 @@ import Control.Exception
 import Control.Concurrent
 import Control.Monad
 import Data.Char
+import Data.List
 import Data.Monoid
 import Control.Monad.Fix
 import Data.Word
@@ -210,7 +211,7 @@ data ExecMode
         | Friendly      -- ^ run in friendly mode, with 'threadDelay' to run slower, to be CPU friendly.
   deriving (Eq, Show)
 
--- | 'runPolyester' executes the Polyester, never returns, and ususally replaces 'reifyPolyester'.
+-- | 'runPolyester' executes the Polyester, never returns, and ususally replaces 'reifyFabric'.
 runPolyester :: (PolyesterMonad circuit) => ExecMode -> Integer -> Integer -> circuit () -> IO ()
 runPolyester mode clkSpeed simSpeed f = do
         
@@ -325,6 +326,18 @@ runPolyester mode clkSpeed simSpeed f = do
                 | PolyesterSocket filename portname speed WriteMode <- output 
                 ]                    
 
+        monitor_steppers :: [Stepper] <- sequence
+              [ do let ss :: Seq (Enabled ())
+                       ss = case fromUni p of
+                               Nothing -> error $ "type error in port " ++ show o
+                               Just s -> s
+                       f Nothing          = return ()
+                       f (Just Nothing)   = return ()
+                       f (Just (Just ())) = return ()    -- perhaps a visual ping?
+                   return $ ioStepper $ map f $ fromS ss
+              | (o,p) <- out_names
+              , "monitor/" `isPrefixOf` o
+              ]
 
         putStrLn "[Starting simulation]"
         clearScreen
@@ -339,7 +352,7 @@ runPolyester mode clkSpeed simSpeed f = do
                                      | _ <- [(0 :: Integer)..] ]]
 
         return ()
-        runSteppers (steps ++ slowDown ++ socket_steppers)
+        runSteppers (steps ++ slowDown ++ socket_steppers ++ monitor_steppers)
 
 
 
@@ -442,6 +455,9 @@ showANSI (BIND' m k) = do
 -- ANSI can be used instead. Not recommended, but harmless.
 instance Graphic (ANSI a) where 
         drawGraphic g = do g ; return ()
+
+instance Graphic () where
+        drawGraphic () = return ()
 
 -----------------------------------------------------------------------
 -- Steping version of hGetContent, never blocks, returning
