@@ -18,13 +18,13 @@ import Language.KansasLava hiding ((:=), var, IF)
 import qualified Language.KansasLava as KL
 import Data.Maybe as Maybe
 import Data.Char as Char
-import Control.Monad	
+import Control.Monad
 import Data.Default
 import Data.Word
 import Debug.Trace
 
 
--- Lava implementation of RS232	
+-- Lava implementation of RS232
 
 type SAMPLE_RATE = X16
 
@@ -82,7 +82,7 @@ resize = funMap $ \ x -> return (fromIntegral x)
 findBit :: forall sig c . (sig ~ Signal c) => (Num (sig X10)) => sig U8 -> sig X10 -> sig Bool
 findBit byte x = (bitwise) byte .!. ((unsigned) (loopingDecS x) :: sig X8)
 
-rs232out :: forall clk sig a . (Clock clk, sig a ~ Signal clk a)
+rs232out :: forall clk sig a . (Clock clk, sig ~ Signal clk)
 	=> Integer			-- ^ Baud Rate.
 	-> Integer			-- ^ Clock rate, in Hz.
         -> Patch (sig (Enabled U8)) 	(sig Bool)
@@ -90,9 +90,9 @@ rs232out :: forall clk sig a . (Clock clk, sig a ~ Signal clk a)
 rs232out baudRate clkRate ~(inp0,()) = (toAck (ready .&&. in_en),out)
   where
 	-- at the baud rate for transmission
-	fastTick :: Signal clk Bool 
+	fastTick :: Signal clk Bool
     	fastTick = rate (Witness :: Witness X16) $
---    	        accurateTo 
+--    	        accurateTo
     	                (fromIntegral baudRate / fromIntegral clkRate)
 --    	                0.99
 
@@ -118,7 +118,7 @@ rs232out baudRate clkRate ~(inp0,()) = (toAck (ready .&&. in_en),out)
 			CASE [ IF (ix .==. maxBound) $ do
 				state  := pureS TX_Idle
 			     , OTHERWISE $ do
-				state := funMap (\ x -> if x == maxBound 
+				state := funMap (\ x -> if x == maxBound
 							then return (TX_Send 0)
 							else return (TX_Send (x + 1))) ix
 			     ]
@@ -140,7 +140,7 @@ rs232out baudRate clkRate ~(inp0,()) = (toAck (ready .&&. in_en),out)
 --   There is no Ack or Ready, because there is no way to pause the 232.
 --   For the same reason, this does not use a Patch.
 
-rs232in :: forall clk sig a . (Clock clk, sig a ~ Signal clk a) 
+rs232in :: forall clk sig a . (Clock clk, sig ~ Signal clk)
 	=> Integer			-- ^ Baud Rate.
 	-> Integer			-- ^ Clock rate, in Hz.
 	-> Patch (sig Bool)  (sig (Enabled U8))
@@ -149,21 +149,21 @@ rs232in baudRate clkRate ~(in_val0,()) = ((),out)
   where
 	-- 16 times the baud rate for transmission,
 	-- so we can spot the start bit's edge.
-	fastTick :: Signal clk Bool 
+	fastTick :: Signal clk Bool
 	fastTick = rate (Witness :: Witness X16) $
---                        accurateTo 
+--                        accurateTo
                                 (16 * fromIntegral baudRate / fromIntegral clkRate)
 --                                0.99
-	
+
 
         -- the filter, currently length 4
 --        in_vals = in_val0 : map (register True) (take 4 in_vals)
-        
+
 	-- if 4 highs (lows) then go high (low), otherwise as you were.
 
         inp = in_val0
 {-
-        inp = register True 
+        inp = register True
                         (cASE [ (foldr1 (.&&.) in_vals, high)
                               , (foldr1 (.&&.) (map bitNot in_vals), low)
                               ]
@@ -193,11 +193,11 @@ rs232in baudRate clkRate ~(in_val0,()) = ((),out)
 			     , OTHERWISE $ do
 				counter := reg counter + 1
 			     ]
-			
+
 			-- We have a 3 sample average, so we wait an aditional 5
 			-- to be in the middle of the 16-times super-sample.
 			-- So, 5 is 16 / 2 - 3
-			WHEN ((reg reading .==. high) .&&. (lowCounter .==. 8)) $ CASE 
+			WHEN ((reg reading .==. high) .&&. (lowCounter .==. 8)) $ CASE
 			     [ IF (highCounter .<. 9) $ do
 				theByte ((unsigned) highCounter) := inp
 			     , IF ((highCounter .==. 9) .&&.
