@@ -2,7 +2,7 @@
 module Main where
 
 import qualified Language.KansasLava as KL
-import Language.KansasLava 
+import Language.KansasLava
 import Language.KansasLava.Fabric
 import Language.KansasLava.Universal
 import Language.KansasLava.Wakarusa
@@ -32,7 +32,7 @@ import Control.Concurrent
 
 import System.Console.CmdArgs as CmdArgs hiding ((:=))
 
-import qualified Hardware.KansasLava.Boards.Spartan3e as Board 
+import qualified Hardware.KansasLava.Boards.Spartan3e as Board
 
 import qualified Hardware.KansasLava.Simulators.Polyester as Sim
 
@@ -49,7 +49,7 @@ options = Opts { demoFabric = "lambda-bridge"    &= help "demo fabric to be exec
                , beat = (50 * 1000 * 1000)       &= help "approx number of clicks a second"
                , vhdl = False                    &= help "generate VDHL"
 
-               } 
+               }
         &= summary "spartan3e-demo: run different examples for Spartan3e"
         &= program "spartan3e-demo"
 
@@ -65,18 +65,18 @@ simUseFabric :: Opts -> Spartan3eSimulator () -> IO ()
 simUseFabric opts fab = do
         writeFile "LOG" "-- starting log\n"
         setProbesAsTrace (appendFile "LOG")
-        Sim.runPolyester 
+        Sim.runPolyester
                 (if fastSim opts then Sim.Fast else Sim.Friendly)
                 (50 * 1000 * 1000)
                 50
                 fab
 
-vhdlUseFabric :: Opts -> Spartan3e () -> IO ()
+vhdlUseFabric :: Opts -> Spartan3e' () -> IO ()
 vhdlUseFabric opts fab = do
-        kleg <- reifyFabric $ 
-                  do clk <- compileToFabric 
-                          $ run_physical 
-                          $ do fab 
+        kleg <- reifyFabric $
+                  do clk <- compileToFabric
+                          $ run_physical
+                          $ do fab
                                clk_physical
                      theClk clk
         Board.writeUCF "main.ucf" kleg
@@ -85,27 +85,27 @@ vhdlUseFabric opts fab = do
 
 
 example
- :: ( DialRotation m
+ :: ( {-DialRotation m
     , LEDs m            , LEDCount m   ~ X8
     , RS232 m           , RS232Count m ~ Serial
-    , LCD m             , LCDSize m    ~ (X2,X16)
+    , -} LCD m             , LCDSize m    ~ (X2,X16) {-
     , Switches m        , SwitchCount m ~ X4
     , Monitor m
-    ) => String 
+    ) => String
     -> m ()
 
 example "leds0" = do
-        ls <- leds        
+        ls <- leds
         Sim.core "main" $ do
                 SPARK $ \ loop -> do
-                        ls ! 0 := OP0 high ||| GOTO loop
+{-                        ls ! 0 := OP0 high ||| GOTO loop
 example "leds1" = do
-        ls <- leds        
+        ls <- leds
 --        debug <- monitor "M1"
         Sim.core "main" $ do
                 VAR reg :: VAR U32 <- SIGNAL $ var 0
                 SPARK $ \ loop -> do
-                        sequence_ [ ls M.! i := OP2 (testABit) 
+                        sequence_ [ ls M.! i := OP2 (testABit)
                                                     reg
                                                     (OP1 (+ pureS (fromIntegral i)) 0)
                                   | i <- [minBound..maxBound]
@@ -114,11 +114,11 @@ example "leds1" = do
                         reg := reg + 1
                         GOTO loop
 example "leds2" = do
-        ls <- leds        
+        ls <- leds
         rot <- dialRotation
         Sim.core "main" $ do
                 (sig_in :: REG Bool, number :: EXPR U8) <- dialedValue (20,200)
-                
+
                 sig_in <== rot
 
                 SPARK $ \ loop -> do
@@ -130,19 +130,19 @@ example "leds2" = do
                         GOTO loop
 
 example "leds3" = do
-        ls <- leds        
+        ls <- leds
         rot <- dialRotation
         Sim.core "main" $ do
                 VAR reg :: VAR U32 <- SIGNAL $ var 0
                 VAR off :: VAR X32 <- SIGNAL $ var 0
-                                
+
                 (sig_in :: REG Bool, number :: EXPR U5) <- dialedValue (0,20)
-                
+
                 sig_in <== rot
                 off    <== OP1 (enabledS) (OP1 (unsigned) number)
 
                 SPARK $ \ loop -> do
-                        sequence_ [ ls M.! i := OP2 (testABit) 
+                        sequence_ [ ls M.! i := OP2 (testABit)
                                                     reg
                                                     (OP1 (+ pureS (fromIntegral i)) off)
                                   | i <- [minBound..maxBound]
@@ -171,7 +171,7 @@ example "lcd0" = do
                         outStdLogic "SF_CE0"   high
 
                 let waitFor :: EXPR U32 -> STMT ()
-                    waitFor n = do 
+                    waitFor n = do
                             VAR i :: VAR U32 <- SIGNAL $ var 0
                             i := OP1 (\ x -> x - 2) n
                             loop <- LABEL
@@ -185,10 +185,10 @@ example "lcd0" = do
                             VAR sf :: VAR U4 <- SIGNAL $ undefinedVar
                             VAR wait :: VAR U18 <- SIGNAL $ undefinedVar
                             SPARK $ \ loop -> do
-                                    takeAckBox rd $ \ e -> 
-                                                        rs   := OP1 (\e -> case unpack e of (x,_,_) -> x) e 
-                                                    ||| sf   := OP1 (\e -> case unpack e of (_,x,_) -> x) e 
-                                                    ||| wait := OP1 (\e -> case unpack e of (_,_,x) -> x) e 
+                                    takeAckBox rd $ \ e ->
+                                                        rs   := OP1 (\e -> case unpack e of (x,_,_) -> x) e
+                                                    ||| sf   := OP1 (\e -> case unpack e of (_,x,_) -> x) e
+                                                    ||| wait := OP1 (\e -> case unpack e of (_,_,x) -> x) e
                                     theLCD := OP2 (\ a b -> pack (a,b,low)) rs sf
                                     waitFor 2
                                     theLCD := OP2 (\ a b -> pack (a,b,high)) rs sf
@@ -213,11 +213,11 @@ example "lcd0" = do
                                         high_nibble :: EXPR U4
                                         high_nibble = OP1 (\ e -> unsigned (shiftR e 4)) cmd
 
-                                        timing = OP3 (\ a b c -> mux a (b,c)) 
-                                                        (OP2 (.<=.) cmd 0x03) 
+                                        timing = OP3 (\ a b c -> mux a (b,c))
+                                                        (OP2 (.<=.) cmd 0x03)
                                                           2000
                                                         100000
-                                        
+
                                     putAckBox send_nibble $ OP2 (\ a b -> pack (a,b,50)) isCmd high_nibble
                                     putAckBox send_nibble $ OP3 (\ a b c -> pack (a,b,c)) isCmd low_nibble timing
                                     GOTO loop
@@ -243,7 +243,7 @@ example "lcd0" = do
                 SPARK $ \ loop -> do
 --                        rs := OP0 (pack (0,0,False) :: Signal u (U1,U4,Bool))
                         ls ! 0 := OP0 high
-                        
+
                         let bootCmd :: Signal u X4 -> Signal u (U1,U4,U18)
                             bootCmd = funMap (return . f)
                                                 where f 0 = (0,3,205000)
@@ -269,26 +269,26 @@ example "lcd0" = do
                                 putAckBox send_cmd (OP1 startCmd i)
 
                         ls ! 2 := OP0 high
-                        
+
                         waitFor 200000
 
                         (wr :: WriteAckBox ((X2,X16),U8),rd :: ReadAckBox ((X2,X16),U8)) <- newAckBox
-                        
+
                         cmd_loop <- LABEL
-                        
+
                         VAR row :: VAR X2  <- SIGNAL $ undefinedVar
                         VAR col :: VAR X16 <- SIGNAL $ undefinedVar
                         VAR ch  :: VAR U8  <- SIGNAL $ undefinedVar
-                        takeAckBox rd $ \ e -> 
-                                        row := OP1 (\e -> case unpack e of (x,_) -> fst (unpack x)) e 
-                                    ||| col := OP1 (\e -> case unpack e of (x,_) -> snd (unpack x)) e 
-                                    ||| ch  := OP1 (\e -> case unpack e of (_,x) -> x) e 
+                        takeAckBox rd $ \ e ->
+                                        row := OP1 (\e -> case unpack e of (x,_) -> fst (unpack x)) e
+                                    ||| col := OP1 (\e -> case unpack e of (x,_) -> snd (unpack x)) e
+                                    ||| ch  := OP1 (\e -> case unpack e of (_,x) -> x) e
 
 
                         putAckBox send_cmd (OP2 (\ r c -> 0x80 + (unsigned r) * 0x40 + (unsigned) c) row col)
                         putAckBox send_cmd (OP1 (+ 0x100) $ OP1 (unsigned) ch)
                         ls ! 3 := OP0 high
-                
+
                         GOTO cmd_loop
 
                         SPARK $ \ loop -> do
@@ -297,12 +297,12 @@ example "lcd0" = do
                                 putAckBox wr (tuple2 (tuple2 0 3) 0x33)
                                 putAckBox wr (tuple2 (tuple2 1 4) 0x34)
                                 GOTO loop
-                
 
-        
+
+
 example "lcd1" = do
-        lcd_wt <- lcd 
-        ls <- leds        
+        lcd_wt <- lcd
+        ls <- leds
         Sim.core "main" $ do
                 SPARK $ \ loop -> do
                         ls ! 0 := OP0 high
@@ -319,7 +319,7 @@ example "lcd1" = do
 
 example "rs232in" = do
         rs232_in  <- rs232rx DCE (115200 * 100)
-        lcd_wt <- lcd 
+        lcd_wt <- lcd
         rot <- dialRotation
         sw <- switches
 
@@ -328,7 +328,7 @@ example "rs232in" = do
                 dialed <== rot
                 (wt_rs,rd_rs)   <- newAckBox
 
-                lcdHexDump rd_rs view_addr (sw ! 0) lcd_wt 
+                lcdHexDump rd_rs view_addr (sw ! 0) lcd_wt
 
                 SPARK $ \ loop -> do
                         VAR ch :: VAR U8 <- SIGNAL $ var 0
@@ -340,7 +340,7 @@ example "rs232in" = do
 
 example "lambda-bridge" = do
         rs232_in  <- rs232rx DCE (115200 * 10)
-        lcd_wt <- lcd 
+        lcd_wt <- lcd
         rot <- dialRotation
         sw <- switches
 
@@ -350,9 +350,9 @@ example "lambda-bridge" = do
                 (dialed, view_addr) <- dialedValue (0 :: X63, 62)
                 dialed <== rot
 
-                -- The lambda-bridge FIFO 
+                -- The lambda-bridge FIFO
                 (wt_out_fifo, rd_out_fifo :: ReadAckBox U8) <- newAckBox
-                lcdHexDump rd_out_fifo view_addr (sw ! 0) lcd_wt 
+                lcdHexDump rd_out_fifo view_addr (sw ! 0) lcd_wt
 
                 VAR reg  :: VAR U8         <- SIGNAL $ var 0
 
@@ -371,7 +371,7 @@ example "lambda-bridge" = do
                                  (val + defaultedEnabledVal 0 e1
                                       - defaultedEnabledVal 0 e2)
                         in val
-                        
+
                 VAR in_space :: VAR U8 <- SIGNAL $ var 0
                 -- how much is read
                 VAR out_space :: VAR U8 <- SIGNAL $ var 0
@@ -394,13 +394,13 @@ example "lambda-bridge" = do
                 -- accept the RS232 input, and put into a buffer
                 SPARK $ \ loop -> do
                         -- TODO: invent macro
-                        -- Wait for p2 to not be zero 
-                        (OP2 (.==.) rd_p2 0) :? 
+                        -- Wait for p2 to not be zero
+                        (OP2 (.==.) rd_p2 0) :?
                                 GOTO loop
 
                         -- Yes, this can miss things if
                         -- the protocol slows down
-                        takeEnabled rs232_in $ \ e -> 
+                        takeEnabled rs232_in $ \ e ->
                                 writeM mem := tuple2 addr e
                                         ||| dec_p2 := 1
                         addr := addr + 1
@@ -453,8 +453,8 @@ example "lambda-bridge" = do
                                 readChar $ \ e -> ch := e
                                 IF (OP2 (.==.) ch tag) (do
                                         readChar $ \ e -> ch := e
-                                        (OP2 (.==.) ch tag) :? 
-                                                (len := ch 
+                                        (OP2 (.==.) ch tag) :?
+                                                (len := ch
                                                   ||| GOTO header2)
                                    )(do
                                         return ()       -- nothing required
@@ -472,7 +472,7 @@ example "lambda-bridge" = do
                         putAckBox wt_pkt (OP1 (unsigned) len)
 
                         GOTO header0
-                
+
                 -- handle the packets
                 lambdaBridgeARQ debug rd_pkt mem wt_out_fifo
   where
@@ -499,11 +499,11 @@ lambdaBridgeARQ (MONITOR mon) rd_pkt mem wt_out_fifo = do
 
                         -- This is how many bytes have been approved for reading
                         readAckBox rd_pkt $ \ e -> len := e
-                                
-                                
+
+
 --                        d0 := message1 "(%d)" len
 --                        d0 := 1
-                        
+
                         -- we assume 1 packet per frame right now
                         readMemory mem addr $ \ e -> ch := e
                         addr := OP1 loopingIncS addr
@@ -512,10 +512,10 @@ lambdaBridgeARQ (MONITOR mon) rd_pkt mem wt_out_fifo = do
                         -- TODO: make this 1-per channel, or GC them
                         for 0 (len - 1) $ \ (i :: EXPR X256) -> do
                                 -- Stash our packet locally
-                                readMemory mem addr $ \ e -> 
+                                readMemory mem addr $ \ e ->
                                         writeM local_in_mem := tuple2 i e
                                 addr := OP1 loopingIncS addr
-                
+
                         -- we've got a local copy of the frame/packet now,
                         -- so we can ack the message.
                         takeAckBox rd_pkt $ \ _ -> return ()
@@ -546,7 +546,7 @@ lambdaBridgeARQ (MONITOR mon) rd_pkt mem wt_out_fifo = do
                                 putAckBox wt_out_fifo a1
                                 readMemory local_in_mem 1 $ \ e -> a2 := e
                                 putAckBox wt_out_fifo a2
-                                -- The rest of the packet is 
+                                -- The rest of the packet is
                                 putAckBox wtDataPkt (tuple2 ab (OP1 bitwise (tuple2 a1 a2)))
                            ) $ return ()
 
@@ -554,7 +554,7 @@ lambdaBridgeARQ (MONITOR mon) rd_pkt mem wt_out_fifo = do
                         GOTO loop
 
 
-                
+
                 VAR datPkt :: VAR (Bool,U16) <- SIGNAL $ undefinedVar
 
                 SPARK $ \ startRecv -> do
@@ -573,7 +573,7 @@ lambdaBridgeARQ (MONITOR mon) rd_pkt mem wt_out_fifo = do
 
 {-
                         for 2 (OP1 (unsigned) len + 1) $ \ (i :: EXPR X256) -> do
-                          VAR ch :: VAR U8 <- SIGNAL $ var 0 
+                          VAR ch :: VAR U8 <- SIGNAL $ var 0
                           readMemory local_in_mem 0 $ \ e -> ch := e
                           putAckBox wt_out_fifo ch
 -}
@@ -581,8 +581,8 @@ lambdaBridgeARQ (MONITOR mon) rd_pkt mem wt_out_fifo = do
                         GOTO stop
 
                         return ()
-                    
-                    
+
+
                     return ()
 
 
@@ -596,7 +596,7 @@ lambdaBridgeARQ (MONITOR mon) rd_pkt mem wt_out_fifo = do
 
 -}
 
-        
+
 
 {-
 
@@ -604,7 +604,7 @@ example _ = do
         ls <- leds
 --        ss <- switches
         rot <- dialRotation
-        lcd_wt <- lcd 
+        lcd_wt <- lcd
 
         rs232_in  <- rs232rx DCE (115200 * 100)
         rs232_out <- rs232tx DCE (115200 * 100)
@@ -614,7 +614,7 @@ example _ = do
 
 {-
                 SPARK $ \ loop -> do
-                        (OP1 isEnabled rot) :? 
+                        (OP1 isEnabled rot) :?
                                 (((OP1 enabledVal rot) :? reg := reg + 1)
                                    ||| ((OP1 (bitNot . enabledVal) rot) :? reg := reg - 1)
                                 ) ||| GOTO loop
@@ -635,7 +635,7 @@ example _ = do
                         putAckBox lcd_wt $ tuple2 (tuple2 0 0) reg
                         reg := reg + 1
                         GOTO loop
--}      
+-}
 
                 SPARK $ \ loop -> do
                         putAckBox rs232_out $ 0x31
@@ -664,17 +664,17 @@ example _ = do
                                         ||| cont (valueM mem)
 -}
 
-   
----------------------------------------------------------------     
+
+---------------------------------------------------------------
 -- Utilites; to be moved elsewhere.
 
 tuple2 :: (Rep a, Rep b) => EXPR a -> EXPR b -> EXPR (a,b)
 tuple2 = OP2 (curry pack)
 
 tuple3 :: (Rep a, Rep b, Rep c) => EXPR a -> EXPR b -> EXPR c -> EXPR (a,b,c)
-tuple3 = OP3 (\ a b c -> pack (a,b,c)) 
+tuple3 = OP3 (\ a b c -> pack (a,b,c))
 
--- This takes a left/right command, and outputs a number, based on this 
+-- This takes a left/right command, and outputs a number, based on this
 
 dialedValue :: forall ix . (Rep ix, Num ix, Ord ix) => (ix,ix) -> STMT (REG Bool, EXPR ix)
 dialedValue (lo,hi) = do
@@ -682,16 +682,16 @@ dialedValue (lo,hi) = do
         (sig_in,sig_out) <- mkEnabled
 
         let pred_inc =
-                OP2 and2 (OP1 (enabledVal) sig_out) 
+                OP2 and2 (OP1 (enabledVal) sig_out)
                          (OP1 (.<. pureS hi) number)
         let pred_dec =
-                OP2 and2 (OP1 (bitNot . enabledVal) sig_out) 
+                OP2 and2 (OP1 (bitNot . enabledVal) sig_out)
                          (OP1 (.>. pureS lo) number)
-        
+
         let action = (pred_inc :? number := number + 1)
                         |||
                      (pred_dec :? number := number - 1)
-        
+
         always $ (OP1 isEnabled sig_out) :? action
 
         return (sig_in, number)
@@ -714,7 +714,7 @@ lcdHexDump inp view_addr mode lcd_wt = do
                 mem :: Memory X256 U8 <- memory
 
                 SPARK $ \ loop -> do
-                        takeAckBox inp $ \ e -> 
+                        takeAckBox inp $ \ e ->
                                 writeM mem := tuple2 addr e
                         addr := OP1 loopingIncS addr
                         GOTO loop
@@ -758,17 +758,17 @@ lcdHexDump inp view_addr mode lcd_wt = do
                                   readM mem := (OP1 (unsigned) view_addr') ||| tmp := valueM mem
                                   IF (mode) (do
                                         showHex 2 (OP1 theRow i,OP1 theCol i) (OP1 (unsigned) tmp)
-                                      )(do 
+                                      )(do
                                         putAckBox lcd_wt $ tuple2 (tuple2 (OP1 theRow i) (OP1 theCol i))
                                                                   (OP1 theCh tmp)
                                         putAckBox lcd_wt $ tuple2 (tuple2 (OP1 theRow i) (OP1 theCol i - 1))
-                                                            0x20                  
+                                                            0x20
                                       )
                              )( do
                                   putAckBox lcd_wt $ tuple2 (tuple2 (OP1 theRow i) (OP1 theCol i))
                                                             0x20
                                   putAckBox lcd_wt $ tuple2 (tuple2 (OP1 theRow i) (OP1 theCol i - 1))
-                                                            0x20                  
+                                                            0x20
                              )
                           view_addr' := OP1 loopingIncS view_addr'
 
@@ -824,17 +824,17 @@ lcdHexDump2 mem view_addr mode lcd_wt = do
                                   readM mem := (OP1 (unsigned) view_addr') ||| tmp := valueM mem
                                   IF (mode) (do
                                         showHex 2 (OP1 theRow i,OP1 theCol i) (OP1 (unsigned) tmp)
-                                      )(do 
+                                      )(do
                                         putAckBox lcd_wt $ tuple2 (tuple2 (OP1 theRow i) (OP1 theCol i))
                                                                   (OP1 theCh tmp)
                                         putAckBox lcd_wt $ tuple2 (tuple2 (OP1 theRow i) (OP1 theCol i - 1))
-                                                            0x20                  
+                                                            0x20
                                       )
                              )( do
                                   putAckBox lcd_wt $ tuple2 (tuple2 (OP1 theRow i) (OP1 theCol i))
                                                             0x20
                                   putAckBox lcd_wt $ tuple2 (tuple2 (OP1 theRow i) (OP1 theCol i - 1))
-                                                            0x20                  
+                                                            0x20
                              )
                           view_addr' := OP1 loopingIncS view_addr'
 
@@ -846,4 +846,5 @@ message0 :: String -> EXPR (Message a)
 message0 = undefined
 message1 :: String -> EXPR a -> EXPR Message
 message1 = undefined
+-}
 -}

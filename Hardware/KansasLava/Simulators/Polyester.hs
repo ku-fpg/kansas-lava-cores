@@ -1,6 +1,7 @@
-{-# LANGUAGE ScopedTypeVariables, GADTs, DeriveDataTypeable, DoRec #-}
+{-# LANGUAGE ScopedTypeVariables, GADTs, DeriveDataTypeable, DoRec, KindSignatures #-}
 
-module Hardware.KansasLava.Simulators.Polyester (
+module Hardware.KansasLava.Simulators.Polyester where
+{-
           -- * The (abstract) Fake Fabric Monad
           Polyester -- abstract
         , board
@@ -27,13 +28,13 @@ module Hardware.KansasLava.Simulators.Polyester (
         , PolyesterMonad(..)
         , initializedCores
         ) where
-        
+-}
 
 import Language.KansasLava hiding (Fast)
 import Language.KansasLava.Fabric
 import Language.KansasLava.Universal
 
-import Hardware.KansasLava.Core 
+import Hardware.KansasLava.Core
 
 import System.Console.ANSI
 import System.IO
@@ -55,40 +56,34 @@ import Data.Sized.Unsigned
 
 -----------------------------------------------------------------------
 
-instance CoreMonad Polyester where
-        core nm stmt = Polyester $ \ _ _ st -> do
-                                        r <- stmt 
-                                        return (r,[],st { pCores = nm : pCores st })
 
+{-
 -- PolyesterMonad implements a simulator for FPGA boards.
 -- Perhaps call it the SimulatorMonad
 class CoreMonad fab => PolyesterMonad fab where
-        polyester :: Polyester a -> fab a      -- escape into the simulator 
+        polyester :: Polyester a -> fab a      -- escape into the simulator
         circuit   :: fab () -> Polyester ()    -- extact the sim circuit, for interpretation
         gen_board :: fab ()
 
 -- call this polyesterBoard?
 board     :: Fabric a -> Polyester a
 board stmt = Polyester $ \ _ env st ->
-                                let (a,outs) = runFabric stmt (pOutNames env)
+                                let Pure (a,outs) = runFabric stmt (pOutNames env)
                                 in return (a,[PolyesterOutput outs],st)
-
-
+-}
 -----------------------------------------------------------------------
 -- Monad
 -----------------------------------------------------------------------
 
--- | The simulator uses its own 'Fabric', which connects not to pins on the chip, 
+-- | The simulator uses its own 'Fabric', which connects not to pins on the chip,
 -- but rather an ASCII picture of the board.
 
-data PolyesterEnv = PolyesterEnv 
+data PolyesterEnv = PolyesterEnv
                         { pExecMode   :: ExecMode
+                        , pStdin      :: [Maybe Char]
                         , pFindSocket :: String -> IO Handle
                         , pClkSpeed   :: Integer                -- clock speed, in Hz
                         , pSimSpeed   :: Integer                -- how many cycles are we *actually* doing a second
-                        , pOutNames      :: [(String,Pad)]      -- The output from the generated circuit
-                                                                -- (passed back in, to allow (re)active panel)
---                        , pExternalInput :: [(String,Pad)]      -- The outside world talking
                         }
 
 data PolyesterState = PolyesterState
@@ -98,42 +93,49 @@ data PolyesterState = PolyesterState
 
 data PolyesterOut = PolyesterStepper Stepper
                   | PolyesterOutput [(String,Pad)]
-                  | PolyesterSocket String String Int IOMode    -- socket name, (fabric) port name, 
+                  | PolyesterSocket String String Int IOMode    -- socket name, (fabric) port name,
                                                                 -- speed, and ReadMode vs WriteMode
                                                                 -- (AppendMode and ReadWriteMode not supported)
 
-data Polyester a = Polyester ([Maybe Char] 
-                               -> PolyesterEnv
+data Polyester a = Polyester (PolyesterEnv
                                -> PolyesterState
-                               -> STMT (a,[PolyesterOut],PolyesterState))
+                               -> Pure (a,[PolyesterOut],PolyesterState))
 
 
 instance Monad Polyester where
-        return a = Polyester $ \ _ _ st -> return (a,mempty,st)
-        (Polyester f) >>= k = Polyester $ \ inp env st0 -> do
-                                (a,w1,st1)  <- f inp env st0
+        return a = Polyester $ \ _ st -> return (a,mempty,st)
+        (Polyester f) >>= k = Polyester $ \ env st0 -> do
+                                (a,w1,st1)  <- f env st0
                                 let Polyester g = k a
-                                (b,w2,st2)  <- g inp env st1
+                                (b,w2,st2)  <- g env st1
                                 return (b,w1 `mappend` w2,st2)
         fail msg = error msg
 
 instance MonadFix Polyester where
         -- TODO: check this
-        mfix f = Polyester $ \ inp env st -> 
-                        mfix (\ ~(r,_,_) ->  let (Polyester g) = f r
-                                      in g inp env st)
+        mfix f = Polyester $ \ env st ->
+                        mfix (\ ~(r,_,_) -> let (Polyester g) = f r in g env st)
 
 getPolyesterExecMode :: Polyester ExecMode
-getPolyesterExecMode = Polyester $ \ _ env st -> return (pExecMode env,mempty,st)
+getPolyesterExecMode = Polyester $ \ env st -> return (pExecMode env,mempty,st)
 
 getPolyesterClkSpeed :: Polyester Integer
-getPolyesterClkSpeed = Polyester $ \ _ env st -> return (pClkSpeed env,mempty,st)
+getPolyesterClkSpeed = Polyester $ \ env st -> return (pClkSpeed env,mempty,st)
 
 getPolyesterSimSpeed :: Polyester Integer
-getPolyesterSimSpeed = Polyester $ \ _ env st -> return (pSimSpeed env,mempty,st)
+getPolyesterSimSpeed = Polyester $ \ env st -> return (pSimSpeed env,mempty,st)
 
 initializedCores :: Polyester [String]
-initializedCores = Polyester $ \ _ env st -> return (pCores st,mempty,st)
+initializedCores = Polyester $ \ env st -> return (pCores st,mempty,st)
+
+getBoardExecMode :: (Simulator f) => Board f ExecMode
+getBoardExecMode = Board $ \ _ env -> return (return (pExecMode env,mempty))
+
+getBoardClkSpeed :: (Simulator f) => Board f Integer
+getBoardClkSpeed = Board $ \ _ env -> return (return (pClkSpeed env,mempty))
+
+getBoardSimSpeed :: (Simulator f) => Board f Integer
+getBoardSimSpeed = Board $ \ _ env -> return (return (pSimSpeed env,mempty))
 
 -----------------------------------------------------------------------
 -- Ways out outputing from the Polyester
@@ -141,7 +143,7 @@ initializedCores = Polyester $ \ _ env st -> return (pCores st,mempty,st)
 
 -- | Checks an input list for diffences between adjacent elements,
 -- and for changes, maps a graphical event onto the internal stepper.
--- The idea is that sending a graphical event twice should be 
+-- The idea is that sending a graphical event twice should be
 -- idempotent, but internally the system only writes events
 -- when things change.
 outPolyester :: (Eq a, Graphic g) => (a -> g) -> [a] -> Polyester ()
@@ -156,7 +158,8 @@ changed (a:as) = Just a : f a as
 
 -- | Turn a list of graphical events into a 'Polyester', without processing.
 outPolyesterEvents :: (Graphic g) => [Maybe g] -> Polyester ()
-outPolyesterEvents ogs = Polyester $ \ _ _ st -> return ((),[PolyesterStepper $ stepper ogs],st)
+outPolyesterEvents ogs = Polyester $ \ _ st -> return ((),[PolyesterStepper $ stepper ogs],st)
+
 
 -- | creates single graphical events, based on the number of Events,
 -- when the first real event is event 1, and there is a beginning of time event 0.
@@ -171,7 +174,7 @@ outPolyesterCount f = outPolyester f . loop 0
 -- RS232 (which only used empty or singleton strings), for the inside of a list.
 
 writeSocketPolyester :: String -> String -> Int -> Polyester ()
-writeSocketPolyester filename portname speed = Polyester $ \ _ _ st -> 
+writeSocketPolyester filename portname speed = Polyester $ \ _ st ->
         return ((),[PolyesterSocket filename portname speed WriteMode],st)
 
 
@@ -183,11 +186,11 @@ writeSocketPolyester filename portname speed = Polyester $ \ _ _ st ->
 inPolyester :: a                           -- ^ initial 'a'
          -> (Char -> a -> a)            -- ^ how to interpreate a key press
          -> Polyester [a]
-inPolyester a interp = Polyester $ \ inp _ st -> do
+inPolyester a interp = Polyester $ \ env st -> do
         let f' a' Nothing = a'
             f' a' (Just c) = interp c a'
-            vals = scanl f' a inp
-        return (vals,mempty,st) 
+            vals = scanl f' a (pStdin env)
+        return (vals,mempty,st)
 
 
 -- | 'readSocketPolyester' reads from a socket.
@@ -199,7 +202,7 @@ inPolyester a interp = Polyester $ \ inp _ st -> do
 -- process needs to do this.
 
 readSocketPolyester :: String -> String -> Int -> Polyester ()
-readSocketPolyester filename portname speed = Polyester $ \ _ _ st -> 
+readSocketPolyester filename portname speed = Polyester $ \ _ st ->
         return ((),[PolyesterSocket filename portname speed ReadMode],st)
 
 -----------------------------------------------------------------------
@@ -210,11 +213,11 @@ data ExecMode
         = Fast          -- ^ run as fast as possible, and do not display the clock
         | Friendly      -- ^ run in friendly mode, with 'threadDelay' to run slower, to be CPU friendly.
   deriving (Eq, Show)
-
+{-
 -- | 'runPolyester' executes the Polyester, never returns, and ususally replaces 'reifyFabric'.
 runPolyester :: (PolyesterMonad circuit) => ExecMode -> Integer -> Integer -> circuit () -> IO ()
 runPolyester mode clkSpeed simSpeed f = do
-        
+
         setTitle "Kansas Lava"
         putStrLn "[Booting Spartan3e simulator]"
         hSetBuffering stdin NoBuffering
@@ -229,12 +232,12 @@ runPolyester mode clkSpeed simSpeed f = do
 --            clockOut | mode == Friendly =
 --                        outPolyester clock [0..]
 
-        let extras = do 
+        let extras = do
                 quit <- inPolyester False (\ c _ -> c == 'q')
-                outPolyester (\ b -> if b 
-                                  then error "Simulation Quit" 
+                outPolyester (\ b -> if b
+                                  then error "Simulation Quit"
                                   else return () :: ANSI ()) quit
-        
+
         let Polyester h = do
                 extras
                 circuit (f >> gen_board)
@@ -247,7 +250,7 @@ runPolyester mode clkSpeed simSpeed f = do
                         putMVar sockDB sock_map
                         return h
                   Nothing -> do
-                        h <- finally 
+                        h <- finally
                               (do sock <- listenOn $ UnixSocket nm
                                   putStrLn $ "* Waiting for client for " ++ nm
                                   (h,_,_) <- accept sock
@@ -273,11 +276,11 @@ runPolyester mode clkSpeed simSpeed f = do
 
 -}
 
-        rec let fab :: Fabric ((),[PolyesterOut],PolyesterState)
+        rec let fab :: SuperFabric Pure ((),[PolyesterOut],PolyesterState)
                 fab = compileToFabric $ h inputs env st0
 
-            
-                env = PolyesterEnv 
+
+                env = PolyesterEnv
                         { pExecMode   = mode
                         , pFindSocket = findSock
                         , pClkSpeed   = clkSpeed
@@ -285,23 +288,23 @@ runPolyester mode clkSpeed simSpeed f = do
                         , pOutNames   = out_names
                         }
 
-                st0 = PolyesterState 
+                st0 = PolyesterState
                         { pCores = []
                         }
 
                 -- break the abstaction, building the (virtual) board
-                (((),output,st1),in_names',out_names) = unFabric fab in_names
-            
+                Pure (((),output,st1),in_names',out_names) = unFabric fab in_names
+
             in_names :: [(String,Pad)] <- do
                     -- later abstract out
-                    socket_reads <- sequence 
+                    socket_reads <- sequence
                               [ do sock <- findSock $ filename
                                    ss <- hGetContentsStepwise sock
                                    let ss' = concatMap (\ x -> x : replicate (speed - 1) Nothing) ss
                                    return ( portname
                                            , toUni (toS (fmap (fmap (fromIntegral . ord)) ss') :: Seq (Maybe U8))
                                            )
-                                | PolyesterSocket filename portname speed ReadMode <- output 
+                                | PolyesterSocket filename portname speed ReadMode <- output
                                 ]
                     return $ [ o | PolyesterOutput os <- output, o <- os ]
                           ++ socket_reads
@@ -317,14 +320,14 @@ runPolyester mode clkSpeed simSpeed f = do
                                Nothing -> error $ "type error in port " ++ show portname
                                Just s -> s
                        f (Just (Just ch)) = do
-                               hPutStr sock [chr $ fromIntegral ch] 
+                               hPutStr sock [chr $ fromIntegral ch]
                                hFlush sock
                        f (Just Nothing)   = return ()
                        f Nothing          = error "socket gone wrong (undefined output)"
 
                    return $ ioStepper $ map f $ fromS ss
-                | PolyesterSocket filename portname speed WriteMode <- output 
-                ]                    
+                | PolyesterSocket filename portname speed WriteMode <- output
+                ]
 
         monitor_steppers :: [Stepper] <- sequence
               [ do let ss :: Seq (Enabled ())
@@ -343,18 +346,18 @@ runPolyester mode clkSpeed simSpeed f = do
         clearScreen
         setCursorPosition 0 0
         hFlush stdout
-        
+
 --	putStr "\ESC[2J\ESC[1;1H"
 
         let slowDown | mode == Fast = []
                      | mode == Friendly =
-                         [ ioStepper [ threadDelay (20 * 1000) 
+                         [ ioStepper [ threadDelay (20 * 1000)
                                      | _ <- [(0 :: Integer)..] ]]
 
         return ()
         runSteppers (steps ++ slowDown ++ socket_steppers ++ monitor_steppers)
 
-
+-}
 
 -----------------------------------------------------------------------
 -- Utils for building boards
@@ -384,7 +387,7 @@ class Graphic g where
 -----------------------------------------------------------------------
 
 -- The idea in the future is we can common up the changes to the
--- screen, removing needless movement of the cursor, allowing 
+-- screen, removing needless movement of the cursor, allowing
 -- a slight pause before updating, etc.
 
 -- Do something, and return.
@@ -399,15 +402,14 @@ runSteppers ss = do
         ss' <- sequence [ runStepper m
                         | m <- ss
                         ]
---        threadDelay (10 * 1000)
         runSteppers ss'
 
 -- Stepper could be written in terms of ioStepper
 stepper :: (Graphic g) => [Maybe g] -> Stepper
-stepper = ioStepper 
+stepper = ioStepper
         . map (\ o -> case o of
-                         Nothing -> return ()
-                         Just g -> showANSI (drawGraphic g))
+                         Nothing -> do { return () }
+                         Just g -> do { showANSI (drawGraphic g) })
 
 ioStepper :: [IO ()] -> Stepper
 ioStepper (m:ms)      = Stepper (do m ; return (ioStepper ms))
@@ -424,7 +426,7 @@ data ANSI a where
         AT      :: ANSI () -> (Int,Int)    -> ANSI ()
         BIND'    :: ANSI b -> (b -> ANSI a) -> ANSI a
         RETURN'  :: a                       -> ANSI a
-        
+
 instance Monad ANSI where
         return a = RETURN' a
         m >>= k  = BIND' m k
@@ -440,7 +442,8 @@ showANSI (COLOR col ascii) = do
         showANSI ascii
         setSGR []
         hFlush stdout
-showANSI (PRINT str) = putStr str
+showANSI (PRINT str) = do
+        putStr str
 showANSI (AT ascii (row,col)) = do
         setCursorPosition row col
         showANSI ascii
@@ -453,7 +456,7 @@ showANSI (BIND' m k) = do
 
 -- | Rather than use a data-structure for each action,
 -- ANSI can be used instead. Not recommended, but harmless.
-instance Graphic (ANSI a) where 
+instance Graphic (ANSI a) where
         drawGraphic g = do g ; return ()
 
 instance Graphic () where
@@ -490,3 +493,178 @@ instance Show PolyesterException where
      show (PolyesterException msg) = msg
 
 instance Exception PolyesterException
+
+data Board (f :: * -> *) a = Board
+        { unBoard :: [Maybe Char]
+                  -> PolyesterEnv
+                  -> IO (f (a,[PolyesterOut]))
+        }
+{-
+data Polyester a = Polyester ([Maybe Char]
+                               -> PolyesterEnv
+                               -> PolyesterState
+                               -> STMT (a,[PolyesterOut],PolyesterState))
+-}
+
+
+instance Monad (Board f) where {}
+instance MonadFix (Board f) where {}
+
+--class Reify fab => Simulator fab where
+--        simulatedBoard :: SuperFabric (Board fab) ()
+
+class Monad fab => Simulator fab where
+        runPolyester :: fab () -> Polyester ()
+
+runSimulator  :: forall fab . (Simulator fab) => ExecMode -> Integer -> Integer -> fab () -> IO ()
+runSimulator mode clkSpeed simSpeed fab = do
+        setTitle "Kansas Lava"
+        putStrLn "[Booting Spartan3e simulator]"
+        hSetBuffering stdin NoBuffering
+        hSetEcho stdin False
+
+        -- create the virtual device directory
+        createDirectoryIfMissing True "dev"
+
+        inputs <- hGetContentsStepwise stdin
+
+--        let -- clockOut | mode == Fast = return ()
+--            clockOut | mode == Friendly =
+--                        outPolyester clock [0..]
+
+        sockDB <- newMVar []
+        let findSock :: String -> IO Handle
+            findSock nm = do
+                sock_map <- takeMVar sockDB
+                case lookup nm sock_map of
+                  Just h -> do
+                        putMVar sockDB sock_map
+                        return h
+                  Nothing -> do
+                        h <- finally
+                              (do sock <- listenOn $ UnixSocket nm
+                                  putStrLn $ "* Waiting for client for " ++ nm
+                                  (h,_,_) <- accept sock
+                                  putStrLn $ "* Found client for " ++ nm
+                                  return h)
+                              (removeFile nm)
+                        hSetBuffering h NoBuffering
+                        putMVar sockDB $ (nm,h) : sock_map
+                        return h
+
+        let env = PolyesterEnv
+                        { pExecMode   = mode
+                        , pStdin      = inputs
+                        , pFindSocket = findSock
+                        , pClkSpeed   = clkSpeed
+                        , pSimSpeed   = simSpeed
+                        }
+
+        let st0 = PolyesterState {}
+
+        let extras :: Polyester () = do
+                quit <- inPolyester False (\ c _ -> c == 'q')
+                outPolyester (\ b -> if b
+                                  then error "Simulation Quit"
+                                  else return () :: ANSI ()) quit
+
+        let Polyester circuit = runPolyester fab >> extras
+
+{-
+
+Polyester ([Maybe Char]
+                               -> PolyesterEnv
+                               -> PolyesterState
+                               -> IO (a,[PolyesterOut],PolyesterState))
+-}
+
+        let Pure ((),output, st1) = circuit env st0
+{-
+            in_names :: [(String,Pad)] <- do
+                    -- later abstract out
+                    socket_reads <- sequence
+                              [ do sock <- findSock $ filename
+                                   ss <- hGetContentsStepwise sock
+                                   let ss' = concatMap (\ x -> x : replicate (speed - 1) Nothing) ss
+                                   return ( portname
+                                           , toUni (toS (fmap (fmap (fromIntegral . ord)) ss') :: Seq (Maybe U8))
+                                           )
+                                | PolyesterSocket filename portname speed ReadMode <- output
+                                ]
+                    return $ [ o | PolyesterOutput os <- output, o <- os ]
+                          ++ socket_reads
+-}
+        let steps = [ o | PolyesterStepper o <- output ]
+
+{-
+        socket_steppers :: [Stepper] <- sequence
+              [ do sock <- findSock $ filename
+                   let ss :: Seq (Enabled U8)
+                       ss = case lookup portname out_names of
+                           Nothing -> error $ "can not find output " ++ show portname
+                           Just p -> case fromUni p of
+                               Nothing -> error $ "type error in port " ++ show portname
+                               Just s -> s
+                       f (Just (Just ch)) = do
+                               hPutStr sock [chr $ fromIntegral ch]
+                               hFlush sock
+                       f (Just Nothing)   = return ()
+                       f Nothing          = error "socket gone wrong (undefined output)"
+
+                   return $ ioStepper $ map f $ fromS ss
+                | PolyesterSocket filename portname speed WriteMode <- output
+                ]
+
+        monitor_steppers :: [Stepper] <- sequence
+              [ do let ss :: Seq (Enabled ())
+                       ss = case fromUni p of
+                               Nothing -> error $ "type error in port " ++ show o
+                               Just s -> s
+                       f Nothing          = return ()
+                       f (Just Nothing)   = return ()
+                       f (Just (Just ())) = return ()    -- perhaps a visual ping?
+                   return $ ioStepper $ map f $ fromS ss
+              | (o,p) <- out_names
+              , "monitor/" `isPrefixOf` o
+              ]
+-}
+
+        putStrLn "[Starting simulation]"
+        clearScreen
+        setCursorPosition 0 0
+        hFlush stdout
+
+        print (length [ () | PolyesterStepper _ <- output ])
+
+        let slowDown | mode == Fast = []
+                     | mode == Friendly =
+                         [ ioStepper [ do { threadDelay (20 * 1000) }
+                                     | _ <- [(0 :: Integer)..] ]]
+
+        runSteppers (steps ++ slowDown {- ++ socket_steppers ++ monitor_steppers-})
+
+{-
+        return ()
+        let brd = simulatedBoard
+
+        let liftMe :: fab a -> Board fab a
+            liftMe f = Board $ \ _ _ -> return (fmap (\ a -> (a,[])) f)
+
+        let Board m = do
+                runFabricWithDriver (liftFabric liftMe fab) brd
+
+
+        -- build the
+        r <- m undefined undefined
+        let Pure ((),output) = purify r
+
+
+-}
+
+
+        return ()
+
+
+
+
+
