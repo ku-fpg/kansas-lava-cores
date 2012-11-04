@@ -19,7 +19,7 @@ import Language.KansasLava.Fabric
 import Language.KansasLava.Universal
 import Hardware.KansasLava.Simulators.Polyester as P
 import System.Console.ANSI
-
+import Data.Char as Char
 {-
 
 -}
@@ -45,12 +45,17 @@ import Control.Monad.Fix
 -- The Spartan3e Class
 ------------------------------------------------------------
 
-class (SparkM m, Monad m) => Spartan3e m where
-        clkSpeed :: m Integer           -- Hz
-        leds     :: Matrix X8 (Seq Bool) -> m ()
-        switches :: m (Matrix X4 (Seq Bool))
-        buttons  :: m (Matrix X4 (Seq Bool))
-        dial     :: m (Seq Bool, Seq (Enabled Bool))
+class (SparkM m) => Spartan3e m where
+        clkSpeed ::                             m Integer -- Hz
+        leds     :: Matrix X8 (Seq Bool)     -> m ()
+        switches ::                             m (Matrix X4 (Seq Bool))
+        buttons  ::                             m (Matrix X4 (Seq Bool))
+        dial     ::                             m (Seq Bool, Seq (Enabled Bool))
+        lcd      :: Bus ((X2,X16),U8)        -> m ()
+        rs232rx  :: Serial -> Int            -> m (Seq (Enabled U8))
+        rs232tx  :: Serial -> Int -> Bus U8  -> m ()
+        mem_chip :: Bus (U20,U8) -> Bus U20  -> m (Bus (U16,U16))       -- unclear how to do this
+        probe    :: Rep a => String -> Seq a -> m ()
 
 ------------------------------------------------------------
 -- The Spartan3e Board Monad
@@ -104,13 +109,18 @@ instance SparkM Spartan3eSimulator where
         writeSignalVar var sig = Spartan3eSimulator $ writeSignalVar var sig
         readSignalVar  var fn  = Spartan3eSimulator $ readSignalVar var fn
 
+instance InOutM Spartan3eSimulator where
+        input nm pad = Spartan3eSimulator $ input nm pad
+        output nm pad = Spartan3eSimulator $ output nm pad
 
 -- runFabric :: (MonadFix m) => SuperFabric m a -> [(String,Pad)] -> m (a,[(String,Pad)])
 
 instance Simulator Spartan3eSimulator where
+        -- Really, this is getting a Fabric.
         runPolyester (Spartan3eSimulator m) = do
                 outPolyester (\ _ -> BOARD) [()]
-                ((),_) <- runFabric m []
+                ((),pads) <- runFabric m []
+--                outDebuggingPolyester pads
                 return ()
 
 instance Spartan3e Spartan3eSimulator where
@@ -150,7 +160,7 @@ instance Spartan3e Spartan3eSimulator where
                           ]
                 return $ matrix m
 
-        dial =  Spartan3eSimulator $ lift $ do
+        dial = Spartan3eSimulator $ lift $ do
                 let switch 'd' (Dial b p) = Dial (not b) p
                     switch 's' (Dial b p) = Dial b (pred p)
                     switch 'f' (Dial b p) = Dial b (succ p)
@@ -175,27 +185,71 @@ instance Spartan3e Spartan3eSimulator where
                        )
 
 
-{-
+        lcd bus = do
+                CHAN lcd_out lcd_in :: CHAN ((X2,X16),U8) <- channel
+                spark $ do
+                        lab <- STEP
+                        takeBus bus lcd_in $ GOTO lab
 
--}
+                let ss :: [Maybe (Enabled ((X2,X16),U8))] = fromS lcd_out
+
+                Spartan3eSimulator $ lift $ outPolyesterEvents
+                        [ case ss of
+                            Nothing -> Nothing -- should not happen; consider X'ing the LCD
+                            Just Nothing -> Nothing
+                            Just (Just ((x,y),ch)) -> Just (LCD (x,y) (Char.chr (fromIntegral ch)))
+                        | ss <- fromS lcd_out
+                        ]
+
+                return ()
+
+        rs232rx port baud = do
+                let portname = show port
+                    rx = portname ++ "/rx"
+
+                xs :: [Maybe U8] <- Spartan3eSimulator $ lift $ do
+                        readSocketPolyester
+                                ("dev/" ++ portname)
+                                rx
+                                100      -- for now, should really compute this
+
+                return (toS xs)
+
+        rs232tx port baud bus = do
+                let portname = show port
+                    tx = portname ++ "/tx"
+
+                htz <- clkSpeed
+                -- right now, we pay no attention to the speed
+                -- sending everything at full speed
+
+                CHAN rs_out rs_in :: CHAN U8 <- channel
+
+                spark $ do
+                        lab <- STEP
+                        -- insert pauses for speed /slowdown here
+                        takeBus bus rs_in $ GOTO lab
 
 
+                let ss = [ case s of
+                            Nothing -> Nothing
+                            Just Nothing -> Nothing
+                            Just (Just c) -> Just c
+                         | s <- fromS rs_out
+                         ]
+
+                Spartan3eSimulator $ lift $ do
+                        writeSocketPolyester
+                                ("dev/" ++ portname)
+                                tx
+                                ss
+                return ()
 
 
-
-
-
-
-
---                 LED X8 (Maybe Bool)
-
-
---                return
-
---                mode <- getPolyesterExecMode
---                when (mode /= Fast) $ do
---                        outPolyester (clock) [0..]
---                return ()
+        probe nm ss = Spartan3eSimulator $ lift $ do
+                outDebuggingPolyester $ fmap toUnit $ fromS $ probeS nm ss
+           where
+                toUnit _ = ()   -- why does this work?
 
 {-
 
@@ -597,6 +651,33 @@ main = do
 
                 leds $ M.forAll $ \ i -> if i < 4 then sw ! (fromIntegral i)
                                                   else m ! (fromIntegral i + 4)
+
+                BUS lcd_bus lcd_wtr_bus :: BUS ((X2,X16),U8) <- bus
+
+                let s = map (fromIntegral . ord) "Hello, Spartan3!"
+                spark $ do
+                        sequence_
+                          [ putBus lcd_wtr_bus (pureS ((x,y),s !! fromIntegral y)) $ STEP
+                          | x <- [0,1], y <- [0..15]
+                          ]
+                        return ()
+                lcd lcd_bus
+
+
+                rs232_out <- rs232rx DCE 9600
+
+                probe "rs232_out" rs232_out -- (pack sw :: Seq (Matrix X4 Bool))
+
+                rs_bus <- latchBus rs232_out
+
+                BUS rs232_bus rs232_wrt_bus :: BUS U8 <- bus
+
+                rs232tx DCE 9600 rs_bus
+
+                spark $ sequence_
+                        [ putBus rs232_wrt_bus (pureS (fromIntegral (Char.ord ch))) $ STEP
+                        | ch <- "Hello, World\n"
+                        ]
 
                 return () :: Spartan3eSimulator ()
         runSimulator P.Friendly 100 100 fab

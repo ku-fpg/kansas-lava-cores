@@ -92,14 +92,19 @@ data PolyesterState = PolyesterState
                 deriving Show
 
 data PolyesterOut = PolyesterStepper Stepper
-                  | PolyesterOutput [(String,Pad)]
-                  | PolyesterSocket String String Int IOMode    -- socket name, (fabric) port name,
-                                                                -- speed, and ReadMode vs WriteMode
-                                                                -- (AppendMode and ReadWriteMode not supported)
+                  | PolyesterTrace [()]                         -- evaluated to force a tracer
+                  | PolyesterWriteSocket String String [Enabled U8]
+                                                                -- socket name, (fabric) port name,
+                                                                -- what to output (if any)
+                                                                                                                                        -- (AppendMode and ReadWriteMode not supported)
+
+
+-- Sigh, the *only* use of IO is for PolyesterReadSocket.
+-- Once its in, it may be used by others.
 
 data Polyester a = Polyester (PolyesterEnv
                                -> PolyesterState
-                               -> Pure (a,[PolyesterOut],PolyesterState))
+                               -> IO (a,[PolyesterOut],PolyesterState))
 
 
 instance Monad Polyester where
@@ -173,9 +178,9 @@ outPolyesterCount f = outPolyester f . loop 0
 -- | write a socket from a clocked list input. Example of use is emulating
 -- RS232 (which only used empty or singleton strings), for the inside of a list.
 
-writeSocketPolyester :: String -> String -> Int -> Polyester ()
-writeSocketPolyester filename portname speed = Polyester $ \ _ st ->
-        return ((),[PolyesterSocket filename portname speed WriteMode],st)
+writeSocketPolyester :: String -> String -> [Maybe U8] -> Polyester ()
+writeSocketPolyester filename portname ss = Polyester $ \ _ st ->
+        return ((),[PolyesterWriteSocket filename portname ss],st)
 
 
 -----------------------------------------------------------------------
@@ -201,9 +206,22 @@ inPolyester a interp = Polyester $ \ env st -> do
 -- what is being observed on the screen; another
 -- process needs to do this.
 
-readSocketPolyester :: String -> String -> Int -> Polyester ()
-readSocketPolyester filename portname speed = Polyester $ \ _ st ->
-        return ((),[PolyesterSocket filename portname speed ReadMode],st)
+readSocketPolyester :: String -> String -> Int -> Polyester [Maybe U8]
+readSocketPolyester filename portname speed = Polyester $ \ env st -> do
+        sock <- pFindSocket env $ filename
+        op_ch <- hGetContentsStepwise sock
+        let f Nothing = [Nothing]
+            f (Just x) = Just x : take speed (repeat Nothing)
+        let ss = concatMap f $ fmap (fmap (fromIntegral . ord)) op_ch
+        return (ss,[],st)
+
+-----------------------------------------------------------------------
+-- Debugging Wiring
+-----------------------------------------------------------------------
+
+outDebuggingPolyester :: [()] -> Polyester ()
+outDebuggingPolyester us = Polyester $ \ _ st ->
+        return ((),[PolyesterTrace us],st)
 
 -----------------------------------------------------------------------
 -- Running the Polyester
@@ -409,11 +427,16 @@ stepper :: (Graphic g) => [Maybe g] -> Stepper
 stepper = ioStepper
         . map (\ o -> case o of
                          Nothing -> do { return () }
-                         Just g -> do { showANSI (drawGraphic g) })
+--                         Just g  -> return ()
+                         Just g -> do { showANSI (drawGraphic g) }
+                )
 
 ioStepper :: [IO ()] -> Stepper
 ioStepper (m:ms)      = Stepper (do m ; return (ioStepper ms))
 ioStepper other       = Stepper (return $ ioStepper other)
+
+cycleStepper :: IO () -> Stepper
+cycleStepper m = Stepper (do m ; return (cycleStepper m))
 
 -----------------------------------------------------------------------
 -- Helpers for printing to the screen
@@ -480,6 +503,7 @@ hGetContentsStepwise h = do
                    rest <- unsafeInterleaveIO $ hGetContentsStepwise h
                    return (out : rest)
            Left (e :: IOException) -> return (repeat Nothing)
+
 
 
 -----------------------------------------------------------------------
@@ -578,7 +602,7 @@ Polyester ([Maybe Char]
                                -> IO (a,[PolyesterOut],PolyesterState))
 -}
 
-        let Pure ((),output, st1) = circuit env st0
+        ((),output, st1) <- circuit env st0
 {-
             in_names :: [(String,Pad)] <- do
                     -- later abstract out
@@ -596,43 +620,53 @@ Polyester ([Maybe Char]
 -}
         let steps = [ o | PolyesterStepper o <- output ]
 
-{-
         socket_steppers :: [Stepper] <- sequence
               [ do sock <- findSock $ filename
-                   let ss :: Seq (Enabled U8)
-                       ss = case lookup portname out_names of
-                           Nothing -> error $ "can not find output " ++ show portname
-                           Just p -> case fromUni p of
-                               Nothing -> error $ "type error in port " ++ show portname
-                               Just s -> s
-                       f (Just (Just ch)) = do
+                   let f (Just ch) = do
+                               -- TODO: should throw away if going to block
                                hPutStr sock [chr $ fromIntegral ch]
                                hFlush sock
-                       f (Just Nothing)   = return ()
-                       f Nothing          = error "socket gone wrong (undefined output)"
-
-                   return $ ioStepper $ map f $ fromS ss
-                | PolyesterSocket filename portname speed WriteMode <- output
-                ]
-
-        monitor_steppers :: [Stepper] <- sequence
-              [ do let ss :: Seq (Enabled ())
-                       ss = case fromUni p of
-                               Nothing -> error $ "type error in port " ++ show o
-                               Just s -> s
                        f Nothing          = return ()
-                       f (Just Nothing)   = return ()
-                       f (Just (Just ())) = return ()    -- perhaps a visual ping?
-                   return $ ioStepper $ map f $ fromS ss
-              | (o,p) <- out_names
-              , "monitor/" `isPrefixOf` o
+
+                   return $ ioStepper $ map f $ ss
+              | PolyesterWriteSocket filename portname ss <- output
+              ]
+
+{-
+        socket_read_steppers :: [Stepper] <- sequence
+              [ do sock <- findSock $ filename
+                   var_sync <- newEmptyMVar
+                   forkIO $ forever $ do
+                         print "start loop"
+                         opt_ok <- try (hReady sock)
+                         print ("read sock",opt_ok)
+                         case opt_ok of
+                           Right ok -> do
+                                 if ok then do ch <- hGetChar sock
+                                               putMVar var (Just (fromIntegral (ord ch)))
+                                        else do print "A"
+                                                putMVar var Nothing
+                                                print "B"
+                           Left (e :: IOException) -> putMVar var Nothing
+                   return $ cycleStepper $ do { print "X";  putMVar var_sync () ; print "Y" }
+              | PolyesterReadSocket filename portname var <- output
               ]
 -}
+        -- we put debugging into ./dev/log.XX
+
+        monitor_steppers :: [Stepper] <- sequence
+              [ do let f () = return ()
+                   return $ ioStepper $ map f os
+              | PolyesterTrace os <- output
+              ]
+
 
         putStrLn "[Starting simulation]"
         clearScreen
         setCursorPosition 0 0
         hFlush stdout
+
+        setProbesAsTrace $ appendFile "LOG"
 
         print (length [ () | PolyesterStepper _ <- output ])
 
@@ -641,26 +675,7 @@ Polyester ([Maybe Char]
                          [ ioStepper [ do { threadDelay (20 * 1000) }
                                      | _ <- [(0 :: Integer)..] ]]
 
-        runSteppers (steps ++ slowDown {- ++ socket_steppers ++ monitor_steppers-})
-
-{-
-        return ()
-        let brd = simulatedBoard
-
-        let liftMe :: fab a -> Board fab a
-            liftMe f = Board $ \ _ _ -> return (fmap (\ a -> (a,[])) f)
-
-        let Board m = do
-                runFabricWithDriver (liftFabric liftMe fab) brd
-
-
-        -- build the
-        r <- m undefined undefined
-        let Pure ((),output) = purify r
-
-
--}
-
+        runSteppers (steps ++ slowDown ++ socket_steppers ++ monitor_steppers)
 
         return ()
 
