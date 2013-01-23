@@ -7,8 +7,7 @@ module Hardware.KansasLava.FIFO where
 import Control.Concurrent
 import Control.Monad
 import Data.Maybe as Maybe
-import Data.Sized.Arith as Arith
-import Data.Sized.Ix as X
+
 import Data.Word
 import Data.Sized.Unsigned
 
@@ -18,7 +17,7 @@ import System.IO
 
 
 ------------------------------------------------------------------------------
-
+{-
 -- | Make a sequence obey the given reset signal, returning given value on a reset.
 resetable :: forall a c. (Clock c, Rep a) => Signal c Bool -> a -> Signal c a -> Signal c a
 resetable rst val x = mux rst (x,pureS val)
@@ -108,7 +107,7 @@ fifoBE :: forall a c counter ix sig .
         -- dec to FE
         -- internal counter, and
         -- output for HandShaken
-fifoBE Witness rst (mem_rd :> inc_by, out_ready) = 
+fifoBE Witness rst (mem_rd :> inc_by, out_ready) =
     let
         rd_addr0 :: Signal c ix
         rd_addr0 = resetable rst 0
@@ -128,7 +127,7 @@ fifoBE Witness rst (mem_rd :> inc_by, out_ready) =
         out_counter0 = resetable rst 0
                      $ out_counter1
                         + inc_by
-                        - (unsigned) out_done0 
+                        - (unsigned) out_done0
 
         out_counter1 = register 0 out_counter0
     in
@@ -158,7 +157,7 @@ fifoMem Witness ~(~(wr_in :> wr_in_done),~(rd_addr :> sent)) = (toReady high :> 
   where
 	-- This is the memory.
 	mem_val = packEnabled (register False (isEnabled rd_addr))
-	 	$ syncRead (writeMemory wr_in) 
+	 	$ syncRead (writeMemory wr_in)
 			   (enabledVal rd_addr)
 
 	-- Saying Here is some space to write to.
@@ -208,7 +207,7 @@ fifo :: forall a c counter ix .
 
 fifo w_ix rst = fifo_patch
    where
-	fifo_patch = fifoFE w_ix rst $$ fifoMem w_ix $$ fifoBE w_ix rst 
+	fifo_patch = fifoFE w_ix rst $$ fifoMem w_ix $$ fifoBE w_ix rst
 
 
 {-
@@ -349,4 +348,4 @@ divBy Witness rst trig = mux issue (0,1)
                          $ mux issue (counter0,0)
 
 
-
+-}

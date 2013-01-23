@@ -10,13 +10,13 @@ module Hardware.KansasLava.LCD.ST7066U
 	, writeChar
 	-- * For testing only
 	, phy_4bit_LCD
-	) where -} 
+	) where -}
 	where
 
 import Language.KansasLava as KL -- hiding ((:=), var, IF)
 --import Language.KansasLava.RTL
 import Data.Sized.Unsigned
-import Data.Sized.Ix
+
 import Data.Sized.Matrix as M
 import Control.Applicative
 import Data.Char
@@ -25,11 +25,11 @@ import Data.Bits
 
 import Hardware.KansasLava.Text as F
 
-
+{-
 st7066U_controller :: REG (U1,U4,Bool) -> STMT (WriteAckBox ((X2,X16),U8))
-st7066U_controller theLCD = do 
+st7066U_controller theLCD = do
                 let waitFor :: EXPR U32 -> STMT ()
-                    waitFor n = do 
+                    waitFor n = do
                             VAR i :: VAR U32 <- SIGNAL $ var 0
                             i := OP1 (\ x -> x - 2) n
                             loop <- LABEL
@@ -43,10 +43,10 @@ st7066U_controller theLCD = do
                             VAR sf :: VAR U4 <- SIGNAL $ undefinedVar
                             VAR wait :: VAR U18 <- SIGNAL $ undefinedVar
                             SPARK $ \ loop -> do
-                                    takeAckBox rd $ \ e -> 
-                                                        rs   := OP1 (\e -> case unpack e of (x,_,_) -> x) e 
-                                                    ||| sf   := OP1 (\e -> case unpack e of (_,x,_) -> x) e 
-                                                    ||| wait := OP1 (\e -> case unpack e of (_,_,x) -> x) e 
+                                    takeAckBox rd $ \ e ->
+                                                        rs   := OP1 (\e -> case unpack e of (x,_,_) -> x) e
+                                                    ||| sf   := OP1 (\e -> case unpack e of (_,x,_) -> x) e
+                                                    ||| wait := OP1 (\e -> case unpack e of (_,_,x) -> x) e
                                     theLCD := OP2 (\ a b -> pack (a,b,low)) rs sf
                                     waitFor 2
                                     theLCD := OP2 (\ a b -> pack (a,b,high)) rs sf
@@ -71,11 +71,11 @@ st7066U_controller theLCD = do
                                         high_nibble :: EXPR U4
                                         high_nibble = OP1 (\ e -> unsigned (shiftR e 4)) cmd
 
-                                        timing = OP3 (\ a b c -> mux a (b,c)) 
-                                                        (OP2 (.<=.) cmd 0x03) 
+                                        timing = OP3 (\ a b c -> mux a (b,c))
+                                                        (OP2 (.<=.) cmd 0x03)
                                                           2000
                                                         100000
-                                        
+
                                     putAckBox send_nibble $ OP2 (\ a b -> pack (a,b,50)) isCmd high_nibble
                                     putAckBox send_nibble $ OP3 (\ a b c -> pack (a,b,c)) isCmd low_nibble timing
                                     GOTO loop
@@ -99,10 +99,10 @@ st7066U_controller theLCD = do
                             waitFor 2
 
                 (wr :: WriteAckBox ((X2,X16),U8),rd :: ReadAckBox ((X2,X16),U8)) <- newAckBox
-                        
+
                 SPARK $ \ loop -> do
 --                        rs := OP0 (pack (0,0,False) :: Signal u (U1,U4,Bool))
-                        
+
                         let bootCmd :: Signal u X4 -> Signal u (U1,U4,U18)
                             bootCmd = funMap (return . f)
                                                 where f 0 = (0,3,205000)
@@ -126,24 +126,24 @@ st7066U_controller theLCD = do
                         for 0 3 $ \ (i :: EXPR X4) -> do
                                 putAckBox send_cmd (OP1 startCmd i)
 
-                        
+
                         waitFor 200000
 
 
                         cmd_loop <- LABEL
-                        
+
                         VAR row :: VAR X2  <- SIGNAL $ undefinedVar
                         VAR col :: VAR X16 <- SIGNAL $ undefinedVar
                         VAR ch  :: VAR U8  <- SIGNAL $ undefinedVar
-                        takeAckBox rd $ \ e -> 
-                                        row := OP1 (\e -> case unpack e of (x,_) -> fst (unpack x)) e 
-                                    ||| col := OP1 (\e -> case unpack e of (x,_) -> snd (unpack x)) e 
-                                    ||| ch  := OP1 (\e -> case unpack e of (_,x) -> x) e 
+                        takeAckBox rd $ \ e ->
+                                        row := OP1 (\e -> case unpack e of (x,_) -> fst (unpack x)) e
+                                    ||| col := OP1 (\e -> case unpack e of (x,_) -> snd (unpack x)) e
+                                    ||| ch  := OP1 (\e -> case unpack e of (_,x) -> x) e
 
 
                         putAckBox send_cmd (OP2 (\ r c -> 0x80 + (unsigned r) * 0x40 + (unsigned) c) row col)
                         putAckBox send_cmd (OP1 (+ 0x100) $ OP1 (unsigned) ch)
-                
+
                         GOTO cmd_loop
 
                 return wr
@@ -159,10 +159,10 @@ st7066U_controller theLCD = do
 -- Hitachi HD44780, and SMOS SED1278.
 
 ----------------------------------------------------------------------
--- Controller datastructure& bit formats 
+-- Controller datastructure& bit formats
 
 ----------------------------------------------------------------------
-data LCDInstruction 
+data LCDInstruction
 	= ClearDisplay
 	| ReturnHome
 	| EntryMode { moveRight :: Bool, displayShift :: Bool }
@@ -173,15 +173,15 @@ data LCDInstruction
 	| SetDDAddr { dd_addr :: U7 }
 	| ReadBusyAddr
 	| ReadRam
-	| WriteChar { char :: U8 }	
+	| WriteChar { char :: U8 }
    deriving (Eq, Ord, Show)
 
 $(repBitRep ''LCDInstruction 9)
 
-setDDAddr :: Signal comb U7 -> Signal comb LCDInstruction 
+setDDAddr :: Signal comb U7 -> Signal comb LCDInstruction
 setDDAddr = funMap (return . SetDDAddr)
 
-writeChar :: Signal comb U8 -> Signal comb LCDInstruction 
+writeChar :: Signal comb U8 -> Signal comb LCDInstruction
 writeChar = funMap (return . WriteChar)
 
 -- 9-bit version; am okay with making it 10-bit
@@ -189,33 +189,33 @@ instance BitRep LCDInstruction where
 	-- TODO: complete
     bitRep =
 	--					LCD_RS & DB(7 downto 0)
-	[ (ClearDisplay, 			"00000001") ] ++ 
+	[ (ClearDisplay, 			"00000001") ] ++
 	[ (ReturnHome, 				"0000001X") ] ++
-	[ (EntryMode (bool a) 
-		     (bool b),			"000001" & a & b) 
+	[ (EntryMode (bool a)
+		     (bool b),			"000001" & a & b)
 		| a <- every
 		, b <- every
 	] ++
-	[ (SetDisplay (bool a) 
+	[ (SetDisplay (bool a)
 		      (bool b)
 		      (bool c),			"00001" & a & b & c)
 		| a <- every
 		, b <- every
 		, c <- every
-	] ++ 
-	[ (FunctionSet (bool a) 
+	] ++
+	[ (FunctionSet (bool a)
 		       (bool b)
 		       (bool c),		"0001" & a & b & c & ("XX" :: BitPat X2))
 		| a <- every
 		, b <- every
 		, c <- every
-	] ++ 
+	] ++
 	[ (SetCGAddr (fromIntegral addr), 	"001" & addr)
 		| addr <- every :: [BitPat X6]
-	] ++ -- 
+	] ++ --
 	[ (SetDDAddr (fromIntegral addr), 	"01" & addr)
 		| addr <- every :: [BitPat X7]
-	] ++ -- 
+	] ++ --
 	[ (WriteChar (fromIntegral c), 		"1" & c)
 		| c <- every :: [BitPat X8]
 	]
@@ -243,10 +243,10 @@ phy_4bit_LCD ~(inp,_) = (toAck inAck,out)
 		ack     <- newReg False
 		rs      <- newReg (0 :: U1)
 		sf_d    <- newReg (0 :: U4)
-		lcd_e   <- newReg False 
+		lcd_e   <- newReg False
 
 		let wait = waitFor counter
-		
+
 		let firstWait = 200 -- 750000
 
 
@@ -283,7 +283,7 @@ phy_4bit_LCD ~(inp,_) = (toAck inAck,out)
 {-
 			  wait 750000 $ state := 1
 		     , IF (reg state .==. 1) $ do
-			  output := pureS (Just 
+			  output := pureS (Just
 		     ]
 -}
 		return (probeS "ack" (var ack),pack (reg rs,reg sf_d,commentS "lcd_e" $ reg lcd_e))
@@ -315,10 +315,10 @@ phy_Inst_4bit_LCD = toCmds $$ prependP bootCmds $$ probeAckBoxP "in4" $$ phy_4bi
 		, (0x3, 5000)
 		, (0x3, 2000)
 		, (0x2, 2000)
-		] 
+		]
 
 splitCmd :: forall comb . Signal comb LCDInstruction -> Signal comb (Matrix X2 (U5,U18))
-splitCmd cmd = pack $ matrix 
+splitCmd cmd = pack $ matrix
 	[ pack ( high_op `appendS` mode
 	       , smallGap
 	       )
@@ -368,4 +368,5 @@ mm_LCD_Inst = mapP toInsts $$ matrixToElementsP
 
 		dd_addr :: Signal comb U7
 		dd_addr = mux (row .==. 0) (0x40 + (unsigned)col,0x00 + (unsigned)col)
+-}
 -}

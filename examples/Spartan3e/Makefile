@@ -1,3 +1,7 @@
+run::
+	ghci -i../..:../../dist/build/autogen/:. Main.hs 
+
+
 boot::
 #	echo main | ghci -i../.. -i../../../kansas-lava Main.hs  -fcontext-stack=100
 	echo main | ghci -i../.. -i../../dist/build/autogen  Main.hs  -fcontext-stack=100

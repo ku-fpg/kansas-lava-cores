@@ -7,9 +7,7 @@ import Hardware.KansasLava.Chunker
 
 import Data.Sized.Unsigned
 import Data.Sized.Signed
-import Data.Sized.Arith
 import Data.Sized.Matrix (Matrix,(!), matrix)
-import Data.Sized.Ix
 import Data.Ratio
 import System.Random
 --import Data.Maybe 

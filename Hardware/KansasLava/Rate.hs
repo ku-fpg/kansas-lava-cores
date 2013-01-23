@@ -7,7 +7,9 @@ import Data.Ratio
 
 import Data.Sized.Unsigned
 import Data.Sized.Signed
-import Data.Sized.Ix
+import Data.Sized.Sized
+import GHC.TypeLits
+
 
 import Language.KansasLava as KL hiding ((:=), var, IF)
 import Language.KansasLava.RTL
@@ -17,8 +19,8 @@ import Language.KansasLava.RTL
 -- output stream will be True. If 1/n is not a integer, then the function uses
 -- http://en.wikipedia.org/wiki/Bresenham%27s_line_algorithm to approximate the
 -- given rate.
-rate :: forall x clk . (Clock clk, Size x) => Witness x -> Rational -> (Signal clk Bool)
-rate Witness n
+rate :: forall x clk . (Clock clk, SingI x) => TNat x -> Rational -> (Signal clk Bool)
+rate sized n
   | step > 2^sz = error $ "bit-size " ++ show sz ++ " too small for punctuate Witness " ++ show n
   | n <= 0 = error "can not have rate less than or equal zero"
   | n > 1 = error $ "can not have rate greater than 1, requesting " ++ show n
@@ -59,7 +61,7 @@ rate Witness n
 	return  (reg count .==. 0)
 
    where sz :: Integer
-         sz = fromIntegral (size (error "witness" :: x))
+         sz = fromNat sized
 	 num = numerator n
 	 dom = denominator n
 	 step = floor (1 / n)
@@ -67,13 +69,13 @@ rate Witness n
 	 nerr = dom - (step + 1) * num
 
 -- | 'powerOfTwoRate' generates a pulse every 2^n cycles, which is often good enough for polling, timeouts, etc.
-powerOfTwoRate :: forall x clk . (Clock clk, Size x) => Witness x -> Signal clk Bool
-powerOfTwoRate Witness = rate (Witness :: Witness x) (1/(2^(fromIntegral (size (error "Witness" :: x)))))
+powerOfTwoRate :: forall x clk . (Clock clk, SingI x) => TNat x -> Signal clk Bool
+powerOfTwoRate sized = rate sized (1/(2^(fromNat sized)))
 
 -- | 'rateP' takes a result from rate, and generates token, one per pulse, with
 -- unused tokens being discared.
 rateP :: forall c sig . (Clock c, sig ~ Signal c)
-	=> sig Bool 
+	=> sig Bool
 	-> Patch ()	(sig (Enabled ()))
 	         ()	(sig Ack)
 rateP r = outputP (packEnabled r $ pureS ()) $$ enabledToAckBox
@@ -85,7 +87,7 @@ throttleP :: forall sig c a x . (sig ~ Signal c, Clock c, Rep a)
 	       (sig Ack)         (sig Ack)
 throttleP in_pred
       = openP $$
-	(top `stackP` emptyP) $$ 
+	(top `stackP` emptyP) $$
 	zipP $$
 	mapP (\ ab -> snd (unpack ab))
    where
@@ -95,7 +97,7 @@ throttleP in_pred
 {-
 -- Wrong, omit for this release.
 --
--- | 'accurateTo' rounds up/down a number within a range, 
+-- | 'accurateTo' rounds up/down a number within a range,
 -- in an attempt to be a integral reciprical (and therefore cheaper to implement in hardware).
 --accurateTo :: Rational -> Rational -> Rational
 accurateTo n ac
@@ -108,4 +110,3 @@ accurateTo n ac
         diff   = abs (n - nR)
 -}
 
-        

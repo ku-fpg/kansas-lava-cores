@@ -6,8 +6,6 @@ import Language.KansasLava.Test
 import Hardware.KansasLava.FIFO (fifo)
 
 import Data.Sized.Unsigned
-import Data.Sized.Arith
-import Data.Sized.Ix
 import System.Random
 import Data.Ratio
 --import Data.Maybe 

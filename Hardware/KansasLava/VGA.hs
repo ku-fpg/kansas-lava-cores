@@ -3,7 +3,7 @@
 module Hardware.KansasLava.VGA where
 
 import Language.KansasLava
-import Data.Sized.Ix
+
 import Data.Char
 import Data.Sized.Unsigned
 import qualified System.Console.ANSI as ANSI

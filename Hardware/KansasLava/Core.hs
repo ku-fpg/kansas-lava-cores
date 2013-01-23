@@ -8,6 +8,6 @@ import Language.KansasLava
 
 -- CoreMonad adds the ability to register a 'Core' with a board.
 
-class Monad fab => CoreMonad fab where
-        core :: String -> STMT a -> fab a
+--class Monad fab => CoreMonad fab where
+--        core :: String -> STMT a -> fab a
 

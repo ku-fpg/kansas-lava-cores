@@ -6,12 +6,12 @@ import Data.Ratio
 
 import Data.Sized.Unsigned
 import Data.Sized.Signed
-import Data.Sized.Ix
+
 import Data.Sized.Unsigned as U
 import Data.Sized.Matrix as M
 
 import Hardware.KansasLava.Rate
-import Hardware.KansasLava.FIFO(fifo)
+--import Hardware.KansasLava.FIFO(fifo)
 
 import Language.KansasLava.RTL
 import Language.KansasLava hiding ((:=), var, IF)
@@ -23,7 +23,11 @@ import Data.Default
 import Data.Word
 import Debug.Trace
 
+rs232in = error "" :: a
+rs232out = error "" :: a
 
+
+{-
 -- Lava implementation of RS232
 
 type SAMPLE_RATE = X16
@@ -223,4 +227,4 @@ rs232in baudRate clkRate ~(in_val0,()) = ((),out)
 			outVal := pureS Nothing
 
 		return $ (reg outVal)
-
+-}

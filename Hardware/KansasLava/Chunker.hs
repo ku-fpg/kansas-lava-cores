@@ -1,24 +1,23 @@
 {-# LANGUAGE TypeFamilies, ScopedTypeVariables, NoMonomorphismRestriction, Rank2Types, TypeOperators #-}
 
-module Hardware.KansasLava.Chunker where -- (chunker, dechunker) where 
+module Hardware.KansasLava.Chunker where -- (chunker, dechunker) where
 
 import Data.Sized.Unsigned
 import Data.Sized.Signed
-import Data.Sized.Arith
-import Data.Sized.Ix
 import Data.Sized.Matrix as M
 
-import Language.KansasLava 
+import Language.KansasLava
 import qualified Language.KansasLava as KL
 import Data.Maybe as Maybe
 import Data.Char as Char
-import Control.Monad	
+import Control.Monad
 import Data.Default
 import Data.Word
 import Debug.Trace
 
 import Hardware.KansasLava.FIFO
 
+{-
 
 -- | We use network byte order
 --    http://en.wikipedia.org/wiki/Endianness#Endianness_in_networking
@@ -27,19 +26,19 @@ import Hardware.KansasLava.FIFO
   | HI | LO |  DATA  |
   +----+----+--------+
 
-  The idea is that a chunk can be transmitted *without* needing any extra inputs or stimuli. 
+  The idea is that a chunk can be transmitted *without* needing any extra inputs or stimuli.
   Like an atomic unit of data.
 
 -}
 
-waitForIt :: forall c sig a b t x y . 
+waitForIt :: forall c sig a b t x y .
 	( Clock c, sig ~ Signal c
 	, Rep a
 	, b ~ Unsigned x, Size x
 	, Size t
 	)   => b		-- ^ The maximum size of chunk
 	    -> Witness t	-- ^ 2^t is the timeout time between elements
-	    -> Patch (sig (Enabled a))     (sig (Enabled b))	
+	    -> Patch (sig (Enabled a))     (sig (Enabled b))
 	   	     (sig Ack)             (sig Ack)
 waitForIt maxCounter Witness ~(inp,outAck) = (toAck tick,out)
   where
@@ -91,7 +90,7 @@ chunkCounter w = ackToReadyBridge $$ chunkCounter' w $$ readyToAckBridge where
 	-- triggers
 	send_one  = state .==. 0 .&&. fromReady outReady
 	recv_count = state .==. 1 .&&. isEnabled inp
-	
+
 	state :: sig X3
 	state = register 0
 	      $ cASE [ (send_one .&&. ones0 .==. 0, 		1)
@@ -104,9 +103,9 @@ chunkCounter w = ackToReadyBridge $$ chunkCounter' w $$ readyToAckBridge where
 	ones0 :: sig x
 	ones0 = cASE [ (send_one, loopingDecS ones1) ]
 		     ones1
-		
+
 	ones1 = register (0 :: x) ones0
-	
+
 	ready :: sig Bool
 	ready = state .==. 1
 
@@ -123,7 +122,7 @@ chunkCounter w = ackToReadyBridge $$ chunkCounter' w $$ readyToAckBridge where
 		       ] disabledS
 
 
-chunkJoinHeader :: forall c sig x y a .  
+chunkJoinHeader :: forall c sig x y a .
    (Clock c, sig ~ Signal c, Rep a, Rep x, Size x, Num x, Enum x, Rep y, Size y, Num y)
   => (forall comb . Signal comb (Matrix x a) -> Signal comb (Unsigned y))
   -> Patch (sig (Enabled (Matrix x a))  :> sig (Enabled a))	(sig (Enabled a))
@@ -131,34 +130,34 @@ chunkJoinHeader :: forall c sig x y a .
 
 chunkJoinHeader f = patch1 $$ patch2 $$ patch3
    where
-	patch1 = stackP (dupP $$ 
-				stackP (forwardP (mapEnabled f) $$ 
+	patch1 = stackP (dupP $$
+				stackP (forwardP (mapEnabled f) $$
 				       fifo1 $$
 				       chunkCounter (Witness :: Witness x))
 				      (fifo1 $$ matrixToElementsP $$ fifo1)
 		          )
 			fifo1
 	patch2 = forwardP (\ ((a :> b) :> c) -> a :> b :> c) $$
-		 backwardP (\ (a :> b :> c) -> (a :> b) :> c) 
+		 backwardP (\ (a :> b :> c) -> (a :> b) :> c)
 	patch3 = muxP
 
-chunkSplitHeader :: forall c sig x y a . 
+chunkSplitHeader :: forall c sig x y a .
    (Clock c, sig ~ Signal c, Rep a, Rep x, Size x, Num x, Enum x, Rep y, Size y, Num y)
   => (forall comb . Signal comb (Matrix x a) -> Signal comb (Unsigned y))
   -> Patch (sig (Enabled a))	(sig (Enabled (Matrix x a))  :> sig (Enabled a))
-	   (sig Ack)		(sig Ack 		     :> sig Ack)	        
-chunkSplitHeader f = 
+	   (sig Ack)		(sig Ack 		     :> sig Ack)
+chunkSplitHeader f =
 	loopP $
 		(fifo1 `stackP` fifo1) $$
 		deMuxP $$
 		(fstP (fifo1 $$ matrixFromElementsP $$ dupP $$ fstP clicker)) $$
 		reorg
   where
-      clicker = forwardP (mapEnabled f) $$ 
- 		fifo1 $$ 
+      clicker = forwardP (mapEnabled f) $$
+ 		fifo1 $$
 		chunkCounter (Witness :: Witness x)
       reorg = forwardP (\ ((a :> b) :> c) -> a :> b :> c) $$
-	      backwardP (\ (a :> b :> c) -> (a :> b) :> c) 
+	      backwardP (\ (a :> b :> c) -> (a :> b) :> c)
 
 -- TODO: generalize to Non-X1 headers, and use witness for max chunk size (so that the fifo size can be driven).
 chunker :: forall c sig t w . (Size t, Clock c, sig ~ Signal c)
@@ -169,8 +168,8 @@ chunker :: forall c sig t w . (Size t, Clock c, sig ~ Signal c)
 	-> Patch (sig (Enabled U8))                    (sig (Enabled U8))
                  (sig Ack)                             (sig Ack)
 chunker mx wit f g = dupP $$ stackP waiting stalling $$ chunkJoinHeader f
-  where 
-	waiting = waitForIt mx wit $$ 
+  where
+	waiting = waitForIt mx wit $$
 		  mapP g
 
 	stalling = fifo (Witness :: Witness X256) low
@@ -183,3 +182,4 @@ mkByteHeader sz = pack (matrix [sz] :: Matrix X1 (Signal comb U8))
 
 --twoByteHeader :: Signal comb U16 -> Signal comb (Matrix X2 U8)
 --twoByteHeader sz = pack (matrix [sz] :: Matrix X2 U8)
+-}

@@ -7,8 +7,6 @@ import Hardware.KansasLava.FIFO (fifo)
 --import Hardware.KansasLava.LCD (lcdBootP)
 
 import Data.Sized.Unsigned
-import Data.Sized.Arith
-import Data.Sized.Ix
 import Data.Ratio
 import System.Random
 --import Data.Maybe 

@@ -1,4 +1,4 @@
-{-# LANGUAGE ScopedTypeVariables,TypeFamilies, FlexibleContexts, RecursiveDo, DoRec #-}
+{-# LANGUAGE ScopedTypeVariables,TypeFamilies, FlexibleContexts, RecursiveDo, DoRec, DataKinds #-}
 
 module Hardware.KansasLava.Boards.Spartan3e where
 {-
@@ -26,14 +26,14 @@ import Data.Char as Char
 --import Hardware.KansasLava.LCD.ST7066U
 --import Hardware.KansasLava.RS232
 --import Hardware.KansasLava.Rate
---import Hardware.KansasLava.Boards.UCF
+import Hardware.KansasLava.Boards.UCF
 --import Hardware.KansasLava.Peripherals
 --import Hardware.KansasLava.Core
 --import Hardware.KansasLava.Boards.Physical
 
 import Control.Monad.Trans.Class
 import Data.Sized.Unsigned
-import Data.Sized.Ix hiding (all)
+
 import Data.Sized.Matrix hiding (all)
 import qualified Data.Sized.Matrix as M
 import Data.Char
@@ -45,24 +45,28 @@ import Control.Monad.Fix
 -- The Spartan3e Class
 ------------------------------------------------------------
 
-class (SparkM m) => Spartan3e m where
+class (LocalM m) => Spartan3e m where
         clkSpeed ::                             m Integer -- Hz
-        leds     :: Matrix X8 (Seq Bool)     -> m ()
-        switches ::                             m (Matrix X4 (Seq Bool))
-        buttons  ::                             m (Matrix X4 (Seq Bool))
-        dial     ::                             m (Seq Bool, Seq (Enabled Bool))
+        leds     :: Vector 8 (Signal (LocalClock m) Bool)
+                                             -> m ()
+        switches ::                             m (Vector 4 (Signal (LocalClock m) Bool))
+        buttons  ::                             m (Vector 4 (Signal (LocalClock m)  Bool))
+        dial     ::                             m ( Signal (LocalClock m)  Bool
+                                                  , Signal (LocalClock m)  (Enabled Bool)
+                                                  )
+{-
         lcd      :: Bus ((X2,X16),U8)        -> m ()
-        rs232rx  :: Serial -> Int            -> m (Seq (Enabled U8))
+        rs232rx  :: Serial -> Int            -> m (Bus U8)
         rs232tx  :: Serial -> Int -> Bus U8  -> m ()
         mem_chip :: Bus (U20,U8) -> Bus U20  -> m (Bus (U16,U16))       -- unclear how to do this
         probe    :: Rep a => String -> Seq a -> m ()
-
+-}
 ------------------------------------------------------------
 -- The Spartan3e Board Monad
 ------------------------------------------------------------
 
 data Spartan3eBoard a = Spartan3eBoard
-        { unSpartan3eBoard :: Integer -> Fabric a }
+        { unSpartan3eBoard :: Integer -> SuperFabric Spartan3eClock Pure a }
 
 instance Monad Spartan3eBoard where
         return a = Spartan3eBoard $ \ _ -> return a
@@ -75,18 +79,35 @@ instance MonadFix Spartan3eBoard where
                         rec a <- unSpartan3eBoard (f a) env
                         return a
 
-instance SparkM Spartan3eBoard where
+data Spartan3eClock = Spartan3eClock
+
+instance Clock Spartan3eClock
+
+instance LocalM Spartan3eBoard where
+        type LocalClock Spartan3eBoard = Spartan3eClock
         newSignalVar           = Spartan3eBoard $ \ _ -> newSignalVar
         writeSignalVar var sig = Spartan3eBoard $ \ _ -> writeSignalVar var sig
         readSignalVar  var fn  = Spartan3eBoard $ \ _ -> readSignalVar var fn
 
 instance Spartan3e Spartan3eBoard where
         clkSpeed = Spartan3eBoard $ \ i -> return i
-
+        leds m = Spartan3eBoard $ \ _ -> outStdLogicVector "LED" (pack m :: Signal (LocalClock Spartan3eBoard) (Vector 8 Bool))
+        switches = Spartan3eBoard $ \ _ -> do
+                sw :: Signal (LocalClock Spartan3eBoard) (Vector 4 Bool) <- inStdLogicVector "SW"
+                return $ unpack sw
+        buttons = Spartan3eBoard $ \ _ -> do
+                bns <- sequence [ inStdLogic nm
+                                | nm <- ["BTN_NORTH"
+                                        ,"BTN_EAST"
+                                        ,"BTN_SOUTH"
+                                        ,"BTN_WEST"
+                                        ]
+                                ]
+                return $ matrix bns
 
 -- The Spartan3e Simulator Monad
 ------------------------------------------------------------
-
+{-
 
 data Spartan3eSimulator a = Spartan3eSimulator
         { unSpartan3eSimulator :: SuperFabric Polyester a }
@@ -104,14 +125,15 @@ instance MonadFix Spartan3eSimulator where
                         return a
 
 
-instance SparkM Spartan3eSimulator where
+instance LocalM Spartan3eSimulator where
         newSignalVar           = Spartan3eSimulator $ newSignalVar
         writeSignalVar var sig = Spartan3eSimulator $ writeSignalVar var sig
         readSignalVar  var fn  = Spartan3eSimulator $ readSignalVar var fn
 
-instance InOutM Spartan3eSimulator where
-        input nm pad = Spartan3eSimulator $ input nm pad
-        output nm pad = Spartan3eSimulator $ output nm pad
+-- The point here is you can not generate arbitary outputs and inputs
+--instance InOutM Spartan3eSimulator where
+--        input nm pad = Spartan3eSimulator $ input nm pad
+--        output nm pad = Spartan3eSimulator $ output nm pad
 
 -- runFabric :: (MonadFix m) => SuperFabric m a -> [(String,Pad)] -> m (a,[(String,Pad)])
 
@@ -134,7 +156,7 @@ instance Spartan3e Spartan3eSimulator where
                 let sw i ch old | key ! i == ch = not old       -- flip
                                 | otherwise     = old           -- leave
 
-                    key :: Matrix X4 Char
+                    key :: Vector 4 Char
                     key = matrix "lkjh"
 
                 m <- sequence
@@ -149,7 +171,7 @@ instance Spartan3e Spartan3eSimulator where
                 let sw i ch old | key ! i == ch = not old       -- flip
                                 | otherwise     = old           -- leave
 
-                    key :: Matrix X4 Char
+                    key :: Vector 4 Char
                     key = matrix "aegx"
 
                 m <- sequence
@@ -213,7 +235,7 @@ instance Spartan3e Spartan3eSimulator where
                                 rx
                                 100      -- for now, should really compute this
 
-                return (toS xs)
+                latchBus (toS xs)
 
         rs232tx port baud bus = do
                 let portname = show port
@@ -402,7 +424,7 @@ instance LCD Spartan3e where
 
                         rs   :: REG (U1,U4,Bool) <- OUTPUT $ \ out -> do
                                 let (rs :: Seq U1,sf :: Seq U4,e :: Seq Bool) = unpack (enabledVal out)
-                                let sf' :: Matrix X4 (Seq Bool) = unpack (bitwise sf :: Seq (Matrix X4 Bool))
+                                let sf' :: Vector 4 (Seq Bool) = unpack (bitwise sf :: Seq (Vector 4 Bool))
                                 let gate :: Seq Bool -> Seq Bool
                                     gate = registerEnabled False . packEnabled (isEnabled out)
                                 outStdLogic "LCD_RS"   $ gate ((bitwise) rs)
@@ -487,7 +509,7 @@ f a =
 ------------------------------------------------------------
 -- initialization
 ------------------------------------------------------------
-
+-}
 -- | The clock rate on the Spartan3e (50MHz), in hertz.
 clockRate :: Integer
 clockRate = 50 * 1000 * 1000
@@ -503,7 +525,7 @@ writeUCF = copyUCF "Spartan3e.ucf"
 -------------------------------------------------------------
 -- data structures
 -------------------------------------------------------------
--}
+
 data Serial = DCE | DTE deriving (Eq, Ord, Show)
 
 serialName :: Serial -> String
@@ -628,16 +650,17 @@ instance Graphic Output where
 
 ----------------------------------------------------------------------------------
 -- local tests
-
+{-
+--main :: (W (Vector 32 Bool) ~ X32, W U32 ~ X32) => IO ()
 main = do
         let fab = do
                 let f x = if x then high else low
 
                 VAR count :: VAR U32 <- initially 0
 
-                let count' :: Seq (Matrix X32 Bool)  = bitwise count
+                let count' :: Seq (Vector 32 Bool)  = bitwise (count :: Seq U32)
 
-                let m      ::  Matrix X32 (Seq Bool) = unpack count'
+                let m      ::  Vector 32 (Seq Bool) = unpack count'
 
                 spark $ do
                         lab <- STEP
@@ -666,7 +689,7 @@ main = do
 
                 rs232_out <- rs232rx DCE 9600
 
-                probe "rs232_out" rs232_out -- (pack sw :: Seq (Matrix X4 Bool))
+                probe "rs232_out" rs232_out -- (pack sw :: Seq (Vector4 Bool))
 
                 rs_bus <- latchBus rs232_out
 
@@ -682,8 +705,8 @@ main = do
                 return () :: Spartan3eSimulator ()
         runSimulator P.Friendly 100 100 fab
 
+-}
 
-
-
+-}
 
 

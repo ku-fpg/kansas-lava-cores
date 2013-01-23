@@ -3,17 +3,18 @@
 -- abstaction. The other API also contains some Board specific utilties
 -- that can also be used for simulation.
 
-module Hardware.KansasLava.Simulators.Spartan3e 
+module Hardware.KansasLava.Simulators.Spartan3e
 --        ( Spartan3e(..)
 --        , Graphic(..)
 --        ) where
         where
 
+{-
 import qualified Hardware.KansasLava.Boards.Spartan3e as Board
 import Hardware.KansasLava.Boards.Spartan3e -- (board_init, rot_as_reset)
 import qualified Data.ByteString as B
 
-import Data.Sized.Ix
+
 import Data.Sized.Unsigned
 import Data.Sized.Matrix as M
 import Language.KansasLava
@@ -55,7 +56,7 @@ instance CoreMonad Spartan3eSimulator where
 instance LEDs Spartan3eSimulator where
         type LEDCount Spartan3eSimulator = X8
         ledNames = return $ matrix ["LED<" ++ show i ++ ">" | i <- [0..maxBound :: LEDCount Spartan3eSimulator]]
-        
+
 instance Switches Spartan3eSimulator where
         type SwitchCount Spartan3eSimulator = X4
         switchNames = return $ matrix ["SW<" ++ show i ++ ">" | i <- [0..maxBound :: X4]]
@@ -99,7 +100,7 @@ instance RS232 Spartan3eSimulator where
                         rx
                         ((fromIntegral Board.clockRate `div` baud) * 10)
                 acks :: Seq Bool <- board $ inStdLogic (rx ++ "_ack")
-                outPolyesterCount (RS232 RX port) 
+                outPolyesterCount (RS232 RX port)
                         $ fmap (\ a -> if a then Just () else Nothing)
                         $ alwaysDefined "RS232 rx bus failure"
                         $ fromS
@@ -122,7 +123,7 @@ instance RS232 Spartan3eSimulator where
                         tx
                         ((fromIntegral Board.clockRate `div` baud) * 10)
                 outs :: Seq (Enabled U8) <- board $ inStdLogicVector tx
-                outPolyesterCount (RS232 TX port) 
+                outPolyesterCount (RS232 TX port)
                         $ fmap (fmap $ const ())
                         $ alwaysDefined "RS232 tx bus failure"
                         $ fromS
@@ -148,14 +149,14 @@ instance LCD Spartan3eSimulator where
 instance Monitor Spartan3eSimulator where
         monitor = do
                 let mon :: forall a . (Rep a, Size (W (Enabled a))) => String -> STMT (REG a)
-                    mon probename = 
-                            OUTPUT (\ a -> outStdLogicVector ("monitor/" ++ probename) 
+                    mon probename =
+                            OUTPUT (\ a -> outStdLogicVector ("monitor/" ++ probename)
                                         $ mapEnabled (\ _ -> pureS ())
                                         $ (probeS probename a :: Seq (Enabled a)))
                 return $ MONITOR mon
 {-
-                 probename = monitor' where 
-          --- Too allow the forall type to work with the instance 
+                 probename = monitor' where
+          --- Too allow the forall type to work with the instance
           monitor' :: forall a . (Rep a, Size (W (Enabled a))) => Spartan3eSimulator (REG a)
           monitor' = do
             polyester $ do
@@ -221,7 +222,7 @@ instance PolyesterMonad Spartan3eSimulator where
                                   ]
 
                 -- (always) listen to the dial
-                
+
                 id $ do let switch 'd' (Dial b p) = Dial (not b) p
                             switch 's' (Dial b p) = Dial b (pred p)
                             switch 'f' (Dial b p) = Dial b (succ p)
@@ -245,7 +246,7 @@ instance PolyesterMonad Spartan3eSimulator where
                             just _ Nothing  = Nothing
                             just k (Just a) = k a
 
-                        outPolyesterEvents 
+                        outPolyesterEvents
                                 $ map (just $ \ ((x,y),ch) -> Just (LCD (x,y) (Char.chr (fromIntegral ch))))
                                 $ alwaysDefined "LCD bus failure"
                                 $ fromS chs
@@ -271,7 +272,7 @@ clockRate :: Integer
 clockRate = Board.clockRate
 
 -----------------------------------------------------------------------
--- 
+--
 -----------------------------------------------------------------------
 
 
@@ -323,8 +324,8 @@ data DIR  = RX | TX
 
 at = AT
 
-instance Graphic Output where 
- drawGraphic (LED x st) = 
+instance Graphic Output where
+ drawGraphic (LED x st) =
         opt_green $ PRINT [ledASCII st] `at` (11,46 - fromIntegral x)
    where
         opt_green = if st == Just True then COLOR Green else id
@@ -335,39 +336,39 @@ instance Graphic Output where
         ledASCII (Just False) = '.'
 
  drawGraphic (TOGGLE x b) = do
-        PRINT [up]   `at` (14,46 - 2 * fromIntegral x) 
+        PRINT [up]   `at` (14,46 - 2 * fromIntegral x)
         PRINT [down] `at` (15,46 - 2 * fromIntegral x)
   where
        ch = "lkjh" !! fromIntegral x
- 
+
        up = if b then ch else ':'
        down = if b then ':' else ch
- drawGraphic (CLOCK n) = 
+ drawGraphic (CLOCK n) =
         PRINT ("clk: " ++ show n) `at` (5,35)
  drawGraphic (LCD (row,col) ch) =
         PRINT [ch] `at` (13 + fromIntegral row,20 + fromIntegral col)
  drawGraphic BOARD = do
         PRINT boardASCII `at` (1,0)
         COLOR Red $ PRINT ['o'] `at` (2,4)
- drawGraphic (BUTTON x b) = 
+ drawGraphic (BUTTON x b) =
         (if b then REVERSE else id) $
-        PRINT [snd (buttons !! fromIntegral x)] `at` 
-              (fst (buttons !! fromIntegral x)) 
+        PRINT [snd (buttons !! fromIntegral x)] `at`
+              (fst (buttons !! fromIntegral x))
   where
-       buttons = 
+       buttons =
                [ ((14,7),'a')
                , ((13,11),'e')
                , ((14,15),'g')
                , ((15,11),'x')
                ]
- drawGraphic (DIAL (Dial b p)) = 
+ drawGraphic (DIAL (Dial b p)) =
         (if b then REVERSE else id) $
         PRINT ["|/-\\" !! fromIntegral p] `at` (14,11)
  drawGraphic (QUIT b)
         | b = do PRINT "" `at` (25,1)
                  error "Simulation Quit"
         | otherwise = return ()
- drawGraphic (RS232 dir port val) 
+ drawGraphic (RS232 dir port val)
       | val > 0   = PRINT (prefix ++ show val) `at` (col,row)
       | otherwise = PRINT (prefix ++ "-")      `at` (col,row)
   where
@@ -382,4 +383,4 @@ instance Graphic Output where
                    RX -> 3
                    TX -> 2
  drawGraphic (DEBUG) = return () -- perhaps flash a light?
- 
+-}

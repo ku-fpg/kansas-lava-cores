@@ -5,7 +5,6 @@ import qualified Language.KansasLava as KL
 import Language.KansasLava
 import Language.KansasLava.Fabric
 import Language.KansasLava.Universal
-import Language.KansasLava.Wakarusa
 import Language.KansasLava hiding (Fabric)
 import Hardware.KansasLava.RS232
 import Hardware.KansasLava.FIFO
@@ -21,23 +20,22 @@ import Hardware.KansasLava.Peripherals
 
 import Control.Applicative
 import Data.Bits
-import Data.Sized.Ix
+
 import Data.Sized.Unsigned
-import Data.Sized.Arith
 import Data.Sized.Matrix as M
 import qualified Data.Default as Default
 import System.CPUTime
-import Data.Char as C
+import Data.Char as Char
 import Control.Concurrent
 
 import System.Console.CmdArgs as CmdArgs hiding ((:=))
 
 import qualified Hardware.KansasLava.Boards.Spartan3e as Board
 
-import qualified Hardware.KansasLava.Simulators.Polyester as Sim
+import qualified Hardware.KansasLava.Simulators.Polyester as P
 
 import Hardware.KansasLava.Boards.Spartan3e
-import Hardware.KansasLava.Simulators.Spartan3e
+--import Hardware.KansasLava.Simulators.Spartan3e
 
 
 
@@ -47,11 +45,70 @@ data Opts = Opts { demoFabric :: String, fastSim :: Bool, beat :: Integer, vhdl 
 options = Opts { demoFabric = "lambda-bridge"    &= help "demo fabric to be executed or built"
                , fastSim = True                 &= help "if running board at full speed"
                , beat = (50 * 1000 * 1000)       &= help "approx number of clicks a second"
-               , vhdl = False                    &= help "generate VDHL"
+               , vhdl = True                    &= help "generate VDHL"
 
                }
         &= summary "spartan3e-demo: run different examples for Spartan3e"
         &= program "spartan3e-demo"
+
+
+example :: (Spartan3e m) => String -> m ()
+example _ = do
+                let f x = if x then high else low
+
+                VAR count :: VAR U32 <- initially 0
+
+                let count' :: Seq (Matrix X32 Bool)  = bitwise (count :: Seq U32)
+
+                let m      ::  Matrix X32 (Seq Bool) = unpack count'
+
+                spark $ do
+                        lab <- STEP
+                        count := count + 1
+                        GOTO lab
+
+--                sw <- switches
+
+--                buttons
+--                dial
+
+                leds $ M.forAll $ \ i -> m ! (fromIntegral i + 12)
+
+--                leds $ M.forAll $ \ i -> if i < 4 then sw ! (fromIntegral i)
+--                                                  else m ! (fromIntegral i + 4)
+{-
+                BUS lcd_bus lcd_wtr_bus :: BUS ((X2,X16),U8) <- bus
+
+                let s = map (fromIntegral . ord) "Hello, Spartan3!"
+                spark $ do
+                        sequence_
+                          [ putBus lcd_wtr_bus (pureS ((x,y),s !! fromIntegral y)) $ STEP
+                          | x <- [0,1], y <- [0..15]
+                          ]
+                        return ()
+                lcd lcd_bus
+
+
+                rs232_out <- rs232rx DCE 9600
+
+                probe "rs232_out" rs232_out -- (pack sw :: Seq (Matrix X4 Bool))
+
+                rs_bus <- latchBus rs232_out
+
+                BUS rs232_bus rs232_wrt_bus :: BUS U8 <- bus
+
+                rs232tx DCE 9600 rs_bus
+
+                spark $ sequence_
+                        [ putBus rs232_wrt_bus (pureS (fromIntegral (Char.ord ch))) $ STEP
+                        | ch <- "Hello, World\n"
+                        ]
+-}
+                return ()
+
+
+--main = do
+--        P.runSimulator P.Friendly 100 100 (fab :: Spartan3eSimulator ())
 
 
 main = do
@@ -61,28 +118,31 @@ main = do
           True ->  vhdlUseFabric opts $ example nm
           False -> simUseFabric opts $ example nm
 
+
 simUseFabric :: Opts -> Spartan3eSimulator () -> IO ()
 simUseFabric opts fab = do
-        writeFile "LOG" "-- starting log\n"
-        setProbesAsTrace (appendFile "LOG")
-        Sim.runPolyester
-                (if fastSim opts then Sim.Fast else Sim.Friendly)
+--        writeFile "LOG" "-- starting log\n"
+--        setProbesAsTrace (appendFile "LOG")
+        P.runSimulator
+                (if fastSim opts then P.Fast else P.Friendly)
                 (50 * 1000 * 1000)
                 50
                 fab
 
-vhdlUseFabric :: Opts -> Spartan3e' () -> IO ()
+vhdlUseFabric :: Opts -> Spartan3eBoard () -> IO ()
 vhdlUseFabric opts fab = do
-        kleg <- reifyFabric $
+        kleg <- reifyFabric (unSpartan3eBoard fab clockRate)
+{-
                   do clk <- compileToFabric
                           $ run_physical
                           $ do fab
                                clk_physical
                      theClk clk
+-}
         Board.writeUCF "main.ucf" kleg
         KL.writeVhdlCircuit "main" "main.vhd" kleg
         return ()
-
+{-
 
 example
  :: ( {-DialRotation m
@@ -846,5 +906,8 @@ message0 :: String -> EXPR (Message a)
 message0 = undefined
 message1 :: String -> EXPR a -> EXPR Message
 message1 = undefined
+-}
+
+-}
 -}
 -}

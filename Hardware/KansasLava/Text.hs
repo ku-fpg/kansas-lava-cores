@@ -6,31 +6,30 @@ module Hardware.KansasLava.Text where
 
 import Language.KansasLava as KL
 import Data.Sized.Unsigned
-import Data.Sized.Ix
-import Data.Sized.Arith
 import Data.Sized.Matrix as M
 import Control.Applicative
 import Data.Char
 import qualified Data.Bits as B
 import Data.Maybe as Maybe
 
+{-
 -- | 'mm_text_driver' is a memory-mapped driver for a (small) display.
 -- It gets passed the background "image", and the mapping from
 -- active location number to row,col on the screen.
 -- It outputs values sutable for input into the LCD mm drivers.
-mm_text_driver :: forall c sig row col loc . 
+mm_text_driver :: forall c sig row col loc .
 	( Clock c, sig ~ Signal c
 	, Rep loc, Rep row, Rep col
 	, Size row, Size col
 	, Rep (MUL row col)
 	, Num (MUL row col)
 	, Size (MUL row col)
-	) 
+	)
 	=> Matrix (row,col) U8		-- backscreen
 	-> (loc -> (row,col))	-- active content mapping
 	-> Patch (sig (Enabled (loc,U8)))	(sig (Enabled ((row,col),U8)))
-		 (sig Ack)			(sig Ack)		
-mm_text_driver m f = 
+		 (sig Ack)			(sig Ack)
+mm_text_driver m f =
 	mapP g $$
 	prependP (matrix (M.toList m') :: Matrix (MUL row col) ((row,col),U8))
    where
@@ -50,7 +49,7 @@ joinWrites = undefined
 aliveGlyph :: forall c sig . (Clock c, sig ~ Signal c)
      => Patch (sig (Enabled ()))	(sig (Enabled (X1,U8)))
 	      (sig Ack)			(sig Ack)
-aliveGlyph 
+aliveGlyph
       = openP $$
 	fstP (cycleP (matrix $ map ordU8 ".oOo" :: Matrix X4 U8) $$
 		  mapP (\ x -> pack (0,x))
@@ -64,29 +63,29 @@ aliveGlyph
 scrollBar :: forall c sig x comb . (Clock c, sig ~ Signal c, Size x, Bounded x, Num x, Enum x, Rep x)
         => Patch (sig (Enabled U8))	(sig (Enabled (x,U8)))
 	         (sig Ack)		(sig Ack)
-scrollBar = 
+scrollBar =
         prependP (matrix [32] :: Matrix X1 U8) $$
         loopP patch             $$
         mapP wt_cmds            $$
-        matrixToElementsP       
+        matrixToElementsP
   where
-     patch = 
-        zipP $$ 
+     patch =
+        zipP $$
         mapP fn $$
         fifo1 $$
-        dupP $$ 
+        dupP $$
         fstP (prependP (matrix [pure 32] :: Matrix X1 (Matrix x U8)))
 
      fn :: forall comb . Signal comb (Matrix x U8,U8) -> Signal comb (Matrix x U8)
      fn  ab = let (a:: Signal comb (Matrix x U8),b :: Signal comb U8) = unpack ab
                   a' = unpack a :: Matrix x (Signal comb U8)
-              in pack $  matrix ([ a' ! x 
+              in pack $  matrix ([ a' ! x
                                  | x <- [1..maxBound]
                                  ] ++ [b])
 
      wt_cmds :: forall comb . Signal comb (Matrix x U8) -> Signal comb (Matrix x (x,U8))
      wt_cmds = pack . (\ m -> forAll $ \ i -> pack (pureS i,m M.! i)) . unpack
-     
+
 
 
 -- show a hex number
@@ -98,9 +97,9 @@ hexForm :: forall c sig w .
       	      (sig Ack)					(sig Ack)
 hexForm
     = matrixDupP $$
-    matrixStackP (forAll $ \ i -> 
+    matrixStackP (forAll $ \ i ->
 		mapP (\ v -> witnessS (Witness :: Witness U4) $ (unsigned) (v `B.shiftR` (fromIntegral (maxBound - i) * 4))) $$
-		mapP (funMap (\ x -> if x >= 0 && x <= 9 
+		mapP (funMap (\ x -> if x >= 0 && x <= 9
                      then return (0x30 + fromIntegral x)
                      else return (0x41 + fromIntegral x - 10))) $$
 		mapP (\ ch -> pack (pureS i,ch))) $$
@@ -120,8 +119,8 @@ rowU8 :: (Size x) => String -> Matrix x U8
 rowU8 = matrix . fmap ordU8
 
 -- | Turn a string into a 2D matrix, ready for background.
-boxU8 :: forall x row col . (Size x, Size row,Num row, Enum row, Size col, Num col, Enum col, x ~ MUL row col) 
-      => [String] 
+boxU8 :: forall x row col . (Size x, Size row,Num row, Enum row, Size col, Num col, Enum col, x ~ MUL row col)
+      => [String]
       -> Matrix x ((row,col),U8)
 boxU8 inp = matrix
       [ ((row,col),ch)
@@ -129,7 +128,8 @@ boxU8 inp = matrix
       , (ch,col)  <- zip chs [0..]
       ]
 
-boxU8' :: forall row col . (Size row,Num row, Enum row, Size col, Num col, Enum col) 
-      => [String] 
+boxU8' :: forall row col . (Size row,Num row, Enum row, Size col, Num col, Enum col)
+      => [String]
       -> Matrix (row,col) U8
 boxU8' = matrix . concat . fmap (fmap ordU8)
+-}

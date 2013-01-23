@@ -7,9 +7,8 @@ import Hardware.KansasLava.FIFO
 import Hardware.KansasLava.Spartan3e.LCD
 import Hardware.KansasLava.Rate
 
-import Data.Sized.Ix
+
 import Data.Sized.Unsigned
-import Data.Sized.Arith
 import Data.Sized.Matrix
 import Data.Default
 import System.CPUTime
