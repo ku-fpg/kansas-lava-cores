@@ -17,7 +17,7 @@ module Hardware.KansasLava.Boards.Spartan3e where
 import Language.KansasLava as KL
 import Language.KansasLava.Fabric
 import Language.KansasLava.Universal
-import Hardware.KansasLava.Simulators.Polyester as P
+import Hardware.KansasLava.Simulator as P
 import System.Console.ANSI
 import Data.Char as Char
 import Data.Array.IArray
@@ -119,7 +119,7 @@ instance Spartan3e Spartan3eBoard where
 ------------------------------------------------------------
 
 data Spartan3eSimulator a = Spartan3eSimulator
-        { unSpartan3eSimulator :: SuperFabric Spartan3eClock Polyester a }
+        { unSpartan3eSimulator :: SuperFabric Spartan3eClock Simulator a }
 
 instance Monad Spartan3eSimulator where
         return a = Spartan3eSimulator (return a)
@@ -145,12 +145,12 @@ instance LocalM Spartan3eSimulator where
 --        input nm pad = Spartan3eSimulator $ input nm pad
 --        output nm pad = Spartan3eSimulator $ output nm pad
 
-instance Simulator Spartan3eSimulator where
-        -- Really, this is getting a Fabric.
-        runPolyester (Spartan3eSimulator m) = do
-                outPolyester (\ _ -> BOARD) [()]
+
+runSpartan3eSimulator :: Spartan3eSimulator () -> IO ()
+runSpartan3eSimulator (Spartan3eSimulator m) = runSimulator P.Friendly 100 100 $ do
+                outSimulator (\ _ -> BOARD) [()]
                 ((),pads) <- runFabric m []
---                outDebuggingPolyester pads
+--                outDebuggingSimulator pads
                 return ()
 
 type instance (2 + 16) = 18
@@ -159,10 +159,10 @@ type instance (1 + 26) = 27
 type instance (1 + 32) = 33
 
 instance Spartan3e Spartan3eSimulator where
-        clkSpeed = Spartan3eSimulator $ lift getPolyesterClkSpeed
+        clkSpeed = Spartan3eSimulator $ lift getSimulatorClkSpeed
 
         leds mat = Spartan3eSimulator $ lift $ sequence_
-                [ outPolyester (LED x) $ fromS light
+                [ outSimulator (LED x) $ fromS light
                 | (x,light) <- assocs mat
                 ]
 
@@ -174,8 +174,8 @@ instance Spartan3e Spartan3eSimulator where
                     key = matrix "lkjh"
 
                 m <- sequence
-                          [ do ss <- inPolyester False (sw i)
-                               outPolyester (TOGGLE i) ss
+                          [ do ss <- inSimulator False (sw i)
+                               outSimulator (TOGGLE i) ss
                                return $ toS ss
                           | i <- [0..3]
                           ]
@@ -189,8 +189,8 @@ instance Spartan3e Spartan3eSimulator where
                     key = matrix "aegx"
 
                 m <- sequence
-                          [ do ss <- inPolyester False (sw i)
-                               outPolyester (BUTTON i) ss
+                          [ do ss <- inSimulator False (sw i)
+                               outSimulator (BUTTON i) ss
                                return $ toS ss
                           | i <- [0..3]
                           ]
@@ -202,8 +202,8 @@ instance Spartan3e Spartan3eSimulator where
                     switch 'f' (Dial b p) = Dial b (succ p)
                     switch _   other      = other
 
-                ss <- inPolyester (Dial False 0) switch
-                outPolyester DIAL ss
+                ss <- inSimulator (Dial False 0) switch
+                outSimulator DIAL ss
 
                 let delta :: [U2] -> [Enabled Bool]
                     delta xs = Nothing : [ f (a - b) | a <- xs, b <- tail xs ]
@@ -228,7 +228,7 @@ instance Spartan3e Spartan3eSimulator where
 
                 let ss :: [Maybe (Enabled ((Sized 2,Sized 16),U8))] = fromS lcd_out
 
-                Spartan3eSimulator $ lift $ outPolyesterEvents
+                Spartan3eSimulator $ lift $ outSimulatorEvents
                         [ case ss of
                             Nothing -> Nothing -- should not happen; consider X'ing the LCD
                             Just Nothing -> Nothing
@@ -243,7 +243,7 @@ instance Spartan3e Spartan3eSimulator where
                     rx = portname ++ "/rx"
 
                 xs :: [Maybe U8] <- Spartan3eSimulator $ lift $ do
-                        readSocketPolyester
+                        readSocketSimulator
                                 ("dev/" ++ portname)
                                 rx
                                 100      -- for now, should really compute this
@@ -274,14 +274,14 @@ instance Spartan3e Spartan3eSimulator where
                          ]
 
                 Spartan3eSimulator $ lift $ do
-                        writeSocketPolyester
+                        writeSocketSimulator
                                 ("dev/" ++ portname)
                                 tx
                                 ss
                 return ()
 
         probe nm ss = Spartan3eSimulator $ lift $ do
-                outDebuggingPolyester $ fmap toUnit $ fromS $ probeS nm ss
+                outDebuggingSimulator $ fmap toUnit $ fromS $ probeS nm ss
            where
                 toUnit _ = ()   -- why does this work?
 
@@ -719,7 +719,7 @@ main = do
                         ]
 -}
                 return () :: Spartan3eSimulator ()
-        runSimulator P.Friendly 100 100 fab
+        runSpartan3eSimulator fab
 
 
 

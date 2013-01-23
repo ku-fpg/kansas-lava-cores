@@ -58,7 +58,7 @@ Library
         Hardware.KansasLava.LCD.ST7066U
         Hardware.KansasLava.Boards.UCF
         Hardware.KansasLava.Boards.Spartan3e
-        Hardware.KansasLava.Simulators.Polyester
+        Hardware.KansasLava.Simulator
   Other-modules:
         Paths_kansas_lava_cores
 
