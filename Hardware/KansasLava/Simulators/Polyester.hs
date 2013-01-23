@@ -133,6 +133,7 @@ getPolyesterSimSpeed = Polyester $ \ env st -> return (pSimSpeed env,mempty,st)
 initializedCores :: Polyester [String]
 initializedCores = Polyester $ \ env st -> return (pCores st,mempty,st)
 
+{-
 getBoardExecMode :: (Simulator f) => Board f ExecMode
 getBoardExecMode = Board $ \ _ env -> return (return (pExecMode env,mempty))
 
@@ -141,7 +142,7 @@ getBoardClkSpeed = Board $ \ _ env -> return (return (pClkSpeed env,mempty))
 
 getBoardSimSpeed :: (Simulator f) => Board f Integer
 getBoardSimSpeed = Board $ \ _ env -> return (return (pSimSpeed env,mempty))
-
+-}
 -----------------------------------------------------------------------
 -- Ways out outputing from the Polyester
 -----------------------------------------------------------------------
@@ -518,11 +519,13 @@ instance Show PolyesterException where
 
 instance Exception PolyesterException
 
+{-
 data Board (f :: * -> *) a = Board
         { unBoard :: [Maybe Char]
                   -> PolyesterEnv
                   -> IO (f (a,[PolyesterOut]))
         }
+-}
 {-
 data Polyester a = Polyester ([Maybe Char]
                                -> PolyesterEnv
@@ -531,8 +534,8 @@ data Polyester a = Polyester ([Maybe Char]
 -}
 
 
-instance Monad (Board f) where {}
-instance MonadFix (Board f) where {}
+--instance Monad (Board f) where {}
+--instance MonadFix (Board f) where {}
 
 --class Reify fab => Simulator fab where
 --        simulatedBoard :: SuperFabric (Board fab) ()
