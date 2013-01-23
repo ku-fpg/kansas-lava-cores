@@ -1,4 +1,4 @@
-{-# LANGUAGE ScopedTypeVariables,TypeFamilies, FlexibleContexts, RecursiveDo, DoRec, DataKinds #-}
+{-# LANGUAGE ScopedTypeVariables,TypeFamilies, FlexibleContexts, RecursiveDo, DoRec, DataKinds,  StandaloneDeriving, DataKinds #-}
 
 module Hardware.KansasLava.Boards.Spartan3e where
 {-
@@ -20,6 +20,8 @@ import Language.KansasLava.Universal
 import Hardware.KansasLava.Simulators.Polyester as P
 import System.Console.ANSI
 import Data.Char as Char
+import Data.Array.IArray
+import GHC.TypeLits
 {-
 
 -}
@@ -33,6 +35,7 @@ import Hardware.KansasLava.Boards.UCF
 
 import Control.Monad.Trans.Class
 import Data.Sized.Unsigned
+import Data.Sized.Sized
 
 import Data.Sized.Matrix hiding (all)
 import qualified Data.Sized.Matrix as M
@@ -54,13 +57,23 @@ class (LocalM m) => Spartan3e m where
         dial     ::                             m ( Signal (LocalClock m)  Bool
                                                   , Signal (LocalClock m)  (Enabled Bool)
                                                   )
+        lcd      :: Bus (LocalClock m) ((Sized 2,Sized 16),U8) -> m ()
+
+        rs232rx  :: Serial -> Int            -> m (Bus (LocalClock m) U8)
+        rs232tx  :: Serial -> Int -> Bus (LocalClock m) U8  -> m ()
 {-
-        lcd      :: Bus ((X2,X16),U8)        -> m ()
-        rs232rx  :: Serial -> Int            -> m (Bus U8)
-        rs232tx  :: Serial -> Int -> Bus U8  -> m ()
         mem_chip :: Bus (U20,U8) -> Bus U20  -> m (Bus (U16,U16))       -- unclear how to do this
-        probe    :: Rep a => String -> Seq a -> m ()
 -}
+        probe    :: Rep a => String -> Signal (LocalClock m) a -> m ()
+
+
+------------------------------------------------------------
+-- The board clock
+
+data Spartan3eClock = Spartan3eClock
+
+instance Clock Spartan3eClock
+
 ------------------------------------------------------------
 -- The Spartan3e Board Monad
 ------------------------------------------------------------
@@ -79,9 +92,6 @@ instance MonadFix Spartan3eBoard where
                         rec a <- unSpartan3eBoard (f a) env
                         return a
 
-data Spartan3eClock = Spartan3eClock
-
-instance Clock Spartan3eClock
 
 instance LocalM Spartan3eBoard where
         type LocalClock Spartan3eBoard = Spartan3eClock
@@ -107,10 +117,9 @@ instance Spartan3e Spartan3eBoard where
 
 -- The Spartan3e Simulator Monad
 ------------------------------------------------------------
-{-
 
 data Spartan3eSimulator a = Spartan3eSimulator
-        { unSpartan3eSimulator :: SuperFabric Polyester a }
+        { unSpartan3eSimulator :: SuperFabric Spartan3eClock Polyester a }
 
 instance Monad Spartan3eSimulator where
         return a = Spartan3eSimulator (return a)
@@ -124,18 +133,17 @@ instance MonadFix Spartan3eSimulator where
                         rec a <- unSpartan3eSimulator (f a)
                         return a
 
-
 instance LocalM Spartan3eSimulator where
+        type LocalClock Spartan3eSimulator = Spartan3eClock
         newSignalVar           = Spartan3eSimulator $ newSignalVar
         writeSignalVar var sig = Spartan3eSimulator $ writeSignalVar var sig
         readSignalVar  var fn  = Spartan3eSimulator $ readSignalVar var fn
+
 
 -- The point here is you can not generate arbitary outputs and inputs
 --instance InOutM Spartan3eSimulator where
 --        input nm pad = Spartan3eSimulator $ input nm pad
 --        output nm pad = Spartan3eSimulator $ output nm pad
-
--- runFabric :: (MonadFix m) => SuperFabric m a -> [(String,Pad)] -> m (a,[(String,Pad)])
 
 instance Simulator Spartan3eSimulator where
         -- Really, this is getting a Fabric.
@@ -145,8 +153,14 @@ instance Simulator Spartan3eSimulator where
 --                outDebuggingPolyester pads
                 return ()
 
+type instance (2 + 16) = 18
+type instance (18 + 8) = 26
+type instance (1 + 26) = 27
+type instance (1 + 32) = 33
+
 instance Spartan3e Spartan3eSimulator where
         clkSpeed = Spartan3eSimulator $ lift getPolyesterClkSpeed
+
         leds mat = Spartan3eSimulator $ lift $ sequence_
                 [ outPolyester (LED x) $ fromS light
                 | (x,light) <- assocs mat
@@ -206,14 +220,13 @@ instance Spartan3e Spartan3eSimulator where
                              $ ss
                        )
 
-
         lcd bus = do
-                CHAN lcd_out lcd_in :: CHAN ((X2,X16),U8) <- channel
+                CHAN lcd_out lcd_in :: CHAN Spartan3eClock ((Sized 2,Sized 16),U8) <- channel
                 spark $ do
                         lab <- STEP
                         takeBus bus lcd_in $ GOTO lab
 
-                let ss :: [Maybe (Enabled ((X2,X16),U8))] = fromS lcd_out
+                let ss :: [Maybe (Enabled ((Sized 2,Sized 16),U8))] = fromS lcd_out
 
                 Spartan3eSimulator $ lift $ outPolyesterEvents
                         [ case ss of
@@ -245,7 +258,7 @@ instance Spartan3e Spartan3eSimulator where
                 -- right now, we pay no attention to the speed
                 -- sending everything at full speed
 
-                CHAN rs_out rs_in :: CHAN U8 <- channel
+                CHAN rs_out rs_in :: CHAN Spartan3eClock U8 <- channel
 
                 spark $ do
                         lab <- STEP
@@ -267,12 +280,12 @@ instance Spartan3e Spartan3eSimulator where
                                 ss
                 return ()
 
-
         probe nm ss = Spartan3eSimulator $ lift $ do
                 outDebuggingPolyester $ fmap toUnit $ fromS $ probeS nm ss
            where
                 toUnit _ = ()   -- why does this work?
 
+{-
 {-
 
 instance CoreMonad Spartan3e where
@@ -510,6 +523,8 @@ f a =
 -- initialization
 ------------------------------------------------------------
 -}
+-}
+
 -- | The clock rate on the Spartan3e (50MHz), in hertz.
 clockRate :: Integer
 clockRate = 50 * 1000 * 1000
@@ -533,7 +548,8 @@ serialName DCE = "dce"
 serialName DTE = "dte"
 
 data Dial = Dial Bool U2
-        deriving Eq
+
+deriving instance Eq Dial
 
 -------------------------------------------------------------
 -- ASCII board simulator
@@ -573,12 +589,12 @@ boardASCII = unlines
 -----------------------------------------------------------------------
 
 data Output
-	= LED X8 (Maybe Bool)
-	| TOGGLE X4 Bool
+	= LED (Sized 8) (Maybe Bool)
+	| TOGGLE (Sized 4) Bool
         | CLOCK Integer
-        | LCD (X2,X16) Char
+        | LCD (Sized 2,Sized 16) Char
         | BOARD
-        | BUTTON X4 Bool
+        | BUTTON (Sized 4) Bool
         | DIAL Dial
         | QUIT Bool
         | RS232 DIR Serial Integer
@@ -650,17 +666,16 @@ instance Graphic Output where
 
 ----------------------------------------------------------------------------------
 -- local tests
-{-
 --main :: (W (Vector 32 Bool) ~ X32, W U32 ~ X32) => IO ()
 main = do
         let fab = do
                 let f x = if x then high else low
 
-                VAR count :: VAR U32 <- initially 0
+                VAR count :: VAR Spartan3eClock U32 <- initially 0
 
-                let count' :: Seq (Vector 32 Bool)  = bitwise (count :: Seq U32)
+                let count' :: Signal Spartan3eClock (Vector 32 Bool)  = bitwise (count :: Signal Spartan3eClock U32)
 
-                let m      ::  Vector 32 (Seq Bool) = unpack count'
+                let m      ::  Vector 32 (Signal Spartan3eClock Bool) = unpack count'
 
                 spark $ do
                         lab <- STEP
@@ -675,7 +690,8 @@ main = do
                 leds $ M.forAll $ \ i -> if i < 4 then sw ! (fromIntegral i)
                                                   else m ! (fromIntegral i + 4)
 
-                BUS lcd_bus lcd_wtr_bus :: BUS ((X2,X16),U8) <- bus
+{-
+                BUS lcd_bus lcd_wtr_bus :: BUS Spartan3eClock ((Sized 2,Sized 16),U8) <- bus
 
                 let s = map (fromIntegral . ord) "Hello, Spartan3!"
                 spark $ do
@@ -693,7 +709,7 @@ main = do
 
                 rs_bus <- latchBus rs232_out
 
-                BUS rs232_bus rs232_wrt_bus :: BUS U8 <- bus
+                BUS rs232_bus rs232_wrt_bus :: BUS Spartan3eClock U8 <- bus
 
                 rs232tx DCE 9600 rs_bus
 
@@ -701,12 +717,9 @@ main = do
                         [ putBus rs232_wrt_bus (pureS (fromIntegral (Char.ord ch))) $ STEP
                         | ch <- "Hello, World\n"
                         ]
-
+-}
                 return () :: Spartan3eSimulator ()
         runSimulator P.Friendly 100 100 fab
 
--}
-
--}
 
 
