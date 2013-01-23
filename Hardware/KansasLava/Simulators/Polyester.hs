@@ -34,8 +34,6 @@ import Language.KansasLava hiding (Fast)
 import Language.KansasLava.Fabric
 import Language.KansasLava.Universal
 
-import Hardware.KansasLava.Core
-
 import System.Console.ANSI
 import System.IO
 import Data.Typeable
