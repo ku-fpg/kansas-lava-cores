@@ -162,6 +162,25 @@ changed xs = Just (S.head xs) `S.cons` f (S.head xs) (S.tail xs)
         f x xs | x == S.head xs = Nothing `S.cons` f x (S.tail xs)
                | otherwise      = Just (S.head xs) `S.cons` f (S.head xs) (S.tail xs)
 
+freeze :: (Eq a) => a -> Stream (Maybe a) -> Stream a
+freeze a = loop a
+  where
+        loop n ss = case S.uncons ss of
+                      (Nothing,xs) -> n `S.cons` loop n xs
+                      (Just v,xs)  -> v `S.cons` loop v xs
+
+flipper :: Stream (Maybe ()) -> Stream Bool
+flipper =  loop False
+  where
+        loop n ss = case S.uncons ss of
+                      (Nothing,xs) -> n       `S.cons` loop n xs
+                      (Just _,xs)  -> (not n) `S.cons` loop (not n) xs
+
+tick :: Bool -> Maybe ()
+tick True = Just ()
+tick False = Nothing
+
+
 -- | Turn a list of graphical events into a 'Simulator', without processing.
 outSimulatorEvents :: (Graphic g) => Stream (Maybe g) -> Simulator ()
 outSimulatorEvents = scheduleConsumption (maybe (return ()) (showANSI . drawGraphic))
@@ -569,7 +588,7 @@ class (Eq o) => SimulatorOutput o where
         simTerminal   :: o -> ANSI ()
         simWrite      :: o -> Maybe (String,Word8)
 
-runSimulator2 :: forall i o . (Show o, SimulatorInput i, SimulatorOutput o)
+runSimulator2 :: forall i o . (Show o, Show i, SimulatorInput i, SimulatorOutput o)
               => ExecMode -> Integer -> Integer -> Simulator2 i o () -> IO ()
 runSimulator2 mode clkSpeed simSpeed (Simulator2 fab) = do
         setTitle "Kansas Lava"
@@ -591,9 +610,13 @@ runSimulator2 mode clkSpeed simSpeed (Simulator2 fab) = do
 
         -- fab :: Stream [i] -> (a,[Stream o],[String])
 
-        let loop = [] `S.cons` loop
+        let ins = [ maybe [] (simKeyboard) ch
+                  | ch <- inputs
+                  ]
 
-        let ((),outs0,devs) = fab loop
+--        print $ concat ins
+
+        let ((),outs0,devs) = fab $ S.fromList $ ins
 
         let outs1 = fmap changed outs0
 

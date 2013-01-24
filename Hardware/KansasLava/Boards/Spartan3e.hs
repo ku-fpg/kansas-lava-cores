@@ -507,7 +507,11 @@ main = do
 
 fab1 :: (Spartan3e m) => m ()
 fab1 = do
-        leds $ matrix [ high, low, high, low, high, low, high, low ]
+
+        sw <- switches
+
+        leds $ M.forAll $ \ i -> if i < 4 then sw ! (fromIntegral i)
+                                          else high -- m ! (fromIntegral i + 4)
 
 data ConnectM i o a = ConnectM { runConnectM :: i -> (a,o -> o) }
 
@@ -568,23 +572,17 @@ instance Spartan3e Spartan3eSimulator' where
                 ]
 
 
-{-
-
-        switches = Spartan3eSimulator $ lift $ do
-                let sw i ch old | key ! i == ch = not old       -- flip
-                                | otherwise     = old           -- leave
-
-                    key :: Vector 4 Char
-                    key = matrix "lkjh"
-
+        switches = Spartan3eSimulator' $ lift $ do
                 m <- sequence
-                          [ do ss <- inSimulator False (sw i)
-                               outSimulator (TOGGLE i) ss
-                               return $ mkShallowS $ fmap pureX $ ss
+                          [ do ss0 <- simInput (TOGGLE' i `elem`)
+                               let ss1 = flipper $ fmap tick ss0
+                               simOutput (fmap (TOGGLE i) $ ss1)
+                               return $ mkShallowS $ fmap pure $ ss1
                           | i <- [0..3]
                           ]
                 return $ matrix m
 
+{-
         buttons = Spartan3eSimulator $ lift $ do
                 let sw i ch old | key ! i == ch = not old       -- flip
                                 | otherwise     = old           -- leave
@@ -615,10 +613,10 @@ runSpartan3eSimulator' = undefined
 -----------------------------------------------------------------------
 
 instance SimulatorInput Input where
-        simKeyboard 'h' = [TOGGLE' 0]
-        simKeyboard 'j' = [TOGGLE' 1]
-        simKeyboard 'k' = [TOGGLE' 2]
-        simKeyboard 'l' = [TOGGLE' 3]
+        simKeyboard 'l' = [TOGGLE' 0]
+        simKeyboard 'k' = [TOGGLE' 1]
+        simKeyboard 'j' = [TOGGLE' 2]
+        simKeyboard 'h' = [TOGGLE' 3]
         simKeyboard _   = []
         simRead _ _ = []
 
@@ -632,7 +630,8 @@ data Input
         = TOGGLE' (Sized 4)
         | BUTTON' (Sized 4)
 
-
+deriving instance Eq Input
+deriving instance Show Input
 
 runSpartan3eSimulator2 :: Spartan3eSimulator' () -> Simulator2 Input Output ()
 runSpartan3eSimulator2 (Spartan3eSimulator' m) = do
