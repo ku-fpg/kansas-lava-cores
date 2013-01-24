@@ -62,7 +62,7 @@ class (LocalM m) => Spartan3e m where
         dial     ::                             m ( Signal (LocalClock m)  Bool
                                                   , Signal (LocalClock m)  (Enabled Bool)
                                                   )
-        lcd      :: Bus (LocalClock m) ((Sized 2,Sized 16),U8) -> m ()
+        lcd      :: Int -> Bus (LocalClock m) ((Sized 2,Sized 16),U8) -> m ()
 
         rs232rx  :: Serial -> Int            -> m (Bus (LocalClock m) U8)
         rs232tx  :: Serial -> Int -> Bus (LocalClock m) U8  -> m ()
@@ -180,7 +180,7 @@ instance Spartan3e Spartan3eSimulator where
 
                 m <- sequence
                           [ do ss <- inSimulator False (sw i)
-                               outSimulator (TOGGLE i) ss
+                               outSimulator (INPUT $ TOGGLE i) ss
                                return $ mkShallowXS $ fmap pureX $ ss
                           | i <- [0..3]
                           ]
@@ -195,7 +195,7 @@ instance Spartan3e Spartan3eSimulator where
 
                 m <- sequence
                           [ do ss <- inSimulator False (sw i)
-                               outSimulator (BUTTON i) ss
+                               outSimulator (INPUT $ BUTTON i) ss
                                return $ mkShallowXS $ fmap pureX $ ss
                           | i <- [0..3]
                           ]
@@ -232,7 +232,7 @@ instance Spartan3e Spartan3eSimulator where
                              $ ss
                        )
 
-        lcd bus = do
+        lcd _ bus = do
                 CHAN lcd_out lcd_in :: CHAN Spartan3eClock ((Sized 2,Sized 16),U8) <- channel
                 spark $ do
                         lab <- STEP
@@ -368,20 +368,32 @@ boardASCII = unlines
 
 data Output
 	= LED (Sized 8) (Maybe Bool)
-	| TOGGLE (Sized 4) Bool
+        | INPUT Input Bool
+--	| TOGGLE (Sized 4) Bool
         | CLOCK Integer
         | LCD (Sized 2,Sized 16) Char
         | BOARD
-        | BUTTON (Sized 4) Bool
+--        | BUTTON (Sized 4) Bool
         | DIAL Dial
-        | QUIT Bool
         | RS232 DIR Serial Integer
         | DEBUG
-
 
 deriving instance Eq Output
 deriving instance Show Output
 
+data Input
+        = TOGGLE (Sized 4)
+        | BUTTON (Sized 4)
+        | DIAL_BUTTON
+        | DIAL_TURN LR
+        | QUIT
+
+
+deriving instance Eq Input
+deriving instance Show Input
+
+data LR = LEFT | RIGHT
+        deriving (Show,Eq,Ord)
 
 data DIR  = RX | TX
         deriving (Show,Eq,Ord)
@@ -399,7 +411,7 @@ instance Graphic Output where
         ledASCII (Just True)  = '@'
         ledASCII (Just False) = '.'
 
- drawGraphic (TOGGLE x b) = do
+ drawGraphic (INPUT (TOGGLE x) b) = do
         PRINT [up]   `at` (14,46 - 2 * fromIntegral x)
         PRINT [down] `at` (15,46 - 2 * fromIntegral x)
   where
@@ -414,7 +426,7 @@ instance Graphic Output where
  drawGraphic BOARD = do
         PRINT boardASCII `at` (1,0)
         COLOR Red $ PRINT ['o'] `at` (2,4)
- drawGraphic (BUTTON x b) =
+ drawGraphic (INPUT (BUTTON x) b) =
         (if b then REVERSE else id) $
         PRINT [snd (buttons !! fromIntegral x)] `at`
               (fst (buttons !! fromIntegral x))
@@ -428,10 +440,6 @@ instance Graphic Output where
  drawGraphic (DIAL (Dial b p)) =
         (if b then REVERSE else id) $
         PRINT ["|/-\\" !! fromIntegral p] `at` (14,11)
- drawGraphic (QUIT b)
-        | b = do PRINT "" `at` (25,1)
-                 error "Simulation Quit"
-        | otherwise = return ()
  drawGraphic (RS232 dir port val)
       | val > 0   = PRINT (prefix ++ show val) `at` (col,row)
       | otherwise = PRINT (prefix ++ "-")      `at` (col,row)
@@ -509,6 +517,8 @@ fab1 :: (Spartan3e m) => m ()
 fab1 = do
 
         sw <- switches
+        buttons
+        dial
 
         leds $ M.forAll $ \ i -> if i < 4 then sw ! (fromIntegral i)
                                           else high -- m ! (fromIntegral i + 4)
@@ -565,22 +575,89 @@ instance LocalM Spartan3eSimulator' where
 instance Spartan3e Spartan3eSimulator' where
         clkSpeed = return $ clockRate
 
---        leds mat = lift $ undefined -- writeConnectM $ \ o -> o -- { output_leds = mat }
         leds mat = Spartan3eSimulator' $ lift $ sequence_
-                [ simOutput (fmap (LED x) $ shallowS light)
+                [ simOutput (changed $  fmap (LED x) $ shallowS light)
                 | (x,light) <- assocs mat
                 ]
 
-
         switches = Spartan3eSimulator' $ lift $ do
                 m <- sequence
-                          [ do ss0 <- simInput (TOGGLE' i `elem`)
+                          [ do ss0 <- simInput (TOGGLE i `elem`)
                                let ss1 = flipper $ fmap tick ss0
-                               simOutput (fmap (TOGGLE i) $ ss1)
+                               simOutput (changed $ fmap (INPUT $ TOGGLE i) $ ss1)
                                return $ mkShallowS $ fmap pure $ ss1
                           | i <- [0..3]
                           ]
                 return $ matrix m
+
+        buttons = Spartan3eSimulator' $ lift $ do
+                m <- sequence
+                          [ do ss0 <- simInput (BUTTON i `elem`)
+                               let ss1 = flipper $ fmap tick ss0
+                               simOutput (changed $ fmap (INPUT $ BUTTON i) $ ss1)
+                               return $ mkShallowS $ fmap pure $ ss1
+                          | i <- [0..3]
+                          ]
+                return $ matrix m
+
+        dial = Spartan3eSimulator' $ lift $ do
+                bs0 <- simInput (DIAL_BUTTON     `elem`)
+                ls0 <- simInput (DIAL_TURN LEFT  `elem`)
+                rs0 <- simInput (DIAL_TURN RIGHT `elem`)
+                let bs1 = flipper $ fmap tick bs0
+
+                let f False False st = st
+                    f True  True  st = st
+                    f True  False st = pred st
+                    f False True  st = succ st
+
+                let dirs0 = S.zipWith3 f
+                                   ls0
+                                   rs0
+                                   (0 `S.cons` dirs0)
+
+                simOutput $ changed $ fmap DIAL $ S.zipWith Dial bs1 dirs0
+
+                let delta :: Stream U2 -> Stream (Enabled Bool)
+                    delta xs = Nothing `S.cons` S.zipWith (\ a b -> f (a - b))
+                                                          xs
+                                                          (S.tail xs)
+
+                    f 0 = Nothing
+                    f 1 = Just True
+                    f 2 = Nothing       -- should never happen
+                    f 3 = Just False
+
+                return ( mkShallowS
+                             $ fmap pure
+                             $ bs1
+                       , mkShallowS
+                             $ fmap pure
+                             $ delta
+                             $ dirs0
+                       )
+
+--        lcd :: Bus (LocalClock m) ((Sized 2,Sized 16),U8) -> m ()
+{-
+        lcd _ bus = do
+                CHAN lcd_out lcd_in :: CHAN Spartan3eClock ((Sized 2,Sized 16),U8) <- channel
+                spark $ do
+                        lab <- STEP
+                        takeBus bus lcd_in $ GOTO lab
+
+                let ss :: [Maybe (Enabled ((Sized 2,Sized 16),U8))] = fromS lcd_out
+
+                Spartan3eSimulator' $ lift $ simOutput
+                        $ fmap (\ ss -> case ss of
+                            Nothing -> Nothing -- should not happen; consider X'ing the LCD
+                            Just Nothing -> Nothing
+                            Just (Just ((x,y),ch)) -> Just (LCD (x,y) (Char.chr (fromIntegral ch))))
+                        $ S.fromList
+                        $ fromS
+                        $ lcd_out
+
+                return ()
+-}
 
 {-
         buttons = Spartan3eSimulator $ lift $ do
@@ -613,10 +690,18 @@ runSpartan3eSimulator' = undefined
 -----------------------------------------------------------------------
 
 instance SimulatorInput Input where
-        simKeyboard 'l' = [TOGGLE' 0]
-        simKeyboard 'k' = [TOGGLE' 1]
-        simKeyboard 'j' = [TOGGLE' 2]
-        simKeyboard 'h' = [TOGGLE' 3]
+        simKeyboard 'l' = [TOGGLE 0]
+        simKeyboard 'k' = [TOGGLE 1]
+        simKeyboard 'j' = [TOGGLE 2]
+        simKeyboard 'h' = [TOGGLE 3]
+        simKeyboard 'a' = [BUTTON 0]
+        simKeyboard 'e' = [BUTTON 1]
+        simKeyboard 'g' = [BUTTON 2]
+        simKeyboard 'x' = [BUTTON 3]
+        simKeyboard 'd' = [DIAL_BUTTON]
+        simKeyboard 's' = [DIAL_TURN LEFT]
+        simKeyboard 'f' = [DIAL_TURN RIGHT]
+        simKeyboard 'q' = error "abort simulator"
         simKeyboard _   = []
         simRead _ _ = []
 
@@ -625,13 +710,6 @@ instance SimulatorOutput Output where
         simTerminal = drawGraphic
         simWrite = const Nothing
 
-
-data Input
-        = TOGGLE' (Sized 4)
-        | BUTTON' (Sized 4)
-
-deriving instance Eq Input
-deriving instance Show Input
 
 runSpartan3eSimulator2 :: Spartan3eSimulator' () -> Simulator2 Input Output ()
 runSpartan3eSimulator2 (Spartan3eSimulator' m) = do

@@ -554,7 +554,7 @@ scheduleProduction m = liftIO $ loop
 
 
 data Simulator2 i o a = Simulator2
-        { unSimulator2 :: Stream [i] -> (a,[Stream o],[String])
+        { unSimulator2 :: Stream [i] -> (a,[Stream (Maybe o)],[String])
         }
 
 instance Monad (Simulator2 i o) where
@@ -572,7 +572,7 @@ instance MonadFix (Simulator2 i o)  where
 simInput :: ([i] -> a) -> Simulator2 i o (Stream a)
 simInput f = Simulator2 $ \ i -> (fmap f i,[],[])
 
-simOutput :: Stream o -> Simulator2 i o ()
+simOutput :: Stream (Maybe o) -> Simulator2 i o ()
 simOutput o = Simulator2 $ \ _ -> ((),[o],[])
 
 -- | state that a particual 'dev' is required
@@ -618,7 +618,7 @@ runSimulator2 mode clkSpeed simSpeed (Simulator2 fab) = do
 
         let ((),outs0,devs) = fab $ S.fromList $ ins
 
-        let outs1 = fmap changed outs0
+        let outs1 = outs0 -- fmap changed outs0
 
         let outs2 = transpose1 outs1
         let outs3 = fmap (fmap (maybe [] (: []))) outs2
