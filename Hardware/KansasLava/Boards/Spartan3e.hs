@@ -1,4 +1,4 @@
-{-# LANGUAGE ScopedTypeVariables,TypeFamilies, FlexibleContexts, RecursiveDo, DoRec, DataKinds,  StandaloneDeriving, DataKinds #-}
+{-# LANGUAGE ScopedTypeVariables,TypeFamilies, FlexibleContexts, RankNTypes, RecursiveDo, DoRec, DataKinds,  StandaloneDeriving, DataKinds #-}
 
 module Hardware.KansasLava.Boards.Spartan3e where
 {-
@@ -24,7 +24,7 @@ import Data.Char as Char
 import Data.Array.IArray
 import GHC.TypeLits
 import Control.Monad.IO.Class
-
+import Data.Word
 {-
 
 -}
@@ -167,7 +167,7 @@ instance Spartan3e Spartan3eSimulator where
         clkSpeed = Spartan3eSimulator $ lift getSimulatorClkSpeed
 
         leds mat = Spartan3eSimulator $ lift $ sequence_
-                [ outSimulator (LED x) $ fmap unX $ shallowS light
+                [ outSimulator (LED x) $ shallowS light
                 | (x,light) <- assocs mat
                 ]
 
@@ -181,7 +181,7 @@ instance Spartan3e Spartan3eSimulator where
                 m <- sequence
                           [ do ss <- inSimulator False (sw i)
                                outSimulator (TOGGLE i) ss
-                               return $ mkShallowS $ fmap pureX $ ss
+                               return $ mkShallowXS $ fmap pureX $ ss
                           | i <- [0..3]
                           ]
                 return $ matrix m
@@ -196,7 +196,7 @@ instance Spartan3e Spartan3eSimulator where
                 m <- sequence
                           [ do ss <- inSimulator False (sw i)
                                outSimulator (BUTTON i) ss
-                               return $ mkShallowS $ fmap pureX $ ss
+                               return $ mkShallowXS $ fmap pureX $ ss
                           | i <- [0..3]
                           ]
                 return $ matrix m
@@ -221,11 +221,11 @@ instance Spartan3e Spartan3eSimulator where
                     f 3 = Just False
 
 
-                return ( mkShallowS
+                return ( mkShallowXS
                              $ fmap pureX
                              $ fmap (\ (Dial b _) -> b)
                              $ ss
-                       , mkShallowS
+                       , mkShallowXS
                              $ fmap pureX
                              $ delta
                              $ fmap (\ (Dial _ p) -> p)
@@ -498,5 +498,152 @@ main = do
                 return () :: Spartan3eSimulator ()
         runSpartan3eSimulator fab
 
+data ConnectM i o a = ConnectM { runConnectM :: i -> (a,o -> o) }
 
+readConnectM :: ConnectM i o i
+readConnectM = ConnectM $ \ i -> (i,id)
+
+writeConnectM :: (o -> o) -> ConnectM i o ()
+writeConnectM u = ConnectM $ \ i -> ((),u)
+
+instance Monad (ConnectM i o) where
+        return a = ConnectM $ \ _ -> (a,id)
+        (ConnectM m) >>= k = ConnectM $ \ i ->
+                let (a,w1) = m i
+                    (r,w2) = runConnectM (k a) i
+                in (r,w1 . w2)
+
+instance MonadFix (ConnectM i o)  where
+        mfix f = ConnectM $ \ i ->
+                   let (a,w) = runConnectM (f a) i
+                   in (a,w)
+
+
+data Spartan3eInput = Spartan3eInput
+        { input_buttons :: Vector 4 (Signal Spartan3eClock Bool)
+        }
+
+data Spartan3eOutput = Spartan3eOutput
+        { output_leds :: Vector 8 (Signal Spartan3eClock Bool)
+        }
+
+data Spartan3eSimulator' a = Spartan3eSimulator'
+        { unSpartan3eSimulator' :: SuperFabric Spartan3eClock (Simulator2 Input Output) a }
+
+instance Monad Spartan3eSimulator' where
+        return a = Spartan3eSimulator' (return a)
+        (Spartan3eSimulator' m) >>= k = Spartan3eSimulator' $ do
+                                v <- m
+                                unSpartan3eSimulator' (k v)
+
+instance MonadFix Spartan3eSimulator' where
+        mfix f = Spartan3eSimulator' $ do
+                        rec a <- unSpartan3eSimulator' (f a)
+                        return a
+
+instance LocalM Spartan3eSimulator' where
+        type LocalClock Spartan3eSimulator' = Spartan3eClock
+        newSignalVar           = Spartan3eSimulator' $ newSignalVar
+        writeSignalVar var sig = Spartan3eSimulator' $ writeSignalVar var sig
+        readSignalVar  var fn  = Spartan3eSimulator' $ readSignalVar var fn
+
+instance Spartan3e Spartan3eSimulator' where
+        clkSpeed = return $ clockRate
+
+--        leds mat = lift $ undefined -- writeConnectM $ \ o -> o -- { output_leds = mat }
+        leds mat = Spartan3eSimulator' $ lift $ sequence_
+                [ simOutput (fmap (LED x) $ shallowS light)
+                | (x,light) <- assocs mat
+                ]
+
+
+{-
+
+        switches = Spartan3eSimulator $ lift $ do
+                let sw i ch old | key ! i == ch = not old       -- flip
+                                | otherwise     = old           -- leave
+
+                    key :: Vector 4 Char
+                    key = matrix "lkjh"
+
+                m <- sequence
+                          [ do ss <- inSimulator False (sw i)
+                               outSimulator (TOGGLE i) ss
+                               return $ mkShallowS $ fmap pureX $ ss
+                          | i <- [0..3]
+                          ]
+                return $ matrix m
+
+        buttons = Spartan3eSimulator $ lift $ do
+                let sw i ch old | key ! i == ch = not old       -- flip
+                                | otherwise     = old           -- leave
+
+                    key :: Vector 4 Char
+                    key = matrix "aegx"
+
+                m <- sequence
+                          [ do ss <- inSimulator False (sw i)
+                               outSimulator (BUTTON i) ss
+                               return $ mkShallowS $ fmap pureX $ ss
+                          | i <- [0..3]
+                          ]
+                return $ matrix m
+-}
+{-
+class Simulator' (m :: * -> *) where
+        readKey  :: Signal CLK (Maybe Char)
+        readPort :: String -> m (Signal CLK (Maybe U8))
+        writePort :: String -> Signal CLK (Maybe U8) -> m ()
+
+--        writePort :: ()
+
+runSpartan3eSimulator' :: (Simulator' m) => (forall m. (Spartan3e m) => m ()) -> m ()
+runSpartan3eSimulator' = undefined
+-}
+
+-----------------------------------------------------------------------
+
+
+data Simulator2 i o a = Simulator2
+        { runSimulator2 :: Stream [i] -> (a,[Stream o],[String])
+        }
+
+instance Monad (Simulator2 i o) where
+instance MonadFix (Simulator2 i o) where
+
+simInput :: ([i] -> a) -> Simulator2 i o (Stream a)
+simInput f = Simulator2 $ \ i -> (fmap f i,[],[])
+
+simOutput :: Stream o -> Simulator2 i o ()
+simOutput o = Simulator2 $ \ _ -> ((),[o],[])
+
+-- | state that a particual 'dev' is required
+simDevice :: String -> Simulator2 i o  ()
+simDevice d = Simulator2 $ \ _ -> ((),[],[d])
+
+class SimulatorInput i where
+        simKeyboard :: Char -> [i]
+        simRead     :: String -> Word8 -> [i]
+
+class SimulatorOutput o where
+        simBackground :: o
+        simTerminal   :: o -> ANSI ()
+        simWrite      :: o -> Maybe (String,Word8)
+
+data Input
+        = TOGGLE' (Sized 4)
+        | BUTTON' (Sized 4)
+
+instance SimulatorInput Input where
+        simKeyboard 'h' = [TOGGLE' 0]
+        simKeyboard 'j' = [TOGGLE' 1]
+        simKeyboard 'k' = [TOGGLE' 2]
+        simKeyboard 'l' = [TOGGLE' 3]
+        simKeyboard _   = []
+        simRead _ _ = []
+
+instance SimulatorOutput Output where
+        simBackground = BOARD
+        simTerminal = drawGraphic
+        simWrite = const Nothing
 
