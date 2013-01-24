@@ -25,6 +25,7 @@ import Data.Array.IArray
 import GHC.TypeLits
 import Control.Monad.IO.Class
 import Data.Word
+import Data.Boolean
 {-
 
 -}
@@ -53,7 +54,7 @@ import qualified Language.KansasLava.Stream as S
 -- The Spartan3e Class
 ------------------------------------------------------------
 
-class (LocalM m) => Spartan3e m where
+class (LocalM m, LocalClock m ~ Spartan3eClock) => Spartan3e m where
         clkSpeed ::                             m Integer -- Hz
         leds     :: Vector 8 (Signal (LocalClock m) Bool)
                                              -> m ()
@@ -64,8 +65,8 @@ class (LocalM m) => Spartan3e m where
                                                   )
         lcd      :: Int -> Bus (LocalClock m) ((Sized 2,Sized 16),U8) -> m ()
 
-        rs232rx  :: Serial -> Int            -> m (Bus (LocalClock m) U8)
-        rs232tx  :: Serial -> Int -> Bus (LocalClock m) U8  -> m ()
+        rs232rx  :: Serial -> Int                               -> m (Bus (LocalClock m) U8)
+        rs232tx  :: Serial -> Int -> Bus (LocalClock m) U8      -> m ()
 {-
         mem_chip :: Bus (U20,U8) -> Bus U20  -> m (Bus (U16,U16))       -- unclear how to do this
 -}
@@ -162,6 +163,7 @@ type instance (2 + 16) = 18
 type instance (18 + 8) = 26
 type instance (1 + 26) = 27
 type instance (1 + 32) = 33
+type instance (1 + 16) = 17
 
 instance Spartan3e Spartan3eSimulator where
         clkSpeed = Spartan3eSimulator $ lift getSimulatorClkSpeed
@@ -387,7 +389,7 @@ data Input
         | DIAL_BUTTON
         | DIAL_TURN LR
         | QUIT
-
+        | RS232_RX Serial U8
 
 deriving instance Eq Input
 deriving instance Show Input
@@ -513,7 +515,7 @@ main = do
                 return () :: Spartan3eSimulator ()
         runSpartan3eSimulator fab
 
-fab1 :: (Spartan3e m) => m ()
+fab1 :: (Spartan3e m, LocalClock m ~ Spartan3eClock) => m ()
 fab1 = do
 
         sw <- switches
@@ -522,6 +524,18 @@ fab1 = do
 
         leds $ M.forAll $ \ i -> if i < 4 then sw ! (fromIntegral i)
                                           else high -- m ! (fromIntegral i + 4)
+
+        BUS lcd_bus lcd_wtr_bus :: BUS Spartan3eClock ((Sized 2,Sized 16),U8) <- bus
+
+        let s = map (fromIntegral . ord) "Hello, Spartan3!"
+        spark $ do
+                sequence_
+                  [ putBus lcd_wtr_bus (pureS ((x,y),s !! fromIntegral y)) $ STEP
+                  | x <- [0,1], y <- [0..15]
+                  ]
+                return ()
+        lcd 10 lcd_bus
+
 
 data ConnectM i o a = ConnectM { runConnectM :: i -> (a,o -> o) }
 
@@ -637,19 +651,24 @@ instance Spartan3e Spartan3eSimulator' where
                              $ dirs0
                        )
 
---        lcd :: Bus (LocalClock m) ((Sized 2,Sized 16),U8) -> m ()
-{-
-        lcd _ bus = do
+        lcd wait bus = do
                 CHAN lcd_out lcd_in :: CHAN Spartan3eClock ((Sized 2,Sized 16),U8) <- channel
+
+                VAR count :: VAR Spartan3eClock U16 <- initially 0
+
                 spark $ do
-                        lab <- STEP
-                        takeBus bus lcd_in $ GOTO lab
+                        start <- STEP
+                        count := pureS (fromIntegral wait)
+                        loop <- STEP
+                        count := count - 1
+                        (count /=* (0 :: Signal Spartan3eClock U16)) :? GOTO loop
+                        takeBus bus lcd_in $ GOTO start
 
                 let ss :: [Maybe (Enabled ((Sized 2,Sized 16),U8))] = fromS lcd_out
 
                 Spartan3eSimulator' $ lift $ simOutput
                         $ fmap (\ ss -> case ss of
-                            Nothing -> Nothing -- should not happen; consider X'ing the LCD
+                            Nothing      -> Nothing -- should not happen; consider X'ing the LCD
                             Just Nothing -> Nothing
                             Just (Just ((x,y),ch)) -> Just (LCD (x,y) (Char.chr (fromIntegral ch))))
                         $ S.fromList
@@ -657,36 +676,56 @@ instance Spartan3e Spartan3eSimulator' where
                         $ lcd_out
 
                 return ()
--}
+
+        rs232rx port baud = do
+                let portname = show port
+                    rx = portname ++ "/rx"
+
+--                simDevice $ portname ++ "/" ++ baud
+
+                xs :: Stream (Maybe U8) <- Spartan3eSimulator' $ lift $ do
+                        simInput (\ xs -> case [ u8 | RS232_RX port' u8 <- xs, port' == port ] of
+                                           []     -> Nothing
+                                           (u8:_) -> Just u8)
+
+                latchBus (mkShallowS $ fmap pure xs)
 
 {-
-        buttons = Spartan3eSimulator $ lift $ do
-                let sw i ch old | key ! i == ch = not old       -- flip
-                                | otherwise     = old           -- leave
+        rs232tx port baud bus = do
+                let portname = show port
+                    tx = portname ++ "/tx"
 
-                    key :: Vector 4 Char
-                    key = matrix "aegx"
+                htz <- clkSpeed
+                -- right now, we pay no attention to the speed
+                -- sending everything at full speed
 
-                m <- sequence
-                          [ do ss <- inSimulator False (sw i)
-                               outSimulator (BUTTON i) ss
-                               return $ mkShallowS $ fmap pureX $ ss
-                          | i <- [0..3]
-                          ]
-                return $ matrix m
+                CHAN rs_out rs_in :: CHAN Spartan3eClock U8 <- channel
+
+                spark $ do
+                        lab <- STEP
+                        -- insert pauses for speed /slowdown here
+                        takeBus bus rs_in $ GOTO lab
+
+
+                let ss = [ case s of
+                            Nothing -> Nothing
+                            Just Nothing -> Nothing
+                            Just (Just c) -> Just c
+                         | s <- fromS rs_out
+                         ]
+
+                Spartan3eSimulator $ lift $ do
+                        writeSocketSimulator
+                                ("dev/" ++ portname)
+                                tx
+                                ss
+                return ()
+
+        probe nm ss = Spartan3eSimulator $ lift $ do
+                outSimulatorDebugging $ fmap toUnit $ fromS $ probeS nm ss
+           where
+                toUnit _ = ()   -- why does this work?
 -}
-{-
-class Simulator' (m :: * -> *) where
-        readKey  :: Signal CLK (Maybe Char)
-        readPort :: String -> m (Signal CLK (Maybe U8))
-        writePort :: String -> Signal CLK (Maybe U8) -> m ()
-
---        writePort :: ()
-
-runSpartan3eSimulator' :: (Simulator' m) => (forall m. (Spartan3e m) => m ()) -> m ()
-runSpartan3eSimulator' = undefined
--}
-
 -----------------------------------------------------------------------
 
 instance SimulatorInput Input where
