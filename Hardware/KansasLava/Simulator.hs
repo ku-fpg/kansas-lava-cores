@@ -1,6 +1,7 @@
 {-# LANGUAGE ScopedTypeVariables, GADTs, DeriveDataTypeable, DoRec, KindSignatures #-}
 
 module Hardware.KansasLava.Simulator
+{-
         ( -- * The (abstract) Fake Fabric Monad
           Simulator -- abstract
           -- * The Simulator non-proper morphisms
@@ -24,7 +25,7 @@ module Hardware.KansasLava.Simulator
         , showANSI
         , Color(..)     -- from System.Console.ANSI
         , Graphic(..)
-        ) where
+        ) -} where
 
 import Language.KansasLava hiding (Fast)
 import Language.KansasLava.Fabric
@@ -38,6 +39,7 @@ import Data.Typeable
 import Control.Exception
 import Control.Concurrent
 import Control.Monad
+import Control.Applicative
 import Control.Monad.IO.Class
 import Data.Char
 import Data.List
@@ -71,6 +73,13 @@ board stmt = Simulator $ \ _ env st ->
 -----------------------------------------------------------------------
 -- Monad
 -----------------------------------------------------------------------
+
+data SimulatorConfiguration i o = SimulatorConfiguration
+        { sc_reading :: IO (Maybe i)
+        , sc_writing :: [o] -> IO ()
+        , sc_execMode :: ExecMode
+        , sc_clkSpeed :: Integer
+        }
 
 -- | The simulator uses its own 'Fabric', which connects not to pins on the chip,
 -- but rather an ASCII picture of the board.
@@ -521,4 +530,196 @@ scheduleProduction m = liftIO $ loop
                         hd <- m
                         tl <- loop
                         return $ S.cons hd tl
+
+---------------------------------------------------------------
+
+
+data Simulator2 i o a = Simulator2
+        { unSimulator2 :: Stream [i] -> (a,[Stream o],[String])
+        }
+
+instance Monad (Simulator2 i o) where
+        return a = Simulator2 $ \ _ -> (a,[],[])
+        (Simulator2 m) >>= k = Simulator2 $ \ i ->
+                let (a,o1,d1) = m i
+                    (r,o2,d2) = unSimulator2 (k a) i
+                in (r,o1 ++ o2,d1 ++ d2)
+
+instance MonadFix (Simulator2 i o)  where
+        mfix f = Simulator2 $ \ i ->
+                   let (a,o,d) = unSimulator2 (f a) i
+                   in (a,o,d)
+
+simInput :: ([i] -> a) -> Simulator2 i o (Stream a)
+simInput f = Simulator2 $ \ i -> (fmap f i,[],[])
+
+simOutput :: Stream o -> Simulator2 i o ()
+simOutput o = Simulator2 $ \ _ -> ((),[o],[])
+
+-- | state that a particual 'dev' is required
+simDevice :: String -> Simulator2 i o  ()
+simDevice d = Simulator2 $ \ _ -> ((),[],[d])
+
+class SimulatorInput i where
+        simKeyboard :: Char -> [i]
+        simRead     :: String -> Word8 -> [i]
+
+class (Eq o) => SimulatorOutput o where
+        simBackground :: o
+        simTerminal   :: o -> ANSI ()
+        simWrite      :: o -> Maybe (String,Word8)
+
+runSimulator2 :: forall i o . (Show o, SimulatorInput i, SimulatorOutput o)
+              => ExecMode -> Integer -> Integer -> Simulator2 i o () -> IO ()
+runSimulator2 mode clkSpeed simSpeed (Simulator2 fab) = do
+        setTitle "Kansas Lava"
+        putStrLn "[Booting Spartan3e simulator]"
+        hSetBuffering stdin NoBuffering
+        hSetEcho stdin False
+
+        -- create the virtual device directory
+        createDirectoryIfMissing True "dev"
+
+        inputs <- hGetContentsStepwise stdin
+
+        putStrLn "[Starting simulation]"
+        clearScreen
+        setCursorPosition 0 0
+        hFlush stdout
+
+        showANSI $ simTerminal (simBackground :: o)
+
+        -- fab :: Stream [i] -> (a,[Stream o],[String])
+
+        let loop = [] `S.cons` loop
+
+        let ((),outs0,devs) = fab loop
+
+        let outs1 = fmap changed outs0
+
+        let outs2 = transpose1 outs1
+        let outs3 = fmap (fmap (maybe [] (: []))) outs2
+        let outs4 = fmap concat outs3
+
+        sequence_ [ do mapM_ (showANSI . simTerminal) s
+                       setCursorPosition 0 0
+                       putStrLn $ show i
+                       hFlush stdout
+                  | (i,s) <- zip [0..] $ S.toList $ outs4
+                  ]
+
+
+{-
+
+
+--        let -- clockOut | mode == Fast = return ()
+--            clockOut | mode == Friendly =
+--                        outSimulator clock [0..]
+
+        sockDB <- newMVar []
+        let findSock :: String -> IO Handle
+            findSock nm = do
+                sock_map <- takeMVar sockDB
+                case lookup nm sock_map of
+                  Just h -> do
+                        putMVar sockDB sock_map
+                        return h
+                  Nothing -> do
+                        h <- finally
+                              (do sock <- listenOn $ UnixSocket nm
+                                  putStrLn $ "* Waiting for client for " ++ nm
+                                  (h,_,_) <- accept sock
+                                  putStrLn $ "* Found client for " ++ nm
+                                  return h)
+                              (removeFile nm)
+                        hSetBuffering h NoBuffering
+                        putMVar sockDB $ (nm,h) : sock_map
+                        return h
+
+        let env = SimulatorEnv
+                        { pExecMode   = mode
+                        , pStdin      = inputs
+                        , pFindSocket = findSock
+                        , pClkSpeed   = clkSpeed
+                        , pSimSpeed   = simSpeed
+                        }
+
+        let st0 = SimulatorState {}
+
+        let extras :: Simulator () = do
+                quit <- inSimulator False (\ c _ -> c == 'q')
+                outSimulator (\ b -> if b
+                                  then error "Simulation Quit"
+                                  else return () :: ANSI ()) quit
+
+        let Simulator circuit = fab >> extras
+
+        ((),output, st1) <- circuit env st0
+
+        let steps = [ o | SimulatorStepper o <- output ]
+
+        socket_steppers :: [Stepper] <- sequence
+              [ do sock <- findSock $ filename
+                   let f (Just ch) = do
+                               -- TODO: should throw away if going to block
+                               hPutStr sock [chr $ fromIntegral ch]
+                               hFlush sock
+                       f Nothing          = return ()
+
+                   return $ ioStepper $ map f $ ss
+              | SimulatorWriteSocket filename portname ss <- output
+              ]
+
+{-
+        socket_read_steppers :: [Stepper] <- sequence
+              [ do sock <- findSock $ filename
+                   var_sync <- newEmptyMVar
+                   forkIO $ forever $ do
+                         print "start loop"
+                         opt_ok <- try (hReady sock)
+                         print ("read sock",opt_ok)
+                         case opt_ok of
+                           Right ok -> do
+                                 if ok then do ch <- hGetChar sock
+                                               putMVar var (Just (fromIntegral (ord ch)))
+                                        else do print "A"
+                                                putMVar var Nothing
+                                                print "B"
+                           Left (e :: IOException) -> putMVar var Nothing
+                   return $ cycleStepper $ do { print "X";  putMVar var_sync () ; print "Y" }
+              | SimulatorReadSocket filename portname var <- output
+              ]
+-}
+        -- we put debugging into ./dev/log.XX
+
+        monitor_steppers :: [Stepper] <- sequence
+              [ do let f () = return ()
+                   return $ ioStepper $ map f os
+              | SimulatorTrace os <- output
+              ]
+
+
+
+        setProbesAsTrace $ appendFile "LOG"
+
+        print (length [ () | SimulatorStepper _ <- output ])
+
+        let slowDown | mode == Fast = []
+                     | mode == Friendly =
+                         [ ioStepper [ do { threadDelay (20 * 1000) }
+                                     | _ <- [(0 :: Integer)..] ]]
+
+        runSteppers (steps ++ slowDown ++ socket_steppers ++ monitor_steppers)
+-}
+        return ()
+
+transpose1 :: [Stream a] -> Stream [a]
+transpose1 = foldr (S.zipWith (:)) (pure [])
+
+ex1 = [s1,s2,s3]
+ where
+        s1 = S.fromList [1..10]
+        s2 = S.fromList [5,10,15,20]
+        s3 = S.fromList [99..]
+
 

@@ -327,6 +327,7 @@ serialName DTE = "dte"
 data Dial = Dial Bool U2
 
 deriving instance Eq Dial
+deriving instance Show Dial
 
 -------------------------------------------------------------
 -- ASCII board simulator
@@ -377,7 +378,13 @@ data Output
         | RS232 DIR Serial Integer
         | DEBUG
 
+
+deriving instance Eq Output
+deriving instance Show Output
+
+
 data DIR  = RX | TX
+        deriving (Show,Eq,Ord)
 
 at = AT
 
@@ -498,6 +505,10 @@ main = do
                 return () :: Spartan3eSimulator ()
         runSpartan3eSimulator fab
 
+fab1 :: (Spartan3e m) => m ()
+fab1 = do
+        leds $ matrix [ high, low, high, low, high, low, high, low ]
+
 data ConnectM i o a = ConnectM { runConnectM :: i -> (a,o -> o) }
 
 readConnectM :: ConnectM i o i
@@ -603,37 +614,6 @@ runSpartan3eSimulator' = undefined
 
 -----------------------------------------------------------------------
 
-
-data Simulator2 i o a = Simulator2
-        { runSimulator2 :: Stream [i] -> (a,[Stream o],[String])
-        }
-
-instance Monad (Simulator2 i o) where
-instance MonadFix (Simulator2 i o) where
-
-simInput :: ([i] -> a) -> Simulator2 i o (Stream a)
-simInput f = Simulator2 $ \ i -> (fmap f i,[],[])
-
-simOutput :: Stream o -> Simulator2 i o ()
-simOutput o = Simulator2 $ \ _ -> ((),[o],[])
-
--- | state that a particual 'dev' is required
-simDevice :: String -> Simulator2 i o  ()
-simDevice d = Simulator2 $ \ _ -> ((),[],[d])
-
-class SimulatorInput i where
-        simKeyboard :: Char -> [i]
-        simRead     :: String -> Word8 -> [i]
-
-class SimulatorOutput o where
-        simBackground :: o
-        simTerminal   :: o -> ANSI ()
-        simWrite      :: o -> Maybe (String,Word8)
-
-data Input
-        = TOGGLE' (Sized 4)
-        | BUTTON' (Sized 4)
-
 instance SimulatorInput Input where
         simKeyboard 'h' = [TOGGLE' 0]
         simKeyboard 'j' = [TOGGLE' 1]
@@ -646,4 +626,19 @@ instance SimulatorOutput Output where
         simBackground = BOARD
         simTerminal = drawGraphic
         simWrite = const Nothing
+
+
+data Input
+        = TOGGLE' (Sized 4)
+        | BUTTON' (Sized 4)
+
+
+
+runSpartan3eSimulator2 :: Spartan3eSimulator' () -> Simulator2 Input Output ()
+runSpartan3eSimulator2 (Spartan3eSimulator' m) = do
+        ((),_) <- runFabric m []
+        return ()
+
+
+main2 = runSimulator2 P.Friendly 100 100 $ runSpartan3eSimulator2 fab1
 
