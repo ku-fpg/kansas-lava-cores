@@ -53,108 +53,6 @@ import System.Directory
 
 import Data.Sized.Unsigned
 
------------------------------------------------------------------------
-
-
-{-
--- SimulatorMonad implements a simulator for FPGA boards.
--- Perhaps call it the SimulatorMonad
-class CoreMonad fab => SimulatorMonad fab where
-        polyester :: Simulator a -> fab a      -- escape into the simulator
-        circuit   :: fab () -> Simulator ()    -- extact the sim circuit, for interpretation
-        gen_board :: fab ()
-
--- call this polyesterBoard?
-board     :: Fabric a -> Simulator a
-board stmt = Simulator $ \ _ env st ->
-                                let Pure (a,outs) = runFabric stmt (pOutNames env)
-                                in return (a,[SimulatorOutput outs],st)
--}
------------------------------------------------------------------------
--- Monad
------------------------------------------------------------------------
-
-data SimulatorConfiguration i o = SimulatorConfiguration
-        { sc_reading :: IO (Maybe i)
-        , sc_writing :: [o] -> IO ()
-        , sc_execMode :: ExecMode
-        , sc_clkSpeed :: Integer
-        }
-
--- | The simulator uses its own 'Fabric', which connects not to pins on the chip,
--- but rather an ASCII picture of the board.
-
-data SimulatorEnv = SimulatorEnv
-                        { pExecMode   :: ExecMode
-                        , pStdin      :: [Maybe Char]
-                        , pFindSocket :: String -> IO Handle
-                        , pClkSpeed   :: Integer                -- clock speed, in Hz
-                        , pSimSpeed   :: Integer                -- how many cycles are we *actually* doing a second
-                        }
-
-data SimulatorState = SimulatorState
-                        { pCores        :: [String]             --registered cores
-                        }
-                deriving Show
-
-data SimulatorOut = SimulatorStepper Stepper
-                  | SimulatorTrace [()]                         -- evaluated to force a tracer
-                  | SimulatorWriteSocket String String [Enabled U8]
-                                                                -- socket name, (fabric) port name,
-                                                                -- what to output (if any)
-                                                                                                                                        -- (AppendMode and ReadWriteMode not supported)
-
-
--- Sigh, the *only* use of IO is for SimulatorReadSocket.
--- Once its in, it may be used by others.
-
-data Simulator a = Simulator (SimulatorEnv
-                               -> SimulatorState
-                               -> IO (a,[SimulatorOut],SimulatorState))
-
-
-instance Monad Simulator where
-        return a = Simulator $ \ _ st -> return (a,mempty,st)
-        (Simulator f) >>= k = Simulator $ \ env st0 -> do
-                                (a,w1,st1)  <- f env st0
-                                let Simulator g = k a
-                                (b,w2,st2)  <- g env st1
-                                return (b,w1 `mappend` w2,st2)
-        fail msg = error msg
-
-instance MonadFix Simulator where
-        -- TODO: check this
-        mfix f = Simulator $ \ env st ->
-                        mfix (\ ~(r,_,_) -> let (Simulator g) = f r in g env st)
-
-instance MonadIO Simulator where
-        liftIO m = Simulator $ \ env st -> do
-                        r <- m
-                        return $ (r,[],st)
-
-getSimulatorExecMode :: Simulator ExecMode
-getSimulatorExecMode = Simulator $ \ env st -> return (pExecMode env,mempty,st)
-
-getSimulatorClkSpeed :: Simulator Integer
-getSimulatorClkSpeed = Simulator $ \ env st -> return (pClkSpeed env,mempty,st)
-
-getSimulatorSimSpeed :: Simulator Integer
-getSimulatorSimSpeed = Simulator $ \ env st -> return (pSimSpeed env,mempty,st)
-
-initializedCores :: Simulator [String]
-initializedCores = Simulator $ \ env st -> return (pCores st,mempty,st)
-
------------------------------------------------------------------------
--- Ways out outputing from the Simulator
------------------------------------------------------------------------
-
--- | Checks an input list for diffences between adjacent elements,
--- and for changes, maps a graphical event onto the internal stepper.
--- The idea is that sending a graphical event twice should be
--- idempotent, but internally the system only writes events
--- when things change.
-outSimulator :: (Eq a, Graphic g) => (a -> g) -> Stream a -> Simulator ()
-outSimulator f = outSimulatorEvents . fmap (fmap f) . changed
 
 changed :: (Eq a) => Stream a -> Stream (Maybe a)
 changed xs = Just (S.head xs) `S.cons` f (S.head xs) (S.tail xs)
@@ -180,71 +78,6 @@ tick :: Bool -> Maybe ()
 tick True = Just ()
 tick False = Nothing
 
-
--- | Turn a list of graphical events into a 'Simulator', without processing.
-outSimulatorEvents :: (Graphic g) => Stream (Maybe g) -> Simulator ()
-outSimulatorEvents = scheduleConsumption (maybe (return ()) (showANSI . drawGraphic))
-
--- | Schedule the runing of a stepper.
-scheduleStepper :: Stepper -> Simulator ()
-scheduleStepper ss = Simulator $ \ _ st -> return ((),[SimulatorStepper $ ss],st)
-
--- | creates single graphical events, based on the number of Events,
--- when the first real event is event 1, and there is a beginning of time event 0.
--- Example of use: count the number of bytes send or recieved on a device.
-outSimulatorCount :: (Graphic g) => (Integer -> g) -> Stream (Maybe ()) -> Simulator ()
-outSimulatorCount f = outSimulator f . S.fromList . loop 0 . S.toList
-  where
-        loop n (Nothing:xs) = n : loop n xs
-        loop n (Just _:xs)  = n : loop (succ n) xs
-
--- | write a socket from a clocked list input. Example of use is emulating
--- RS232 (which only used empty or singleton strings), for the inside of a list.
-
-writeSocketSimulator :: String -> String -> [Maybe U8] -> Simulator ()
-writeSocketSimulator filename portname ss = Simulator $ \ _ st ->
-        return ((),[SimulatorWriteSocket filename portname ss],st)
-
-
------------------------------------------------------------------------
--- Ways out inputting to the Simulator
------------------------------------------------------------------------
-
--- | Turn an observation of the keyboard into a list of values.
-inSimulator :: a                               -- ^ initial 'a'
-         -> (Char -> a -> a)                   -- ^ how to interpreate a key press
-         -> Simulator (Stream a)
-inSimulator a interp = Simulator $ \ env st -> do
-        let f' a' Nothing = a'
-            f' a' (Just c) = interp c a'
-            vals = scanl f' a (pStdin env)
-        return (S.fromList vals,mempty,st)
-
--- | 'readSocketSimulator' reads from a socket.
--- The stream is on-demand, and is not controlled by any clock
--- inside the function. Typically would be read one cons per
--- clock, but slower reading is acceptable.
--- This does not make any attempt to register
--- what is being observed on the screen; another
--- process needs to do this.
-
-readSocketSimulator :: String -> String -> Int -> Simulator [Maybe U8]
-readSocketSimulator filename portname speed = Simulator $ \ env st -> do
-        sock <- pFindSocket env $ filename
-        op_ch <- hGetContentsStepwise sock
-        let f Nothing = [Nothing]
-            f (Just x) = Just x : take speed (repeat Nothing)
-        let ss = concatMap f $ fmap (fmap (fromIntegral . ord)) op_ch
-        return (ss,[],st)
-
------------------------------------------------------------------------
--- Debugging Wiring
------------------------------------------------------------------------
-
-outSimulatorDebugging :: [()] -> Simulator ()
-outSimulatorDebugging us = Simulator $ \ _ st ->
-        return ((),[SimulatorTrace us],st)
-
 -----------------------------------------------------------------------
 -- Running the Simulator
 -----------------------------------------------------------------------
@@ -255,65 +88,11 @@ data ExecMode
   deriving (Eq, Show)
 
 -----------------------------------------------------------------------
--- Utils for building boards
------------------------------------------------------------------------
-
--- | 'generic_init' builds a generic board_init, including
--- setting up the drawing of the board, and printing the (optional) clock.
-{-
-generic_init :: (Graphic g1,Graphic g2) => g1 -> (Integer -> g2) -> Simulator ()
-generic_init board clock = do
-        -- a bit of a hack; print the board on the first cycle
-        outSimulator (\ _ -> board) [()]
-        mode <- getSimulatorExecMode
-        when (mode /= Fast) $ do
-                outSimulator (clock) $ S.fromList [0..]
-        return ()
--}
------------------------------------------------------------------------
 -- Abstaction for output (typically the screen)
 -----------------------------------------------------------------------
 
 class Graphic g where
         drawGraphic :: g -> ANSI ()
-
------------------------------------------------------------------------
--- Internal: The Stepper abstraction, which is just the resumption monad
------------------------------------------------------------------------
-
--- The idea in the future is we can common up the changes to the
--- screen, removing needless movement of the cursor, allowing
--- a slight pause before updating, etc.
-
--- Do something, and return.
-data Stepper = Stepper (IO (Stepper))
-
-runStepper :: Stepper -> IO Stepper
-runStepper (Stepper m) = m
-
--- | 'runSteppers' runs several steppers concurrently.
-runSteppers :: [Stepper] -> IO ()
-runSteppers ss = do
-        ss' <- sequence [ runStepper m
-                        | m <- ss
-                        ]
-        runSteppers ss'
-
--- Stepper could be written in terms of ioStepper
-stepper :: (Graphic g) => [Maybe g] -> Stepper
-stepper = ioStepper
-        . map (\ o -> case o of
-                         Nothing -> do { return () }
---                         Just g  -> return ()
-                         Just g -> do { showANSI (drawGraphic g) }
-                )
-
-ioStepper :: [IO ()] -> Stepper
-ioStepper (m:ms)      = Stepper (do m ; return (ioStepper ms))
-ioStepper other       = Stepper (return $ ioStepper other)
-
-cycleStepper :: IO () -> Stepper
-cycleStepper m = Stepper (do m ; return (cycleStepper m))
 
 -----------------------------------------------------------------------
 -- Helpers for printing to the screen
@@ -395,192 +174,35 @@ instance Show SimulatorException where
 
 instance Exception SimulatorException
 
-runSimulator  :: forall fab . ExecMode -> Integer -> Integer -> Simulator () -> IO ()
-runSimulator mode clkSpeed simSpeed fab = do
-        setTitle "Kansas Lava"
-        putStrLn "[Booting Spartan3e simulator]"
-        hSetBuffering stdin NoBuffering
-        hSetEcho stdin False
-
-        -- create the virtual device directory
-        createDirectoryIfMissing True "dev"
-
-        inputs <- hGetContentsStepwise stdin
-
-        putStrLn "[Starting simulation]"
-        clearScreen
-        setCursorPosition 0 0
-        hFlush stdout
-
-
---        let -- clockOut | mode == Fast = return ()
---            clockOut | mode == Friendly =
---                        outSimulator clock [0..]
-
-        sockDB <- newMVar []
-        let findSock :: String -> IO Handle
-            findSock nm = do
-                sock_map <- takeMVar sockDB
-                case lookup nm sock_map of
-                  Just h -> do
-                        putMVar sockDB sock_map
-                        return h
-                  Nothing -> do
-                        h <- finally
-                              (do sock <- listenOn $ UnixSocket nm
-                                  putStrLn $ "* Waiting for client for " ++ nm
-                                  (h,_,_) <- accept sock
-                                  putStrLn $ "* Found client for " ++ nm
-                                  return h)
-                              (removeFile nm)
-                        hSetBuffering h NoBuffering
-                        putMVar sockDB $ (nm,h) : sock_map
-                        return h
-
-        let env = SimulatorEnv
-                        { pExecMode   = mode
-                        , pStdin      = inputs
-                        , pFindSocket = findSock
-                        , pClkSpeed   = clkSpeed
-                        , pSimSpeed   = simSpeed
-                        }
-
-        let st0 = SimulatorState {}
-
-        let extras :: Simulator () = do
-                quit <- inSimulator False (\ c _ -> c == 'q')
-                outSimulator (\ b -> if b
-                                  then error "Simulation Quit"
-                                  else return () :: ANSI ()) quit
-
-        let Simulator circuit = fab >> extras
-
-        ((),output, st1) <- circuit env st0
-
-        let steps = [ o | SimulatorStepper o <- output ]
-
-        socket_steppers :: [Stepper] <- sequence
-              [ do sock <- findSock $ filename
-                   let f (Just ch) = do
-                               -- TODO: should throw away if going to block
-                               hPutStr sock [chr $ fromIntegral ch]
-                               hFlush sock
-                       f Nothing          = return ()
-
-                   return $ ioStepper $ map f $ ss
-              | SimulatorWriteSocket filename portname ss <- output
-              ]
-
-{-
-        socket_read_steppers :: [Stepper] <- sequence
-              [ do sock <- findSock $ filename
-                   var_sync <- newEmptyMVar
-                   forkIO $ forever $ do
-                         print "start loop"
-                         opt_ok <- try (hReady sock)
-                         print ("read sock",opt_ok)
-                         case opt_ok of
-                           Right ok -> do
-                                 if ok then do ch <- hGetChar sock
-                                               putMVar var (Just (fromIntegral (ord ch)))
-                                        else do print "A"
-                                                putMVar var Nothing
-                                                print "B"
-                           Left (e :: IOException) -> putMVar var Nothing
-                   return $ cycleStepper $ do { print "X";  putMVar var_sync () ; print "Y" }
-              | SimulatorReadSocket filename portname var <- output
-              ]
--}
-        -- we put debugging into ./dev/log.XX
-
-        monitor_steppers :: [Stepper] <- sequence
-              [ do let f () = return ()
-                   return $ ioStepper $ map f os
-              | SimulatorTrace os <- output
-              ]
-
-
-
-        setProbesAsTrace $ appendFile "LOG"
-
-        print (length [ () | SimulatorStepper _ <- output ])
-
-        let slowDown | mode == Fast = []
-                     | mode == Friendly =
-                         [ ioStepper [ do { threadDelay (20 * 1000) }
-                                     | _ <- [(0 :: Integer)..] ]]
-
-        runSteppers (steps ++ slowDown ++ socket_steppers ++ monitor_steppers)
-
-        return ()
-
-------------------------------------------------------------------------------------
-
--- API
-{-
-newInPort :: [a] -> InPort a
-
-readPort :: InPort a -> M (Maybe a)
-
-writePort :: OutPort a -> a -> M (Maybe a)
-
-scheduleStepper :: (a -> M b) -> InPort a -> Fab (OutPort b)
-scheduleStepper_ :: M () -> Fab ()
-
-state :: (s -> M s) -> M ()
-
-writeSocketSimulator :: String -> String -> Stream (Maybe U8) -> Simulator ()
-writeSocketSimulator filename portname ss = Simulator $ \ _ st ->
-        return ((),[SimulatorWriteSocket filename portname ss],st)
-
-scheduleOnce :: IO () -> Simulator ()
-
-
-readSocketSimulator :: String -> String -> Int -> Simulator [Maybe U8]
--}
-
-scheduleConsumption :: (a -> IO ()) -> Stream a -> Simulator ()
-scheduleConsumption f = scheduleStepper . ioStepper . map f . S.toList
-
-scheduleProduction :: IO a -> Simulator (Stream a)
-scheduleProduction m = liftIO $ loop
-  where
-          loop = unsafeInterleaveIO $ do
-                        hd <- m
-                        tl <- loop
-                        return $ S.cons hd tl
-
 ---------------------------------------------------------------
-
 --data
-
 ---------------------------------------------------------------
 
-data Simulator2 i o a = Simulator2
-        { unSimulator2 :: Stream [i] -> (a,[Stream (Maybe o)],[String])
+data Simulator i o a = Simulator
+        { unSimulator :: Stream [i] -> (a,[Stream (Maybe o)],[String])
         }
 
-instance Monad (Simulator2 i o) where
-        return a = Simulator2 $ \ _ -> (a,[],[])
-        (Simulator2 m) >>= k = Simulator2 $ \ i ->
+instance Monad (Simulator i o) where
+        return a = Simulator $ \ _ -> (a,[],[])
+        (Simulator m) >>= k = Simulator $ \ i ->
                 let (a,o1,d1) = m i
-                    (r,o2,d2) = unSimulator2 (k a) i
+                    (r,o2,d2) = unSimulator (k a) i
                 in (r,o1 ++ o2,d1 ++ d2)
 
-instance MonadFix (Simulator2 i o)  where
-        mfix f = Simulator2 $ \ i ->
-                   let (a,o,d) = unSimulator2 (f a) i
+instance MonadFix (Simulator i o)  where
+        mfix f = Simulator $ \ i ->
+                   let (a,o,d) = unSimulator (f a) i
                    in (a,o,d)
 
-simInput :: ([i] -> a) -> Simulator2 i o (Stream a)
-simInput f = Simulator2 $ \ i -> (fmap f i,[],[])
+simInput :: ([i] -> a) -> Simulator i o (Stream a)
+simInput f = Simulator $ \ i -> (fmap f i,[],[])
 
-simOutput :: Stream (Maybe o) -> Simulator2 i o ()
-simOutput o = Simulator2 $ \ _ -> ((),[o],[])
+simOutput :: Stream (Maybe o) -> Simulator i o ()
+simOutput o = Simulator $ \ _ -> ((),[o],[])
 
 -- | state that a particual 'dev' is required
-simDevice :: String -> Simulator2 i o  ()
-simDevice d = Simulator2 $ \ _ -> ((),[],[d])
+simDevice :: String -> Simulator i o  ()
+simDevice d = Simulator $ \ _ -> ((),[],[d])
 
 class SimulatorInput i where
         simKeyboard :: Char -> [i]
@@ -592,14 +214,6 @@ class (Eq o) => SimulatorOutput o where
         simWrite      :: o -> Maybe (String,Word8)
 
 
-
-{-
--- openPorts ::
-
-readPorts :: [String] -> IO (Stream i)
-
-writePorts :: Stream o -> IO ()
--}
 
 newtype Steps a = Steps (IO (a,Steps a))
 
@@ -629,8 +243,8 @@ instance Monoid (Device i o) where
         mempty = Device id
         mappend (Device a) (Device b) = Device $ a . b
 
-runDeviceSimulator :: (Show o) => Device i o -> Simulator2 i o () -> IO ()
-runDeviceSimulator (Device fn) (Simulator2 sim) = do
+runDeviceSimulator :: (Show o) => Device i o -> Simulator i o () -> IO ()
+runDeviceSimulator (Device fn) (Simulator sim) = do
 
         let input = Steps $ return ([],input)
 
@@ -696,8 +310,8 @@ keyboardInput interp = inputDevice $ do
            Left (e :: IOException) -> do
                 return []
 
-deviceSupport :: (SimulatorInput i, SimulatorOutput o) => Simulator2 i o () -> Stream [i] -> IO (Stream [o])
-deviceSupport (Simulator2 fab) ins = do
+deviceSupport :: (SimulatorInput i, SimulatorOutput o) => Simulator i o () -> Stream [i] -> IO (Stream [o])
+deviceSupport (Simulator fab) ins = do
 
         -- create the virtual device directory
         createDirectoryIfMissing True "dev"
@@ -712,150 +326,13 @@ deviceSupport (Simulator2 fab) ins = do
 
         return $ outs4
 
-runSimulator3 :: forall i o . (Show o, Show i, SimulatorInput i, SimulatorOutput o)
-              => ExecMode -> Integer -> Integer -> Simulator2 i o () -> IO ()
-runSimulator3 _ _ _ = runDeviceSimulator
+runSimulator :: forall i o . (Show o, Show i, SimulatorInput i, SimulatorOutput o)
+              => ExecMode -> Integer -> Integer -> Simulator i o () -> IO ()
+runSimulator _ _ _ = runDeviceSimulator
                          (  keyboardInput simKeyboard
                          <> ansiOutput (simTerminal' simBackground) simTerminal'
                          )
   where simTerminal' = simTerminal
-
-runSimulator2 :: forall i o . (Show o, Show i, SimulatorInput i, SimulatorOutput o)
-              => ExecMode -> Integer -> Integer -> Simulator2 i o () -> IO ()
-runSimulator2 mode clkSpeed simSpeed (Simulator2 fab) = do
-        setTitle "Kansas Lava"
-        putStrLn "[Booting Spartan3e simulator]"
-        hSetBuffering stdin NoBuffering
-        hSetEcho stdin False
-
-        inputs <- hGetContentsStepwise stdin
-
-        putStrLn "[Starting simulation]"
-        clearScreen
-        setCursorPosition 0 0
-        hFlush stdout
-
-        showANSI $ simTerminal (simBackground :: o)
-
-        -- fab :: Stream [i] -> (a,[Stream o],[String])
-
-        let ins = id
-                $ fmap (maybe [] simKeyboard)
-                $ S.fromList inputs
-
-        outs4 <- deviceSupport (Simulator2 fab) $ ins
-
-        sequence_ [ do mapM_ (showANSI . simTerminal) s
-                       setCursorPosition 0 0
-                       putStrLn $ show i
-                       hFlush stdout
-                  | (i,s) <- zip [0..] $ S.toList $ outs4
-                  ]
-
-
-{-
-
-
---        let -- clockOut | mode == Fast = return ()
---            clockOut | mode == Friendly =
---                        outSimulator clock [0..]
-
-        sockDB <- newMVar []
-        let findSock :: String -> IO Handle
-            findSock nm = do
-                sock_map <- takeMVar sockDB
-                case lookup nm sock_map of
-                  Just h -> do
-                        putMVar sockDB sock_map
-                        return h
-                  Nothing -> do
-                        h <- finally
-                              (do sock <- listenOn $ UnixSocket nm
-                                  putStrLn $ "* Waiting for client for " ++ nm
-                                  (h,_,_) <- accept sock
-                                  putStrLn $ "* Found client for " ++ nm
-                                  return h)
-                              (removeFile nm)
-                        hSetBuffering h NoBuffering
-                        putMVar sockDB $ (nm,h) : sock_map
-                        return h
-
-        let env = SimulatorEnv
-                        { pExecMode   = mode
-                        , pStdin      = inputs
-                        , pFindSocket = findSock
-                        , pClkSpeed   = clkSpeed
-                        , pSimSpeed   = simSpeed
-                        }
-
-        let st0 = SimulatorState {}
-
-        let extras :: Simulator () = do
-                quit <- inSimulator False (\ c _ -> c == 'q')
-                outSimulator (\ b -> if b
-                                  then error "Simulation Quit"
-                                  else return () :: ANSI ()) quit
-
-        let Simulator circuit = fab >> extras
-
-        ((),output, st1) <- circuit env st0
-
-        let steps = [ o | SimulatorStepper o <- output ]
-
-        socket_steppers :: [Stepper] <- sequence
-              [ do sock <- findSock $ filename
-                   let f (Just ch) = do
-                               -- TODO: should throw away if going to block
-                               hPutStr sock [chr $ fromIntegral ch]
-                               hFlush sock
-                       f Nothing          = return ()
-
-                   return $ ioStepper $ map f $ ss
-              | SimulatorWriteSocket filename portname ss <- output
-              ]
-
-{-
-        socket_read_steppers :: [Stepper] <- sequence
-              [ do sock <- findSock $ filename
-                   var_sync <- newEmptyMVar
-                   forkIO $ forever $ do
-                         print "start loop"
-                         opt_ok <- try (hReady sock)
-                         print ("read sock",opt_ok)
-                         case opt_ok of
-                           Right ok -> do
-                                 if ok then do ch <- hGetChar sock
-                                               putMVar var (Just (fromIntegral (ord ch)))
-                                        else do print "A"
-                                                putMVar var Nothing
-                                                print "B"
-                           Left (e :: IOException) -> putMVar var Nothing
-                   return $ cycleStepper $ do { print "X";  putMVar var_sync () ; print "Y" }
-              | SimulatorReadSocket filename portname var <- output
-              ]
--}
-        -- we put debugging into ./dev/log.XX
-
-        monitor_steppers :: [Stepper] <- sequence
-              [ do let f () = return ()
-                   return $ ioStepper $ map f os
-              | SimulatorTrace os <- output
-              ]
-
-
-
-        setProbesAsTrace $ appendFile "LOG"
-
-        print (length [ () | SimulatorStepper _ <- output ])
-
-        let slowDown | mode == Fast = []
-                     | mode == Friendly =
-                         [ ioStepper [ do { threadDelay (20 * 1000) }
-                                     | _ <- [(0 :: Integer)..] ]]
-
-        runSteppers (steps ++ slowDown ++ socket_steppers ++ monitor_steppers)
--}
-        return ()
 
 transpose1 :: [Stream a] -> Stream [a]
 transpose1 = foldr (S.zipWith (:)) (pure [])

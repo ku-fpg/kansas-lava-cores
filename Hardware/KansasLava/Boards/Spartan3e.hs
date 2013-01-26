@@ -124,182 +124,11 @@ instance Spartan3e Spartan3eBoard where
 -- The Spartan3e Simulator Monad
 ------------------------------------------------------------
 
-data Spartan3eSimulator a = Spartan3eSimulator
-        { unSpartan3eSimulator :: SuperFabric Spartan3eClock Simulator a }
-
-instance Monad Spartan3eSimulator where
-        return a = Spartan3eSimulator (return a)
-        (Spartan3eSimulator m) >>= k = Spartan3eSimulator $ do
-                                v <- m
-                                unSpartan3eSimulator (k v)
-
-
-instance MonadFix Spartan3eSimulator where
-        mfix f = Spartan3eSimulator $ do
-                        rec a <- unSpartan3eSimulator (f a)
-                        return a
-
-instance LocalM Spartan3eSimulator where
-        type LocalClock Spartan3eSimulator = Spartan3eClock
-        newSignalVar           = Spartan3eSimulator $ newSignalVar
-        writeSignalVar var sig = Spartan3eSimulator $ writeSignalVar var sig
-        readSignalVar  var fn  = Spartan3eSimulator $ readSignalVar var fn
-
-
--- The point here is you can not generate arbitary outputs and inputs
---instance InOutM Spartan3eSimulator where
---        input nm pad = Spartan3eSimulator $ input nm pad
---        output nm pad = Spartan3eSimulator $ output nm pad
-
-
-runSpartan3eSimulator :: Spartan3eSimulator () -> IO ()
-runSpartan3eSimulator (Spartan3eSimulator m) = runSimulator P.Friendly 100 100 $ do
-                liftIO $ showANSI $ drawGraphic BOARD
-                ((),pads) <- runFabric m []
---                outDebuggingSimulator pads
-                return ()
-
 type instance (2 + 16) = 18
 type instance (18 + 8) = 26
 type instance (1 + 26) = 27
 type instance (1 + 32) = 33
 type instance (1 + 16) = 17
-
-instance Spartan3e Spartan3eSimulator where
-        clkSpeed = Spartan3eSimulator $ lift getSimulatorClkSpeed
-
-        leds mat = Spartan3eSimulator $ lift $ sequence_
-                [ outSimulator (LED x) $ shallowS light
-                | (x,light) <- assocs mat
-                ]
-
-        switches = Spartan3eSimulator $ lift $ do
-                let sw i ch old | key ! i == ch = not old       -- flip
-                                | otherwise     = old           -- leave
-
-                    key :: Vector 4 Char
-                    key = matrix "lkjh"
-
-                m <- sequence
-                          [ do ss <- inSimulator False (sw i)
-                               outSimulator (INPUT $ TOGGLE i) ss
-                               return $ mkShallowXS $ fmap pureX $ ss
-                          | i <- [0..3]
-                          ]
-                return $ matrix m
-
-        buttons = Spartan3eSimulator $ lift $ do
-                let sw i ch old | key ! i == ch = not old       -- flip
-                                | otherwise     = old           -- leave
-
-                    key :: Vector 4 Char
-                    key = matrix "aegx"
-
-                m <- sequence
-                          [ do ss <- inSimulator False (sw i)
-                               outSimulator (INPUT $ BUTTON i) ss
-                               return $ mkShallowXS $ fmap pureX $ ss
-                          | i <- [0..3]
-                          ]
-                return $ matrix m
-
-        dial = Spartan3eSimulator $ lift $ do
-                let switch 'd' (Dial b p) = Dial (not b) p
-                    switch 's' (Dial b p) = Dial b (pred p)
-                    switch 'f' (Dial b p) = Dial b (succ p)
-                    switch _   other      = other
-
-                ss <- inSimulator (Dial False 0) switch
-                outSimulator DIAL ss
-
-                let delta :: Stream U2 -> Stream (Enabled Bool)
-                    delta xs = Nothing `S.cons` S.zipWith (\ a b -> f (a - b))
-                                                          xs
-                                                          (S.tail xs)
-
-                    f 0 = Nothing
-                    f 1 = Just True
-                    f 2 = Nothing       -- should never happen
-                    f 3 = Just False
-
-
-                return ( mkShallowXS
-                             $ fmap pureX
-                             $ fmap (\ (Dial b _) -> b)
-                             $ ss
-                       , mkShallowXS
-                             $ fmap pureX
-                             $ delta
-                             $ fmap (\ (Dial _ p) -> p)
-                             $ ss
-                       )
-
-        lcd _ bus = do
-                CHAN lcd_out lcd_in :: CHAN Spartan3eClock ((Sized 2,Sized 16),U8) <- channel
-                spark $ do
-                        lab <- STEP
-                        takeBus bus lcd_in $ GOTO lab
-
-                let ss :: [Maybe (Enabled ((Sized 2,Sized 16),U8))] = fromS lcd_out
-
-                Spartan3eSimulator $ lift $ outSimulatorEvents
-                        $ fmap (\ ss -> case ss of
-                            Nothing -> Nothing -- should not happen; consider X'ing the LCD
-                            Just Nothing -> Nothing
-                            Just (Just ((x,y),ch)) -> Just (LCD (x,y) (Char.chr (fromIntegral ch))))
-                        $ S.fromList
-                        $ fromS
-                        $ lcd_out
-
-                return ()
-
-        rs232rx port baud = do
-                let portname = show port
-                    rx = portname ++ "/rx"
-
-                xs :: [Maybe U8] <- Spartan3eSimulator $ lift $ do
-                        readSocketSimulator
-                                ("dev/" ++ portname)
-                                rx
-                                100      -- for now, should really compute this
-
-                latchBus (toS xs)
-
-        rs232tx port baud bus = do
-                let portname = show port
-                    tx = portname ++ "/tx"
-
-                htz <- clkSpeed
-                -- right now, we pay no attention to the speed
-                -- sending everything at full speed
-
-                CHAN rs_out rs_in :: CHAN Spartan3eClock U8 <- channel
-
-                spark $ do
-                        lab <- STEP
-                        -- insert pauses for speed /slowdown here
-                        takeBus bus rs_in $ GOTO lab
-
-
-                let ss = [ case s of
-                            Nothing -> Nothing
-                            Just Nothing -> Nothing
-                            Just (Just c) -> Just c
-                         | s <- fromS rs_out
-                         ]
-
-                Spartan3eSimulator $ lift $ do
-                        writeSocketSimulator
-                                ("dev/" ++ portname)
-                                tx
-                                ss
-                return ()
-
-        probe nm ss = Spartan3eSimulator $ lift $ do
-                outSimulatorDebugging $ fmap toUnit $ fromS $ probeS nm ss
-           where
-                toUnit _ = ()   -- why does this work?
-
 ------------------------------------------------------------
 -- initialization
 ------------------------------------------------------------
@@ -458,63 +287,6 @@ instance Graphic Output where
                    TX -> 2
  drawGraphic (DEBUG) = return () -- perhaps flash a light?
 
-----------------------------------------------------------------------------------
--- local tests
---main :: (W (Vector 32 Bool) ~ X32, W U32 ~ X32) => IO ()
-main = do
-        let fab = do
-                let f x = if x then high else low
-
-                VAR count :: VAR Spartan3eClock U32 <- initially 0
-
-                let count' :: Signal Spartan3eClock (Vector 32 Bool)  = bitwise (count :: Signal Spartan3eClock U32)
-
-                let m      ::  Vector 32 (Signal Spartan3eClock Bool) = unpack count'
-
-                spark $ do
-                        lab <- STEP
-                        count := count + 1
-                        GOTO lab
-
-                sw <- switches
-
-                buttons
-                dial
-
-                leds $ M.forAll $ \ i -> if i < 4 then sw ! (fromIntegral i)
-                                                  else m ! (fromIntegral i + 4)
-
-{-
-                BUS lcd_bus lcd_wtr_bus :: BUS Spartan3eClock ((Sized 2,Sized 16),U8) <- bus
-
-                let s = map (fromIntegral . ord) "Hello, Spartan3!"
-                spark $ do
-                        sequence_
-                          [ putBus lcd_wtr_bus (pureS ((x,y),s !! fromIntegral y)) $ STEP
-                          | x <- [0,1], y <- [0..15]
-                          ]
-                        return ()
-                lcd lcd_bus
-
-
-                rs232_out <- rs232rx DCE 9600
-
-                probe "rs232_out" rs232_out -- (pack sw :: Seq (Vector4 Bool))
-
-                rs_bus <- latchBus rs232_out
-
-                BUS rs232_bus rs232_wrt_bus :: BUS Spartan3eClock U8 <- bus
-
-                rs232tx DCE 9600 rs_bus
-
-                spark $ sequence_
-                        [ putBus rs232_wrt_bus (pureS (fromIntegral (Char.ord ch))) $ STEP
-                        | ch <- "Hello, World\n"
-                        ]
--}
-                return () :: Spartan3eSimulator ()
-        runSpartan3eSimulator fab
-
 fab1 :: (Spartan3e m, LocalClock m ~ Spartan3eClock) => m ()
 fab1 = do
 
@@ -551,64 +323,35 @@ fab1 = do
         lcd 1 lcd_bus
 
 
-data ConnectM i o a = ConnectM { runConnectM :: i -> (a,o -> o) }
+data Spartan3eSimulator a = Spartan3eSimulator
+        { unSpartan3eSimulator :: SuperFabric Spartan3eClock (Simulator Input Output) a }
 
-readConnectM :: ConnectM i o i
-readConnectM = ConnectM $ \ i -> (i,id)
-
-writeConnectM :: (o -> o) -> ConnectM i o ()
-writeConnectM u = ConnectM $ \ i -> ((),u)
-
-instance Monad (ConnectM i o) where
-        return a = ConnectM $ \ _ -> (a,id)
-        (ConnectM m) >>= k = ConnectM $ \ i ->
-                let (a,w1) = m i
-                    (r,w2) = runConnectM (k a) i
-                in (r,w1 . w2)
-
-instance MonadFix (ConnectM i o)  where
-        mfix f = ConnectM $ \ i ->
-                   let (a,w) = runConnectM (f a) i
-                   in (a,w)
-
-
-data Spartan3eInput = Spartan3eInput
-        { input_buttons :: Vector 4 (Signal Spartan3eClock Bool)
-        }
-
-data Spartan3eOutput = Spartan3eOutput
-        { output_leds :: Vector 8 (Signal Spartan3eClock Bool)
-        }
-
-data Spartan3eSimulator' a = Spartan3eSimulator'
-        { unSpartan3eSimulator' :: SuperFabric Spartan3eClock (Simulator2 Input Output) a }
-
-instance Monad Spartan3eSimulator' where
-        return a = Spartan3eSimulator' (return a)
-        (Spartan3eSimulator' m) >>= k = Spartan3eSimulator' $ do
+instance Monad Spartan3eSimulator where
+        return a = Spartan3eSimulator (return a)
+        (Spartan3eSimulator m) >>= k = Spartan3eSimulator $ do
                                 v <- m
-                                unSpartan3eSimulator' (k v)
+                                unSpartan3eSimulator (k v)
 
-instance MonadFix Spartan3eSimulator' where
-        mfix f = Spartan3eSimulator' $ do
-                        rec a <- unSpartan3eSimulator' (f a)
+instance MonadFix Spartan3eSimulator where
+        mfix f = Spartan3eSimulator $ do
+                        rec a <- unSpartan3eSimulator (f a)
                         return a
 
-instance LocalM Spartan3eSimulator' where
-        type LocalClock Spartan3eSimulator' = Spartan3eClock
-        newSignalVar           = Spartan3eSimulator' $ newSignalVar
-        writeSignalVar var sig = Spartan3eSimulator' $ writeSignalVar var sig
-        readSignalVar  var fn  = Spartan3eSimulator' $ readSignalVar var fn
+instance LocalM Spartan3eSimulator where
+        type LocalClock Spartan3eSimulator = Spartan3eClock
+        newSignalVar           = Spartan3eSimulator $ newSignalVar
+        writeSignalVar var sig = Spartan3eSimulator $ writeSignalVar var sig
+        readSignalVar  var fn  = Spartan3eSimulator $ readSignalVar var fn
 
-instance Spartan3e Spartan3eSimulator' where
+instance Spartan3e Spartan3eSimulator where
         clkSpeed = return $ clockRate
 
-        leds mat = Spartan3eSimulator' $ lift $ sequence_
+        leds mat = Spartan3eSimulator $ lift $ sequence_
                 [ simOutput (changed $  fmap (LED x) $ shallowS light)
                 | (x,light) <- assocs mat
                 ]
 
-        switches = Spartan3eSimulator' $ lift $ do
+        switches = Spartan3eSimulator $ lift $ do
                 m <- sequence
                           [ do ss0 <- simInput (TOGGLE i `elem`)
                                let ss1 = flipper $ fmap tick ss0
@@ -618,7 +361,7 @@ instance Spartan3e Spartan3eSimulator' where
                           ]
                 return $ matrix m
 
-        buttons = Spartan3eSimulator' $ lift $ do
+        buttons = Spartan3eSimulator $ lift $ do
                 m <- sequence
                           [ do ss0 <- simInput (BUTTON i `elem`)
                                let ss1 = flipper $ fmap tick ss0
@@ -628,7 +371,7 @@ instance Spartan3e Spartan3eSimulator' where
                           ]
                 return $ matrix m
 
-        dial = Spartan3eSimulator' $ lift $ do
+        dial = Spartan3eSimulator $ lift $ do
                 bs0 <- simInput (DIAL_BUTTON     `elem`)
                 ls0 <- simInput (DIAL_TURN LEFT  `elem`)
                 rs0 <- simInput (DIAL_TURN RIGHT `elem`)
@@ -680,7 +423,7 @@ instance Spartan3e Spartan3eSimulator' where
 
                 let ss :: [Maybe (Enabled ((Sized 2,Sized 16),U8))] = fromS lcd_out
 
-                Spartan3eSimulator' $ lift $ simOutput
+                Spartan3eSimulator $ lift $ simOutput
                         $ fmap (\ ss -> case ss of
                             Nothing      -> Nothing -- should not happen; consider X'ing the LCD
                             Just Nothing -> Nothing
@@ -696,7 +439,7 @@ instance Spartan3e Spartan3eSimulator' where
                     rx = portname ++ "/rx"
 
 
-                xs :: Stream (Maybe U8) <- Spartan3eSimulator' $ lift $ do
+                xs :: Stream (Maybe U8) <- Spartan3eSimulator $ lift $ do
                         simDevice $ portname ++ "/1"
                         simInput (\ xs -> case [ u8 | RS232_RX port' u8 <- xs, port' == port ] of
                                            []     -> Nothing
@@ -765,12 +508,10 @@ instance SimulatorOutput Output where
         simWrite = const Nothing
 
 
-runSpartan3eSimulator2 :: Spartan3eSimulator' () -> Simulator2 Input Output ()
-runSpartan3eSimulator2 (Spartan3eSimulator' m) = do
+runSpartan3eSimulator :: Spartan3eSimulator () -> Simulator Input Output ()
+runSpartan3eSimulator (Spartan3eSimulator m) = do
         ((),_) <- runFabric m []
         return ()
 
-
-main2 = runSimulator2 P.Friendly 100 100 $ runSpartan3eSimulator2 fab1
-main3 = runSimulator3 P.Friendly 100 100 $ runSpartan3eSimulator2 fab1
+main3 = runSimulator P.Friendly 100 100 $ runSpartan3eSimulator fab1
 
