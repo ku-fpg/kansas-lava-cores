@@ -430,37 +430,23 @@ instance Spartan3e Spartan3eSimulator where
 -}
 -----------------------------------------------------------------------
 
-instance SimulatorInput Input where
-        simKeyboard 'l' = [TOGGLE 0]
-        simKeyboard 'k' = [TOGGLE 1]
-        simKeyboard 'j' = [TOGGLE 2]
-        simKeyboard 'h' = [TOGGLE 3]
-        simKeyboard 'a' = [BUTTON 0]
-        simKeyboard 'e' = [BUTTON 1]
-        simKeyboard 'g' = [BUTTON 2]
-        simKeyboard 'x' = [BUTTON 3]
-        simKeyboard 'd' = [DIAL_BUTTON]
-        simKeyboard 's' = [DIAL_TURN LEFT]
-        simKeyboard 'f' = [DIAL_TURN RIGHT]
-        simKeyboard 'q' = error "abort simulator"
-        simKeyboard _   = []
-        simRead "dce" = (: []) . RS232_RX DCE . fromIntegral
-        simRead _     = const []
-
-instance SimulatorOutput Output where
-        simBackground = BOARD
---        simTerminal = drawGraphic
-        simWrite = const Nothing
-
 
 runSpartan3eSimulator :: Spartan3eSimulator () -> Simulator Input Output ()
 runSpartan3eSimulator (Spartan3eSimulator m) = do
         ((),_) <- runFabric m []
         return ()
 
-main3 = runDeviceSimulator devices $ runSpartan3eSimulator fab1
+instance Simulation Spartan3eSimulator where
+        type SimulationInput Spartan3eSimulator = Input
+        type SimulationOutput Spartan3eSimulator = Output
+        simulation (Spartan3eSimulator m) = do
+                (a,_) <- runFabric m []
+                return a
+
+main3 = runDeviceSimulator devices (fab1 :: Spartan3eSimulator ())
   where
-          devices = keyboard <> ansi
+          devices = keyboard <> ansi <> ansiTick (0,0)
+                <> nice 50
 
 ------------------------------------------------
 

@@ -1,4 +1,4 @@
-{-# LANGUAGE ScopedTypeVariables, GADTs, DeriveDataTypeable, DoRec, KindSignatures #-}
+{-# LANGUAGE ScopedTypeVariables, GADTs, DeriveDataTypeable, DoRec, KindSignatures, TypeFamilies #-}
 
 module Hardware.KansasLava.Simulator
 {-
@@ -33,6 +33,7 @@ import Language.KansasLava.Stream (Stream)
 import qualified Language.KansasLava.Stream as S
 
 import System.Console.ANSI
+import Data.IORef
 import System.IO
 import Data.Typeable
 import Control.Exception
@@ -192,16 +193,10 @@ simOutput o = Simulator $ \ _ -> ((),[o],[])
 simDevice :: String -> Simulator i o  ()
 simDevice d = Simulator $ \ _ -> ((),[],[d])
 
-class SimulatorInput i where
-        simKeyboard :: Char -> [i]
-        simRead     :: String -> Word8 -> [i]
-
-class (Eq o) => SimulatorOutput o where
-        simBackground :: o
-        simTerminal   :: o -> ANSI ()
-        simWrite      :: o -> Maybe (String,Word8)
-
-
+class Simulation (m :: * -> *) where
+        type SimulationInput m :: *
+        type SimulationOutput m :: *
+        simulation :: m a -> Simulator (SimulationInput m) (SimulationOutput m) a
 
 newtype Steps a = Steps (IO (a,Steps a))
 
@@ -231,8 +226,8 @@ instance Monoid (Device i o) where
         mempty = Device id
         mappend (Device a) (Device b) = Device $ a . b
 
-runDeviceSimulator :: (Show o) => Device i o -> Simulator i o () -> IO ()
-runDeviceSimulator (Device fn) (Simulator sim) = do
+runDeviceSimulator :: (Simulation sim) => Device (SimulationInput sim) (SimulationOutput sim) -> sim () -> IO ()
+runDeviceSimulator (Device fn) sim = do
 
         let input = Steps $ return ([],input)
 
@@ -240,7 +235,12 @@ runDeviceSimulator (Device fn) (Simulator sim) = do
 
                 ss <- stepsToStreams ins
 
-                let ((),outs0,_) = sim $ ss
+                let Simulator s = simulation sim
+
+                let ((),outs0,_) = s ss
+
+                let transpose1 :: forall a . [Stream a] -> Stream [a]
+                    transpose1 = foldr (S.zipWith (:)) (pure [])
 
                 let (Steps m) = streamToSteps
                        $ fmap concat
@@ -260,32 +260,61 @@ runDeviceSimulator (Device fn) (Simulator sim) = do
 
         loop output
 
-inputDevice :: (Show i) => IO [i] -> Device i o
+-----------------------------------------------------------------------
+-- Device builders
+-----------------------------------------------------------------------
+
+inputDevice :: IO [i] -> Device i o
 inputDevice i_fn = Device $ \ fn inp -> fn (mapSteps input inp)
     where
         input xs = do
            ys <- i_fn
            return (ys ++ xs)
 
-outputDevice :: (Show o) => ([o] -> IO ()) -> Device i o
+outputDevice :: ([o] -> IO ()) -> Device i o
 outputDevice o_fn = Device $ \ fn inp -> mapSteps output (fn inp)
  where
          output xs = do
                  o_fn xs
                  return xs
 
-bootDevice :: IO () -> Device i o
-bootDevice boot = Device $ \ fn inp -> once (fn inp)
-   where
-           once (Steps m) = Steps (boot >> m)
+-- The book device runs an IO action when building the
+-- device stack, and you can use the result to customize
+-- a device. Examples include the use of a Handle when
+-- reading files.
 
-ansiOutput :: (Show o) => ANSI () -> (o -> ANSI ()) -> Device i o
+bootDevice :: IO a -> (a -> Device i o) -> Device i o
+bootDevice boot k = Device $ \ fn inp -> Steps $ do
+        -- Run the boot effect
+        a <- boot
+        let Device k_dev = k a
+        let Steps m = k_dev fn inp
+        m
+
+ansiOutput :: ANSI () -> (o -> ANSI ()) -> Device i o
 ansiOutput start fn = mconcat
-        [ bootDevice $ (showANSI start)
-        , outputDevice $ \ os -> do sequence_ [ showANSI (fn o) | o <- os ]
+        [ bootDevice (showANSI start) $ \ () ->
+          outputDevice $ \ os -> do sequence_ [ showANSI (fn o) | o <- os ]
                                     hFlush stdout
         ]
 
+-- Lists clock number on the screen
+ansiTick :: (Int,Int) -> Device i o
+ansiTick pos = bootDevice (newIORef (0 :: Int)) $ \ var ->
+               outputDevice $ \ _ ->
+                 do n <- readIORef var
+                    let n' = succ n
+                    writeIORef var n'
+                    showANSI $ PRINT (show n) `AT` pos
+
+-- Slow down each clock cycle, to make the process friendly to
+-- other things. The number is the suggested clock rate.
+nice :: Int -> Device i o
+nice n = inputDevice $ do
+        threadDelay $ ((1000 * 1000) `div` n)
+        return []
+
+-- Read the keyboard, and turn the keys into board commands.
 keyboardInput :: (Show i) => (Char -> [i]) -> Device i o
 keyboardInput interp = inputDevice $ do
         opt_ok <- try (hReady stdin)
@@ -298,37 +327,6 @@ keyboardInput interp = inputDevice $ do
            Left (e :: IOException) -> do
                 return []
 
-deviceSupport :: (SimulatorInput i, SimulatorOutput o) => Simulator i o () -> Stream [i] -> IO (Stream [o])
-deviceSupport (Simulator fab) ins = do
-
-        -- create the virtual device directory
-        createDirectoryIfMissing True "dev"
-
-        let ((),outs0,devs) = fab $ ins
-
-        let outs2 = transpose1
-                  $ outs0
-        let outs3 = fmap (fmap (maybe [] (: [])))
-                  $ outs2
-        let outs4 = fmap concat outs3
-
-        return $ outs4
-
-runSimulator :: forall i o . (Show o, Show i, SimulatorInput i, SimulatorOutput o)
-              => ExecMode -> Integer -> Integer -> Simulator i o () -> IO ()
-runSimulator _ _ _ = runDeviceSimulator
-                         (  keyboardInput simKeyboard
-                         <> ansiOutput (simTerminal' simBackground) simTerminal'
-                         )
-  where simTerminal' = simTerminal
-
-transpose1 :: [Stream a] -> Stream [a]
-transpose1 = foldr (S.zipWith (:)) (pure [])
-
-ex1 = [s1,s2,s3]
- where
-        s1 = S.fromList [1..10]
-        s2 = S.fromList [5,10,15,20]
-        s3 = S.fromList [99..]
-
+--        -- create the virtual device directory
+--        createDirectoryIfMissing True "dev"
 
