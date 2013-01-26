@@ -522,19 +522,33 @@ fab1 = do
         buttons
         dial
 
+        VAR count :: VAR Spartan3eClock U32 <- initially 0
+        let count' :: Signal Spartan3eClock (Vector 32 Bool)  = bitwise (count :: Signal Spartan3eClock U32)
+
+        let m      ::  Vector 32 (Signal Spartan3eClock Bool) = unpack count'
+
+        spark $ do
+                lab <- STEP
+                count := count + 1
+                GOTO lab
+
         leds $ M.forAll $ \ i -> if i < 4 then sw ! (fromIntegral i)
-                                          else high -- m ! (fromIntegral i + 4)
+                                          else m ! (fromIntegral i + 4)
 
         BUS lcd_bus lcd_wtr_bus :: BUS Spartan3eClock ((Sized 2,Sized 16),U8) <- bus
 
-        let s = map (fromIntegral . ord) "Hello, Spartan3!"
+        bus <- rs232rx DCE 9600
+
+        VAR u <- initially (0 :: U8)
+
         spark $ do
                 sequence_
-                  [ putBus lcd_wtr_bus (pureS ((x,y),s !! fromIntegral y)) $ STEP
+                  [ do takeBus bus u $ STEP
+                       putBus lcd_wtr_bus (pureS ((x,y),99)) $ STEP
                   | x <- [0,1], y <- [0..15]
                   ]
                 return ()
-        lcd 10 lcd_bus
+        lcd 1 lcd_bus
 
 
 data ConnectM i o a = ConnectM { runConnectM :: i -> (a,o -> o) }
@@ -681,9 +695,9 @@ instance Spartan3e Spartan3eSimulator' where
                 let portname = show port
                     rx = portname ++ "/rx"
 
---                simDevice $ portname ++ "/" ++ baud
 
                 xs :: Stream (Maybe U8) <- Spartan3eSimulator' $ lift $ do
+                        simDevice $ portname ++ "/1"
                         simInput (\ xs -> case [ u8 | RS232_RX port' u8 <- xs, port' == port ] of
                                            []     -> Nothing
                                            (u8:_) -> Just u8)
@@ -742,7 +756,8 @@ instance SimulatorInput Input where
         simKeyboard 'f' = [DIAL_TURN RIGHT]
         simKeyboard 'q' = error "abort simulator"
         simKeyboard _   = []
-        simRead _ _ = []
+        simRead "dce" = (: []) . RS232_RX DCE . fromIntegral
+        simRead _     = const []
 
 instance SimulatorOutput Output where
         simBackground = BOARD
@@ -757,4 +772,5 @@ runSpartan3eSimulator2 (Spartan3eSimulator' m) = do
 
 
 main2 = runSimulator2 P.Friendly 100 100 $ runSpartan3eSimulator2 fab1
+main3 = runSimulator3 P.Friendly 100 100 $ runSpartan3eSimulator2 fab1
 

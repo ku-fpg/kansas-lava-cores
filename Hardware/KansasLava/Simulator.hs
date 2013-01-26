@@ -552,6 +552,9 @@ scheduleProduction m = liftIO $ loop
 
 ---------------------------------------------------------------
 
+--data
+
+---------------------------------------------------------------
 
 data Simulator2 i o a = Simulator2
         { unSimulator2 :: Stream [i] -> (a,[Stream (Maybe o)],[String])
@@ -588,6 +591,135 @@ class (Eq o) => SimulatorOutput o where
         simTerminal   :: o -> ANSI ()
         simWrite      :: o -> Maybe (String,Word8)
 
+
+
+{-
+-- openPorts ::
+
+readPorts :: [String] -> IO (Stream i)
+
+writePorts :: Stream o -> IO ()
+-}
+
+newtype Steps a = Steps (IO (a,Steps a))
+
+--newtype Outputs a = Outputs (IO (a -> Outputs a))
+
+streamToSteps :: Stream a -> Steps a
+streamToSteps ss = Steps
+                   $ return
+                   $ case S.uncons ss of
+                       (s,ss') -> (s,streamToSteps ss')
+
+stepsToStreams :: Steps a -> IO (Stream a)
+stepsToStreams (Steps m) = do
+        (a,rest) <- m
+        ss <- unsafeInterleaveIO $ stepsToStreams rest
+        return (a `S.cons` ss)
+
+mapSteps :: (a -> IO b) -> Steps a -> Steps b
+mapSteps f (Steps m) = Steps $ do
+        (a,rest) <- m
+        b <- f a
+        return (b,mapSteps f rest)
+
+newtype Device i o = Device ((Steps [i] -> Steps [o]) -> (Steps [i] -> Steps [o]))
+
+instance Monoid (Device i o) where
+        mempty = Device id
+        mappend (Device a) (Device b) = Device $ a . b
+
+runDeviceSimulator :: (Show o) => Device i o -> Simulator2 i o () -> IO ()
+runDeviceSimulator (Device fn) (Simulator2 sim) = do
+
+        let input = Steps $ return ([],input)
+
+        let simulator ins = Steps $ do
+
+                ss <- stepsToStreams ins
+
+                let ((),outs0,_) = sim $ ss
+
+                let (Steps m) = streamToSteps
+                       $ fmap concat
+                       $ fmap (fmap (maybe [] (: [])))
+                       $ transpose1
+                       $ outs0
+
+                m
+
+
+        let output = fn simulator input
+
+        -- never end, just consume the output list
+        let loop (Steps m) = do
+                (_,rest) <- m
+                loop rest
+
+        loop output
+
+inputDevice :: (Show i) => IO [i] -> Device i o
+inputDevice i_fn = Device $ \ fn inp -> fn (mapSteps input inp)
+    where
+        input xs = do
+           ys <- i_fn
+           return (ys ++ xs)
+
+outputDevice :: (Show o) => ([o] -> IO ()) -> Device i o
+outputDevice o_fn = Device $ \ fn inp -> mapSteps output (fn inp)
+ where
+         output xs = do
+                 o_fn xs
+                 return xs
+
+bootDevice :: IO () -> Device i o
+bootDevice boot = Device $ \ fn inp -> once (fn inp)
+   where
+           once (Steps m) = Steps (boot >> m)
+
+ansiOutput :: (Show o) => ANSI () -> (o -> ANSI ()) -> Device i o
+ansiOutput start fn = mconcat
+        [ bootDevice $ (showANSI start)
+        , outputDevice $ \ os -> do sequence_ [ showANSI (fn o) | o <- os ]
+                                    hFlush stdout
+        ]
+
+keyboardInput :: (Show i) => (Char -> [i]) -> Device i o
+keyboardInput interp = inputDevice $ do
+        opt_ok <- try (hReady stdin)
+        case opt_ok of
+           Right True -> do
+                ch <- hGetChar stdin
+                return (interp ch)
+           Right False -> do
+                return []
+           Left (e :: IOException) -> do
+                return []
+
+deviceSupport :: (SimulatorInput i, SimulatorOutput o) => Simulator2 i o () -> Stream [i] -> IO (Stream [o])
+deviceSupport (Simulator2 fab) ins = do
+
+        -- create the virtual device directory
+        createDirectoryIfMissing True "dev"
+
+        let ((),outs0,devs) = fab $ ins
+
+        let outs2 = transpose1
+                  $ outs0
+        let outs3 = fmap (fmap (maybe [] (: [])))
+                  $ outs2
+        let outs4 = fmap concat outs3
+
+        return $ outs4
+
+runSimulator3 :: forall i o . (Show o, Show i, SimulatorInput i, SimulatorOutput o)
+              => ExecMode -> Integer -> Integer -> Simulator2 i o () -> IO ()
+runSimulator3 _ _ _ = runDeviceSimulator
+                         (  keyboardInput simKeyboard
+                         <> ansiOutput (simTerminal' simBackground) simTerminal'
+                         )
+  where simTerminal' = simTerminal
+
 runSimulator2 :: forall i o . (Show o, Show i, SimulatorInput i, SimulatorOutput o)
               => ExecMode -> Integer -> Integer -> Simulator2 i o () -> IO ()
 runSimulator2 mode clkSpeed simSpeed (Simulator2 fab) = do
@@ -595,9 +727,6 @@ runSimulator2 mode clkSpeed simSpeed (Simulator2 fab) = do
         putStrLn "[Booting Spartan3e simulator]"
         hSetBuffering stdin NoBuffering
         hSetEcho stdin False
-
-        -- create the virtual device directory
-        createDirectoryIfMissing True "dev"
 
         inputs <- hGetContentsStepwise stdin
 
@@ -610,19 +739,11 @@ runSimulator2 mode clkSpeed simSpeed (Simulator2 fab) = do
 
         -- fab :: Stream [i] -> (a,[Stream o],[String])
 
-        let ins = [ maybe [] (simKeyboard) ch
-                  | ch <- inputs
-                  ]
+        let ins = id
+                $ fmap (maybe [] simKeyboard)
+                $ S.fromList inputs
 
---        print $ concat ins
-
-        let ((),outs0,devs) = fab $ S.fromList $ ins
-
-        let outs1 = outs0 -- fmap changed outs0
-
-        let outs2 = transpose1 outs1
-        let outs3 = fmap (fmap (maybe [] (: []))) outs2
-        let outs4 = fmap concat outs3
+        outs4 <- deviceSupport (Simulator2 fab) $ ins
 
         sequence_ [ do mapM_ (showANSI . simTerminal) s
                        setCursorPosition 0 0
