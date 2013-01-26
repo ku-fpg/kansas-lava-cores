@@ -24,7 +24,6 @@ module Hardware.KansasLava.Simulator
         , ANSI(..)
         , showANSI
         , Color(..)     -- from System.Console.ANSI
-        , Graphic(..)
         ) -} where
 
 import Language.KansasLava hiding (Fast)
@@ -88,13 +87,6 @@ data ExecMode
   deriving (Eq, Show)
 
 -----------------------------------------------------------------------
--- Abstaction for output (typically the screen)
------------------------------------------------------------------------
-
-class Graphic g where
-        drawGraphic :: g -> ANSI ()
-
------------------------------------------------------------------------
 -- Helpers for printing to the screen
 -----------------------------------------------------------------------
 
@@ -105,6 +97,7 @@ data ANSI a where
         AT      :: ANSI () -> (Int,Int)    -> ANSI ()
         BIND'    :: ANSI b -> (b -> ANSI a) -> ANSI a
         RETURN'  :: a                       -> ANSI a
+        CLEAR    ::                           ANSI ()
 
 instance Monad ANSI where
         return a = RETURN' a
@@ -132,14 +125,9 @@ showANSI (RETURN' a) = return a
 showANSI (BIND' m k) = do
         a <- showANSI m
         showANSI (k a)
-
--- | Rather than use a data-structure for each action,
--- ANSI can be used instead. Not recommended, but harmless.
-instance Graphic (ANSI a) where
-        drawGraphic g = do g ; return ()
-
-instance Graphic () where
-        drawGraphic () = return ()
+showANSI (CLEAR) = do
+        clearScreen
+        hFlush stdout
 
 -----------------------------------------------------------------------
 -- Steping version of hGetContent, never blocks, returning

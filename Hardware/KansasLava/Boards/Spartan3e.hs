@@ -26,6 +26,7 @@ import GHC.TypeLits
 import Control.Monad.IO.Class
 import Data.Word
 import Data.Boolean
+import Data.Monoid
 {-
 
 -}
@@ -230,62 +231,6 @@ data DIR  = RX | TX
         deriving (Show,Eq,Ord)
 
 at = AT
-
-instance Graphic Output where
- drawGraphic (LED x st) =
-        opt_green $ PRINT [ledASCII st] `at` (11,46 - fromIntegral x)
-   where
-        opt_green = if st == Just True then COLOR Green else id
-
-        ledASCII :: Maybe Bool -> Char
-        ledASCII Nothing      = '?'
-        ledASCII (Just True)  = '@'
-        ledASCII (Just False) = '.'
-
- drawGraphic (INPUT (TOGGLE x) b) = do
-        PRINT [up]   `at` (14,46 - 2 * fromIntegral x)
-        PRINT [down] `at` (15,46 - 2 * fromIntegral x)
-  where
-       ch = "lkjh" !! fromIntegral x
-
-       up = if b then ch else ':'
-       down = if b then ':' else ch
- drawGraphic (CLOCK n) =
-        PRINT ("clk: " ++ show n) `at` (5,35)
- drawGraphic (LCD (row,col) ch) =
-        PRINT [ch] `at` (13 + fromIntegral row,20 + fromIntegral col)
- drawGraphic BOARD = do
-        PRINT boardASCII `at` (1,0)
-        COLOR Red $ PRINT ['o'] `at` (2,4)
- drawGraphic (INPUT (BUTTON x) b) =
-        (if b then REVERSE else id) $
-        PRINT [snd (buttons !! fromIntegral x)] `at`
-              (fst (buttons !! fromIntegral x))
-  where
-       buttons =
-               [ ((14,7),'a')
-               , ((13,11),'e')
-               , ((14,15),'g')
-               , ((15,11),'x')
-               ]
- drawGraphic (DIAL (Dial b p)) =
-        (if b then REVERSE else id) $
-        PRINT ["|/-\\" !! fromIntegral p] `at` (14,11)
- drawGraphic (RS232 dir port val)
-      | val > 0   = PRINT (prefix ++ show val) `at` (col,row)
-      | otherwise = PRINT (prefix ++ "-")      `at` (col,row)
-  where
-        row = case port of
-                DCE -> 27
-                DTE -> 38
-
-        prefix = case dir of
-                   RX -> "rx "
-                   TX -> "tx "
-        col = case dir of
-                   RX -> 3
-                   TX -> 2
- drawGraphic (DEBUG) = return () -- perhaps flash a light?
 
 fab1 :: (Spartan3e m, LocalClock m ~ Spartan3eClock) => m ()
 fab1 = do
@@ -504,7 +449,7 @@ instance SimulatorInput Input where
 
 instance SimulatorOutput Output where
         simBackground = BOARD
-        simTerminal = drawGraphic
+--        simTerminal = drawGraphic
         simWrite = const Nothing
 
 
@@ -513,5 +458,84 @@ runSpartan3eSimulator (Spartan3eSimulator m) = do
         ((),_) <- runFabric m []
         return ()
 
-main3 = runSimulator P.Friendly 100 100 $ runSpartan3eSimulator fab1
+main3 = runDeviceSimulator devices $ runSpartan3eSimulator fab1
+  where
+          devices = keyboard <> ansi
+
+------------------------------------------------
+
+type Spartan3eDevice = Device Input Output
+
+keyboard :: Spartan3eDevice
+keyboard = keyboardInput $ \ c -> case c of
+       'l' -> [TOGGLE 0]
+       'k' -> [TOGGLE 1]
+       'j' -> [TOGGLE 2]
+       'h' -> [TOGGLE 3]
+       'a' -> [BUTTON 0]
+       'e' -> [BUTTON 1]
+       'g' -> [BUTTON 2]
+       'x' -> [BUTTON 3]
+       'd' -> [DIAL_BUTTON]
+       's' -> [DIAL_TURN LEFT]
+       'f' -> [DIAL_TURN RIGHT]
+       'q' -> error "abort simulator"
+       _   -> []
+
+ansi :: Spartan3eDevice
+ansi = ansiOutput (do { CLEAR ; drawGraphic BOARD}) drawGraphic where
+ drawGraphic (LED x st) =
+        opt_green $ PRINT [ledASCII st] `at` (11,46 - fromIntegral x)
+   where
+        opt_green = if st == Just True then COLOR Green else id
+
+        ledASCII :: Maybe Bool -> Char
+        ledASCII Nothing      = '?'
+        ledASCII (Just True)  = '@'
+        ledASCII (Just False) = '.'
+
+ drawGraphic (INPUT (TOGGLE x) b) = do
+        PRINT [up]   `at` (14,46 - 2 * fromIntegral x)
+        PRINT [down] `at` (15,46 - 2 * fromIntegral x)
+  where
+       ch = "lkjh" !! fromIntegral x
+
+       up = if b then ch else ':'
+       down = if b then ':' else ch
+ drawGraphic (CLOCK n) =
+        PRINT ("clk: " ++ show n) `at` (5,35)
+ drawGraphic (LCD (row,col) ch) =
+        PRINT [ch] `at` (13 + fromIntegral row,20 + fromIntegral col)
+ drawGraphic BOARD = do
+        PRINT boardASCII `at` (1,0)
+        COLOR Red $ PRINT ['o'] `at` (2,4)
+ drawGraphic (INPUT (BUTTON x) b) =
+        (if b then REVERSE else id) $
+        PRINT [snd (buttons !! fromIntegral x)] `at`
+              (fst (buttons !! fromIntegral x))
+  where
+       buttons =
+               [ ((14,7),'a')
+               , ((13,11),'e')
+               , ((14,15),'g')
+               , ((15,11),'x')
+               ]
+ drawGraphic (DIAL (Dial b p)) =
+        (if b then REVERSE else id) $
+        PRINT ["|/-\\" !! fromIntegral p] `at` (14,11)
+ drawGraphic (RS232 dir port val)
+      | val > 0   = PRINT (prefix ++ show val) `at` (col,row)
+      | otherwise = PRINT (prefix ++ "-")      `at` (col,row)
+  where
+        row = case port of
+                DCE -> 27
+                DTE -> 38
+
+        prefix = case dir of
+                   RX -> "rx "
+                   TX -> "tx "
+        col = case dir of
+                   RX -> 3
+                   TX -> 2
+ drawGraphic (DEBUG) = return () -- perhaps flash a light?
 
