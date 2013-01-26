@@ -21,17 +21,18 @@ module Hardware.KansasLava.Simulator
         -- * Support for building fake Boards
 --        , generic_init
         -- * Support for the (ANSI) Graphics
-        , ANSI(..)
-        , showANSI
-        , Color(..)     -- from System.Console.ANSI
+        , module Hardware.KansasLava.Simulator.ANSI
+        -- * Support for streams
+        , module Hardware.KansasLava.Simulator.Stream
         ) -} where
 
 import Language.KansasLava hiding (Fast)
 import Language.KansasLava.Fabric
 import Language.KansasLava.Universal
-import Language.KansasLava.Stream (Stream)
 import qualified Language.KansasLava.Stream as S
 
+import Hardware.KansasLava.Simulator.ANSI
+import Hardware.KansasLava.Simulator.Stream
 import System.Console.ANSI
 import Data.IORef
 import System.IO
@@ -54,81 +55,7 @@ import System.Directory
 import Data.Sized.Unsigned
 
 
-changed :: (Eq a) => Stream a -> Stream (Maybe a)
-changed xs = Just (S.head xs) `S.cons` f (S.head xs) (S.tail xs)
-    where
-        f x xs | x == S.head xs = Nothing `S.cons` f x (S.tail xs)
-               | otherwise      = Just (S.head xs) `S.cons` f (S.head xs) (S.tail xs)
 
-freeze :: (Eq a) => a -> Stream (Maybe a) -> Stream a
-freeze a = loop a
-  where
-        loop n ss = case S.uncons ss of
-                      (Nothing,xs) -> n `S.cons` loop n xs
-                      (Just v,xs)  -> v `S.cons` loop v xs
-
-flipper :: Stream (Maybe ()) -> Stream Bool
-flipper =  loop False
-  where
-        loop n ss = case S.uncons ss of
-                      (Nothing,xs) -> n       `S.cons` loop n xs
-                      (Just _,xs)  -> (not n) `S.cons` loop (not n) xs
-
-tick :: Bool -> Maybe ()
-tick True = Just ()
-tick False = Nothing
-
------------------------------------------------------------------------
--- Running the Simulator
------------------------------------------------------------------------
-
-data ExecMode
-        = Fast          -- ^ run as fast as possible, and do not display the clock
-        | Friendly      -- ^ run in friendly mode, with 'threadDelay' to run slower, to be CPU friendly.
-  deriving (Eq, Show)
-
------------------------------------------------------------------------
--- Helpers for printing to the screen
------------------------------------------------------------------------
-
-data ANSI a where
-        REVERSE :: ANSI ()                 -> ANSI ()
-        COLOR   :: Color -> ANSI ()        -> ANSI ()
-        PRINT   :: String                  -> ANSI ()
-        AT      :: ANSI () -> (Int,Int)    -> ANSI ()
-        BIND'    :: ANSI b -> (b -> ANSI a) -> ANSI a
-        RETURN'  :: a                       -> ANSI a
-        CLEAR    ::                           ANSI ()
-
-instance Monad ANSI where
-        return a = RETURN' a
-        m >>= k  = BIND' m k
-
-showANSI :: ANSI a -> IO a
-showANSI (REVERSE ascii) = do
-        setSGR [SetSwapForegroundBackground True]
-        showANSI ascii
-        setSGR []
-        hFlush stdout
-showANSI (COLOR col ascii) = do
-        setSGR [SetColor Foreground Vivid col]
-        showANSI ascii
-        setSGR []
-        hFlush stdout
-showANSI (PRINT str) = do
-        putStr str
-showANSI (AT ascii (row,col)) = do
-        setCursorPosition row col
-        showANSI ascii
-        setCursorPosition 24 0
-        hFlush stdout
-showANSI (RETURN' a) = return a
-showANSI (BIND' m k) = do
-        a <- showANSI m
-        showANSI (k a)
-showANSI (CLEAR) = do
-        clearScreen
-        hFlush stdout
 
 -----------------------------------------------------------------------
 -- Steping version of hGetContent, never blocks, returning
