@@ -45,7 +45,8 @@ Library
         data-default,
         directory,
         bytestring,
-        network
+        network,
+        Boolean >= 0.1.0
 
   Exposed-modules:
         Hardware.KansasLava.FIFO
@@ -59,6 +60,10 @@ Library
         Hardware.KansasLava.Boards.UCF
         Hardware.KansasLava.Boards.Spartan3e
         Hardware.KansasLava.Simulator
+        Hardware.KansasLava.Simulator.ANSI
+        Hardware.KansasLava.Simulator.Device
+        Hardware.KansasLava.Simulator.Stream
+        
   Other-modules:
         Paths_kansas_lava_cores
 
