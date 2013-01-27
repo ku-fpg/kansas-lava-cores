@@ -1,4 +1,4 @@
-{-# LANGUAGE ScopedTypeVariables, GADTs, DeriveDataTypeable, DoRec, KindSignatures, TypeFamilies #-}
+{-# LANGUAGE ScopedTypeVariables, GADTs, DeriveDataTypeable, RecursiveDo, KindSignatures, TypeFamilies #-}
 
 module Hardware.KansasLava.Simulator
         ( -- * The (abstract) Fake Fabric Monad
@@ -80,7 +80,7 @@ simInput :: ([i] -> a) -> Simulator i o (Stream a)
 simInput f = Simulator $ \ i -> (fmap f i,[],[])
 
 simOutput :: Stream (Maybe o) -> Simulator i o ()
-simOutput o = Simulator $ \ _ -> ((),[o],[])
+simOutput o = Simulator $ \ _ -> ((),[Nothing `S.cons` doubleRate o],[])
 
 -- | state that a particual 'dev' is required
 simDevice :: String -> Simulator i o  ()
@@ -95,34 +95,31 @@ class Simulation (m :: * -> *) where
 runDeviceSimulator :: (Simulation sim) => Device (SimulationInput sim) (SimulationOutput sim) -> sim () -> IO ()
 runDeviceSimulator (Device fn) sim = do
 
-        let input = Steps $ return ([],input)
+        let simulator ss = rr
+              where
+                Simulator s = simulation sim
 
-        let simulator ins = Steps $ do
+                ((),outs0,_) = s ss
 
-                ss <- stepsToStreams ins
+                transpose1 :: forall a . [Stream a] -> Stream [a]
+                transpose1 = foldr (S.zipWith (:)) (pure [])
 
-                let Simulator s = simulation sim
-
-                let ((),outs0,_) = s ss
-
-                let transpose1 :: forall a . [Stream a] -> Stream [a]
-                    transpose1 = foldr (S.zipWith (:)) (pure [])
-
-                let (Steps m) = streamToSteps
-                       $ fmap concat
+                rr =     fmap concat
                        $ fmap (fmap (maybe [] (: [])))
                        $ transpose1
                        $ outs0
 
-                m
 
+        let session = fn (processorToCircuit simulator)
 
-        let output = fn simulator input
-
-        -- never end, just consume the output list
-        let loop (Steps m) = do
+        let circuit (Circuit m) = do
                 (_,rest) <- m
-                loop rest
+                needInput rest
+            needInput (NeedInput m) = do
+                f <- m
+                nowOutput (f [])
+            nowOutput (NowOutput m) = do
+                (_,rest) <- m
+                circuit rest
 
-        loop output
-
+        circuit session
