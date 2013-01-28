@@ -70,7 +70,7 @@ example = do
         leds $ M.forAll $ \ i -> if i < 4 then sw ! (fromIntegral i)
                                           else m ! (fromIntegral i + 4)
 
-        BUS lcd_bus lcd_wtr_bus :: BUS Spartan3eClock ((Fin 2,Sized 16),U8) <- bus
+        BUS lcd_bus lcd_wtr_bus :: BUS Spartan3eClock ((Fin 2,Fin 16),U8) <- bus
 
         bus <- rs232rx DCE 9600
 
