@@ -41,7 +41,7 @@ import Hardware.KansasLava.Boards.UCF
 
 import Control.Monad.Trans.Class
 import Data.Sized.Unsigned
-import Data.Sized.Sized
+import Data.Sized.Fin
 
 import Data.Sized.Matrix hiding (all)
 import qualified Data.Sized.Matrix as M
@@ -65,7 +65,7 @@ class (LocalM m, LocalClock m ~ Spartan3eClock) => Spartan3e m where
         dial     ::                             m ( Signal (LocalClock m)  Bool
                                                   , Signal (LocalClock m)  (Enabled Bool)
                                                   )
-        lcd      :: Int -> Bus (LocalClock m) ((Sized 2,Sized 16),U8) -> m ()
+        lcd      :: Int -> Bus (LocalClock m) ((Fin 2,Fin 16),U8) -> m ()
 
         rs232rx  :: Serial -> Int                               -> m (Bus (LocalClock m) U8)
         rs232tx  :: Serial -> Int -> Bus (LocalClock m) U8      -> m ()
@@ -200,10 +200,10 @@ boardASCII = unlines
 -----------------------------------------------------------------------
 
 data Output
-	= LED (Sized 8) (Maybe Bool)
+	= LED (Fin 8) (Maybe Bool)
         | INPUT Input Bool
         | CLOCK Integer
-        | LCD (Sized 2,Sized 16) Char
+        | LCD (Fin 2,Fin 16) Char
         | BOARD
         | DIAL Dial
         | RS232 DIR Serial Integer      -- displaying counts
@@ -215,8 +215,8 @@ deriving instance Eq Output
 deriving instance Show Output
 
 data Input
-        = TOGGLE (Sized 4)
-        | BUTTON (Sized 4)
+        = TOGGLE (Fin 4)
+        | BUTTON (Fin 4)
         | DIAL_BUTTON
         | DIAL_TURN LR
         | QUIT
@@ -321,7 +321,7 @@ instance Spartan3e Spartan3eSimulator where
                        )
 
         lcd wait bus = do
-                CHAN lcd_out lcd_in :: CHAN Spartan3eClock ((Sized 2,Sized 16),U8) <- channel
+                CHAN lcd_out lcd_in :: CHAN Spartan3eClock ((Fin 2,Fin 16),U8) <- channel
 
                 VAR count :: VAR Spartan3eClock U16 <- initially 0
 
@@ -333,7 +333,7 @@ instance Spartan3e Spartan3eSimulator where
                         (count /=* (0 :: Signal Spartan3eClock U16)) :? GOTO loop
                         takeBus bus lcd_in $ GOTO start
 
-                let ss :: [Maybe (Enabled ((Sized 2,Sized 16),U8))] = fromS lcd_out
+                let ss :: [Maybe (Enabled ((Fin 2,Fin 16),U8))] = fromS lcd_out
 
                 Spartan3eSimulator $ lift $ simOutput
                         $ fmap (\ ss -> case ss of

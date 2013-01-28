@@ -16,7 +16,7 @@ import Control.Applicative
 import Data.Bits
 
 import Data.Sized.Unsigned
-import Data.Sized.Sized
+import Data.Sized.Fin
 import Data.Array.IArray
 
 import Data.Monoid
@@ -70,7 +70,7 @@ example = do
         leds $ M.forAll $ \ i -> if i < 4 then sw ! (fromIntegral i)
                                           else m ! (fromIntegral i + 4)
 
-        BUS lcd_bus lcd_wtr_bus :: BUS Spartan3eClock ((Sized 2,Sized 16),U8) <- bus
+        BUS lcd_bus lcd_wtr_bus :: BUS Spartan3eClock ((Fin 2,Sized 16),U8) <- bus
 
         bus <- rs232rx DCE 9600
 

@@ -7,7 +7,7 @@ import Data.Ratio
 
 import Data.Sized.Unsigned
 import Data.Sized.Signed
-import Data.Sized.Sized
+import Data.Sized.Fin
 import GHC.TypeLits
 
 
