@@ -82,6 +82,11 @@ simInput f = Simulator $ \ i -> (fmap f i,[],[])
 simOutput :: Stream (Maybe o) -> Simulator i o ()
 simOutput o = Simulator $ \ _ -> ((),[Nothing `S.cons` doubleRate o],[])
 
+-- The state is used for outputing things that depend of the
+-- internal state *only*, and none of the inputs.
+simState :: Stream (Maybe o) -> Simulator i o ()
+simState o = Simulator $ \ _ -> ((),[doubleRate o],[])
+
 -- | state that a particual 'dev' is required
 simDevice :: String -> Simulator i o  ()
 simDevice d = Simulator $ \ _ -> ((),[],[d])
@@ -90,7 +95,6 @@ class Simulation (m :: * -> *) where
         type SimulationInput m :: *
         type SimulationOutput m :: *
         simulation :: m a -> Simulator (SimulationInput m) (SimulationOutput m) a
-
 
 runDeviceSimulator :: (Simulation sim) => Device (SimulationInput sim) (SimulationOutput sim) -> sim () -> IO ()
 runDeviceSimulator (Device fn) sim = do

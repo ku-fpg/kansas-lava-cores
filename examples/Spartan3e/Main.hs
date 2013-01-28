@@ -1,4 +1,4 @@
-{-# LANGUAGE ScopedTypeVariables, FlexibleContexts, TypeFamilies, DoRec, NoMonomorphismRestriction, DeriveDataTypeable, RankNTypes, ImpredicativeTypes #-}
+{-# LANGUAGE ScopedTypeVariables, DataKinds, FlexibleContexts, TypeFamilies, DoRec, NoMonomorphismRestriction, DeriveDataTypeable, RankNTypes, ImpredicativeTypes #-}
 module Main where
 
 import qualified Language.KansasLava as KL
@@ -11,17 +11,15 @@ import Hardware.KansasLava.FIFO
 import Hardware.KansasLava.LCD.ST7066U
 import Hardware.KansasLava.Text
 import Hardware.KansasLava.Rate
-import Hardware.KansasLava.Boards.Physical
-
-import Hardware.KansasLava.Core
-import Hardware.KansasLava.Peripherals
---import qualified Hardware.KansasLava.VGA as VGA
---import Hardware.KansasLava.VGA (Attr(..), fg, bg)
 
 import Control.Applicative
 import Data.Bits
 
 import Data.Sized.Unsigned
+import Data.Sized.Sized
+import Data.Array.IArray
+
+import Data.Monoid
 import Data.Sized.Matrix as M
 import qualified Data.Default as Default
 import System.CPUTime
@@ -31,8 +29,9 @@ import Control.Concurrent
 import System.Console.CmdArgs as CmdArgs hiding ((:=))
 
 import qualified Hardware.KansasLava.Boards.Spartan3e as Board
+import Hardware.KansasLava.Simulator
 
-import qualified Hardware.KansasLava.Simulators.Polyester as P
+--import qualified Hardware.KansasLava.Simulators.Polyester as P
 
 import Hardware.KansasLava.Boards.Spartan3e
 --import Hardware.KansasLava.Simulators.Spartan3e
@@ -51,83 +50,70 @@ options = Opts { demoFabric = "lambda-bridge"    &= help "demo fabric to be exec
         &= summary "spartan3e-demo: run different examples for Spartan3e"
         &= program "spartan3e-demo"
 
+example :: (Spartan3e m, LocalClock m ~ Spartan3eClock) => m ()
+example = do
 
-example :: (Spartan3e m) => String -> m ()
-example _ = do
-                let f x = if x then high else low
+        sw <- switches
+        buttons
+        dial
 
-                VAR count :: VAR U32 <- initially 0
+        VAR count :: VAR Spartan3eClock U32 <- initially 0
+        let count' :: Signal Spartan3eClock (Vector 32 Bool)  = bitwise (count :: Signal Spartan3eClock U32)
 
-                let count' :: Seq (Matrix X32 Bool)  = bitwise (count :: Seq U32)
+        let m      ::  Vector 32 (Signal Spartan3eClock Bool) = unpack count'
 
-                let m      ::  Matrix X32 (Seq Bool) = unpack count'
+        spark $ do
+                lab <- STEP
+                count := count + 1
+                GOTO lab
 
-                spark $ do
-                        lab <- STEP
-                        count := count + 1
-                        GOTO lab
+        leds $ M.forAll $ \ i -> if i < 4 then sw ! (fromIntegral i)
+                                          else m ! (fromIntegral i + 4)
 
---                sw <- switches
+        BUS lcd_bus lcd_wtr_bus :: BUS Spartan3eClock ((Sized 2,Sized 16),U8) <- bus
 
---                buttons
---                dial
+        bus <- rs232rx DCE 9600
 
-                leds $ M.forAll $ \ i -> m ! (fromIntegral i + 12)
+        VAR u <- initially (0 :: U8)
 
---                leds $ M.forAll $ \ i -> if i < 4 then sw ! (fromIntegral i)
---                                                  else m ! (fromIntegral i + 4)
-{-
-                BUS lcd_bus lcd_wtr_bus :: BUS ((X2,X16),U8) <- bus
-
-                let s = map (fromIntegral . ord) "Hello, Spartan3!"
-                spark $ do
-                        sequence_
-                          [ putBus lcd_wtr_bus (pureS ((x,y),s !! fromIntegral y)) $ STEP
-                          | x <- [0,1], y <- [0..15]
-                          ]
-                        return ()
-                lcd lcd_bus
-
-
-                rs232_out <- rs232rx DCE 9600
-
-                probe "rs232_out" rs232_out -- (pack sw :: Seq (Matrix X4 Bool))
-
-                rs_bus <- latchBus rs232_out
-
-                BUS rs232_bus rs232_wrt_bus :: BUS U8 <- bus
-
-                rs232tx DCE 9600 rs_bus
-
-                spark $ sequence_
-                        [ putBus rs232_wrt_bus (pureS (fromIntegral (Char.ord ch))) $ STEP
-                        | ch <- "Hello, World\n"
-                        ]
--}
+        spark $ do
+                sequence_
+                  [ do takeBus bus u $ STEP
+                       putBus lcd_wtr_bus (pureS ((x,y),99)) $ STEP
+                  | x <- [0,1], y <- [0..15]
+                  ]
                 return ()
-
-
---main = do
---        P.runSimulator P.Friendly 100 100 (fab :: Spartan3eSimulator ())
-
+        lcd 1 lcd_bus
 
 main = do
         opts <- cmdArgs options
-        let nm = demoFabric opts
+--        let nm = demoFabric opts
         case vhdl opts of
-          True ->  vhdlUseFabric opts $ example nm
-          False -> simUseFabric opts $ example nm
+--          True ->  vhdlUseFabric opts $ example nm
+          False -> simUseFabric opts example -- $ example nm
 
 
 simUseFabric :: Opts -> Spartan3eSimulator () -> IO ()
 simUseFabric opts fab = do
 --        writeFile "LOG" "-- starting log\n"
 --        setProbesAsTrace (appendFile "LOG")
+        runDeviceSimulator devices (fab :: Spartan3eSimulator ())
+  where
+          devices = keyboard
+                <> ansi <> ansiTick (0,0)
+--                <> traceOutputDevice
+                <> nice 50
+                <> initialDevice [TOGGLE 2]
+                <> rs232
+
+
+{-
         P.runSimulator
                 (if fastSim opts then P.Fast else P.Friendly)
                 (50 * 1000 * 1000)
                 50
                 fab
+-}
 
 vhdlUseFabric :: Opts -> Spartan3eBoard () -> IO ()
 vhdlUseFabric opts fab = do

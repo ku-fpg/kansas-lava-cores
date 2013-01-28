@@ -1,4 +1,4 @@
-{-# LANGUAGE ScopedTypeVariables, GADTs, DeriveDataTypeable, DoRec, KindSignatures, TypeFamilies #-}
+{-# LANGUAGE ScopedTypeVariables, GADTs, DeriveDataTypeable, DoRec, KindSignatures, TypeFamilies, BangPatterns #-}
 
 module Hardware.KansasLava.Simulator.Device where
 
@@ -10,36 +10,15 @@ import Hardware.KansasLava.Simulator.Stream
 import System.IO.Unsafe (unsafeInterleaveIO)
 import Data.Monoid
 import Control.Exception
+import Control.Monad
 import System.IO
 import Control.Concurrent
 import Data.IORef
 import Control.Applicative
-
-
-{-
-newtype Steps a = Steps (IO (a,Steps a))
-
---newtype Outputs a = Outputs (IO (a -> Outputs a))
-
-streamToSteps :: Stream a -> Steps a
-streamToSteps ss = Steps
-                   $ return
-                   $ case S.uncons ss of
-                       (s,ss') -> (s,streamToSteps ss')
-
-stepsToStreams :: Steps a -> IO (Stream a)
-stepsToStreams (Steps m) = do
-        (a,rest) <- m
-        ss <- unsafeInterleaveIO $ stepsToStreams rest
-        return (a `S.cons` ss)
-
-mapSteps :: (a -> IO b) -> Steps a -> Steps b
-mapSteps f (Steps m) = Steps $ do
-        (a,rest) <- m
-        b <- f a
-        return (b,mapSteps f rest)
--}
--- Steps [i] -> (Steps [s],Steps [o]))
+import Data.Word
+import Network
+import System.Directory
+import qualified Control.Exception as E
 
 newtype Device i o = Device (Circuit [i] [o] -> Circuit [i] [o])
 
@@ -84,102 +63,158 @@ processorToCircuit f = Circuit $ do
 -----------------------------------------------------------------------
 -- Device builders
 -----------------------------------------------------------------------
-{-
-newtype Circuit i o   = Circuit   (IO (o,NeedInput i o))
-newtype NeedInput i o = NeedInput (IO (i -> NowOutput i o))
-newtype NowOutput i o = NowOutput (IO (o,Circuit i o))
--}
+
+device :: IO s
+       -> (s -> IO ([i],s))
+       -> (s -> [o] -> IO s)
+       -> Device i o
+device start input output = Device $ \ cir -> Circuit $ do
+        s <- start
+        let Circuit m = circuit s cir
+        m
+    where
+        circuit !s (Circuit m) = Circuit $ do
+                (a,rest) <- m
+                s' <- output s a
+                return (a,needInput s' rest)
+        needInput !s (NeedInput m) = NeedInput $ do
+                f <- m
+                (i',s') <- input s
+                return $ \ i -> nowOutput s' (f (i' ++ i))
+        nowOutput !s (NowOutput m) = NowOutput $ do
+                (a,rest) <- m
+                s' <- output s a
+                return (a,circuit s rest)
 
 inputDevice :: IO [i] -> Device i o
-inputDevice i_fn = Device circuit
-    where
-        circuit (Circuit m) = Circuit $ do
-                (a,rest) <- m
-                return (a,needInput rest)
-        needInput (NeedInput m) = NeedInput $ do
-                f <- m
-                i' <- i_fn
-                return $ \ i -> nowOutput (f (i' ++ i))
-        nowOutput (NowOutput m) = NowOutput $ do
-                (a,rest) <- m
-                return (a,circuit rest)
+inputDevice i_fn = device
+        (return ())
+        (\ () -> liftM (\ xs -> (xs,())) i_fn)
+        (\ () _ -> return ())
 
 outputDevice :: ([o] -> IO ()) -> Device i o
-outputDevice o_fn = Device circuit
-    where
-        circuit (Circuit m) = Circuit $ do
-                (a,rest) <- m
-                o_fn a
-                return (a,needInput rest)
-        needInput (NeedInput m) = NeedInput $ do
-                f <- m
-                return $ \ i -> nowOutput (f i)
-        nowOutput (NowOutput m) = NowOutput $ do
-                (a,rest) <- m
-                o_fn a
-                return (a,circuit rest)
-
-
--- The book device runs an IO action when building the
--- device stack, and you can use the result to customize
--- a device. Examples include the use of a Handle when
--- reading files.
-
-bootDevice :: IO a -> (a -> Device i o) -> Device i o
-bootDevice boot k = Device $ \ cir -> Circuit $ do
-        -- Run the boot effect
-        a <- boot
-        let Device k_dev = k a
-        let Circuit m = k_dev cir
-        m
+outputDevice o_fn = device
+        (return ())
+        (\ () -> return ([],()))
+        (\ () os -> o_fn os >> return ())
 
 ansiOutput :: ANSI () -> (o -> ANSI ()) -> Device i o
-ansiOutput start fn = mconcat
-        [ bootDevice (showANSI start) $ \ () ->
-          outputDevice $ \ os -> do sequence_ [ showANSI (fn o) | o <- os ]
-                                    hFlush stdout
-        ]
+ansiOutput start fn = device
+        (showANSI start >> return ())
+        (\ () -> return ([],()))
+        (\ () os -> do sequence_ [ showANSI (fn o) | o <- os ]
+                       hFlush stdout
+                       return ())
 
 -- Lists clock number on the screen
 ansiTick :: (Int,Int) -> Device i o
-ansiTick pos = bootDevice (newIORef (0 :: Int)) $ \ var ->
-               outputDevice $ \ _ ->
-                 do n <- readIORef var
-                    let n' = succ n
-                    writeIORef var n'
-                    showANSI $ PRINT (show n) `AT` pos
+ansiTick pos = device
+        (return 0)
+        (\ n -> return ([],n))
+        (\ n _ -> do showANSI $ PRINT (show (n `div` 2) ++ (if (n `mod` 2) == 0 then "^" else "$")) `AT` pos
+                     if n==1000 then error "DONE" else return ()
+                     return (n + 1))
 
 -- Slow down each clock cycle, to make the process friendly to
--- other things. The number is the suggested clock rate.
+-- other things. The number is the suggested maximum clock frequency.
 nice :: Int -> Device i o
 nice n = inputDevice $ do
         threadDelay $ ((1000 * 1000) `div` n)
         return []
 
 -- Read the keyboard, and turn the keys into board commands.
-keyboardInput :: (Show i) => (Char -> [i]) -> Device i o
-keyboardInput interp =
-        bootDevice (do
-           hSetBuffering stdin NoBuffering
-           hSetEcho stdin False) $ \ () ->
-        inputDevice $ do
-        opt_ok <- try (hReady stdin)
-        case opt_ok of
-           Right True -> do
-                ch <- hGetChar stdin
-                return $! interp ch
-           Right False -> do
-                return []
-           Left (e :: IOException) -> do
-                return []
+keyboardInput :: (Char -> [i]) -> Device i o
+keyboardInput interp = device
+        (do hSetBuffering stdin NoBuffering
+            hSetEcho stdin False
+            return ())
+        (\ () -> do
+                opt_ok <- try (hReady stdin)
+                xs <- case opt_ok of
+                        Right True -> do
+                                ch <- hGetChar stdin
+                                return $! interp ch
+                        Right False -> do
+                                return []
+                        Left (e :: IOException) -> do
+                                return []
+                return (xs,()))
+        (\ () _ -> return ())
+
+
+-- This makes inputs happen on the first cycle.
+-- It can be used to configure the position of toggle switches, etc.
+
+initialDevice :: [i] -> Device i o
+initialDevice start = device
+        (return start)
+        (\ xs -> return (xs,[]))
+        (\ xs os -> return xs)
+
+
+traceOutputDevice :: (Show o) => Device i o
+traceOutputDevice = device
+        (return (0 :: Integer))
+        (\ n -> return ([],n))
+        (\ n os -> do
+                     when (not (null os)) $ do
+                        putStrLn (show (n `div` 2) ++ " : " ++ show os)
+                     return (succ n))
 
 --        -- create the virtual device directory
 --        createDirectoryIfMissing True "dev"
 
 -- Utilties
 
--- socketDevice :: String -> Device i o
+data Socket i o = Socket
+        { socketSpeed :: [o] -> Maybe Int
+        , rxWord8     :: [o] -> Maybe Word8
+        , txWord8     :: Word8 -> [i]
+        , socketMsg   :: String -> [o]
+        }
 
+data SocketInfo
+   = NoSocketInfo
+   | BootingSocketInfo
+        { s_mvar    :: MVar SocketInfo -- nothing r/w until this is full.
+        }
+   | SocketInfo
+        { s_hd      :: Handle
+        , s_speed   :: Int        -- how many cycles between word8's?
+        , s_tx_wait :: Maybe Int
+        , s_rx_wait :: Maybe Int
+        }
+
+socketDevice :: ([o] -> Maybe Int)      -- speed
+             -> ([o] -> Maybe Word8)    -- char to circuit (RX)
+             -> (Word8 -> [i])          -- char from circuit (TX)
+             -> String                  -- device filename
+             -> Device i o
+socketDevice speed rx tx name = device
+        (return NoSocketInfo)
+        (\ xs -> return ([],xs))
+        outputs
+  where
+        outputs s xs = case speed xs of
+                         Just n -> do
+                            v <- newEmptyMVar
+                            forkIO $ finally
+                              ((do sock <- listenOn $ UnixSocket name
+                                   (h,_,_) <- accept sock
+                                   hSetBuffering h NoBuffering
+                                   putMVar v (SocketInfo h n Nothing Nothing))
+                                 -- If anything goes wrong, just do not connect
+                                 -- This should go into some sort of log
+                                `E.catch` (\ (e :: E.SomeException) -> return ()))
+                              (removeFile name)
+                            return $ BootingSocketInfo v
+
+                         Nothing -> return s
+
+{-
+
+                        putMVar sockDB $ (nm,h) : sock_map
+-}
 
 -----------------------------------------------------------------------
 -- Steping version of hGetContent, never blocks, returning

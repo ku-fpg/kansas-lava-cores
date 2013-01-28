@@ -21,6 +21,7 @@ import Language.KansasLava.Universal
 import Hardware.KansasLava.Simulator as P
 import System.Console.ANSI
 import Data.Char as Char
+import Data.Maybe
 import Data.Array.IArray
 import GHC.TypeLits
 import Control.Monad.IO.Class
@@ -201,14 +202,14 @@ boardASCII = unlines
 data Output
 	= LED (Sized 8) (Maybe Bool)
         | INPUT Input Bool
---	| TOGGLE (Sized 4) Bool
         | CLOCK Integer
         | LCD (Sized 2,Sized 16) Char
         | BOARD
---        | BUTTON (Sized 4) Bool
         | DIAL Dial
-        | RS232 DIR Serial Integer
-        | DEBUG
+        | RS232 DIR Serial Integer      -- displaying counts
+        | RS232_TX Serial U8
+        | RS232_INIT Serial Int        -- initalialize the RS232
+        | PROBE
 
 deriving instance Eq Output
 deriving instance Show Output
@@ -232,40 +233,6 @@ data DIR  = RX | TX
 
 at = AT
 
-fab1 :: (Spartan3e m, LocalClock m ~ Spartan3eClock) => m ()
-fab1 = do
-
-        sw <- switches
-        buttons
-        dial
-
-        VAR count :: VAR Spartan3eClock U32 <- initially 0
-        let count' :: Signal Spartan3eClock (Vector 32 Bool)  = bitwise (count :: Signal Spartan3eClock U32)
-
-        let m      ::  Vector 32 (Signal Spartan3eClock Bool) = unpack count'
-
-        spark $ do
-                lab <- STEP
-                count := count + 1
-                GOTO lab
-
-        leds $ M.forAll $ \ i -> if i < 4 then sw ! (fromIntegral i)
-                                          else m ! (fromIntegral i + 4)
-
-        BUS lcd_bus lcd_wtr_bus :: BUS Spartan3eClock ((Sized 2,Sized 16),U8) <- bus
-
-        bus <- rs232rx DCE 9600
-
-        VAR u <- initially (0 :: U8)
-
-        spark $ do
-                sequence_
-                  [ do takeBus bus u $ STEP
-                       putBus lcd_wtr_bus (pureS ((x,y),99)) $ STEP
-                  | x <- [0,1], y <- [0..15]
-                  ]
-                return ()
-        lcd 1 lcd_bus
 
 
 data Spartan3eSimulator a = Spartan3eSimulator
@@ -292,7 +259,7 @@ instance Spartan3e Spartan3eSimulator where
         clkSpeed = return $ clockRate
 
         leds mat = Spartan3eSimulator $ lift $ sequence_
-                [ simOutput (changed $  fmap (LED x) $ shallowS light)
+                [ simOutput (changed $ fmap (LED x) $ shallowS light)
                 | (x,light) <- assocs mat
                 ]
 
@@ -383,9 +350,10 @@ instance Spartan3e Spartan3eSimulator where
                 let portname = show port
                     rx = portname ++ "/rx"
 
+                Spartan3eSimulator $ lift $ do
+                        simState (once (RS232_INIT port 99))
 
                 xs :: Stream (Maybe U8) <- Spartan3eSimulator $ lift $ do
-                        simDevice $ portname ++ "/1"
                         simInput (\ xs -> case [ u8 | RS232_RX port' u8 <- xs, port' == port ] of
                                            []     -> Nothing
                                            (u8:_) -> Just u8)
@@ -423,11 +391,14 @@ instance Spartan3e Spartan3eSimulator where
                                 ss
                 return ()
 
-        probe nm ss = Spartan3eSimulator $ lift $ do
-                outSimulatorDebugging $ fmap toUnit $ fromS $ probeS nm ss
-           where
-                toUnit _ = ()   -- why does this work?
 -}
+        probe nm ss = do
+                Spartan3eSimulator $ lift $ do
+                        simOutput $ fmap toUnit $ shallowS $ probeS nm ss
+                return ()
+           where
+                toUnit _ = return (PROBE)   -- why does this work?
+
 -----------------------------------------------------------------------
 
 
@@ -442,11 +413,6 @@ instance Simulation Spartan3eSimulator where
         simulation (Spartan3eSimulator m) = do
                 (a,_) <- runFabric m []
                 return a
-
-main3 = runDeviceSimulator devices (fab1 :: Spartan3eSimulator ())
-  where
-          devices = keyboard <> ansi <> ansiTick (0,0)
-                <> nice 50
 
 ------------------------------------------------
 
@@ -523,5 +489,26 @@ ansi = ansiOutput (do { CLEAR ; drawGraphic BOARD}) drawGraphic where
         col = case dir of
                    RX -> 3
                    TX -> 2
- drawGraphic (DEBUG) = return () -- perhaps flash a light?
+ drawGraphic (PROBE) = return () -- perhaps flash a light?
+ drawGraphic (RS232_INIT {}) = return ()
+
+{-
+socketDevice :: ([o] -> Maybe Int)      -- speed
+             -> ([o] -> Maybe Word8)    -- char to circuit (RX)
+             -> (Word8 -> [i])          -- char from circuit (TX)
+             -> String                  -- device filename
+             -> Device i o
+-}
+
+rs232 :: Device Input Output
+rs232 = let port = DCE
+            speed xs = listToMaybe [ n | (RS232_INIT port' n) <- xs, port == port' ]
+            name = serialName port
+            rx _ = Nothing
+            tx _ = []
+        in
+            socketDevice speed rx tx name
+
+
+
 
