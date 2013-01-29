@@ -68,8 +68,7 @@ class (LocalM m, LocalClock m ~ Spartan3eClock) => Spartan3e m where
                                                   )
         lcd      :: Int -> Bus (LocalClock m) ((Fin 2,Fin 16),U8) -> m ()
 
-        rs232rx  :: Serial -> Int                               -> m (Bus (LocalClock m) U8)
-        rs232tx  :: Serial -> Int -> Bus (LocalClock m) U8      -> m ()
+        rs232    :: Serial -> Int -> Bus (LocalClock m) U8      -> m (Bus (LocalClock m) U8)
 {-
         mem_chip :: Bus (U20,U8) -> Bus U20  -> m (Bus (U16,U16))       -- unclear how to do this
 -}
@@ -347,38 +346,30 @@ instance Spartan3e Spartan3eSimulator where
 
                 return ()
 
-        rs232rx port baud = do
-                let portname = show port
-                    rx = portname ++ "/rx"
-
-                Spartan3eSimulator $ lift $ do
-                        simState (once (RS232_INIT port 99))
-
-                xs :: Stream (Maybe U8) <- Spartan3eSimulator $ lift $ do
-                        simInput (\ xs -> case [ u8 | RS232_RX port' u8 <- xs, port' == port ] of
-                                           []     -> Nothing
-                                           (u8:_) -> Just u8)
-
-                Spartan3eSimulator $ lift $ do
-                        simOutput
-                                $ fmap (fmap (RS232 RX port))
-                                $ count
-                                $ fmap (fmap (const ()))
-                                $ xs
-
-                latchBus (mkShallowS $ fmap pure xs)
-
-        rs232tx port baud bus = do
+        rs232 port baud bus = do
 
                 htz <- clkSpeed
+
+                let slowdown = (10 * fromIntegral htz) `div` baud
+
+                -- Now, the TX
                 -- right now, we pay no attention to the speed
                 -- sending everything at full speed
 
+                VAR w :: VAR Spartan3eClock Int <- initially 0
+
                 CHAN rs_out rs_in :: CHAN Spartan3eClock U8 <- channel
+
+                let sig :: forall c s . Signal c s -> Signal c s
+                    sig s = s
 
                 spark $ do
                         lab <- STEP
                         -- insert pauses for speed /slowdown here
+                        w := pureS slowdown
+                        lab2 <- STEP
+                        w := w - 1
+                        (sig w /=* 0) :? GOTO lab2
                         takeBus bus rs_in $ GOTO lab
 
                 let ss = id
@@ -399,7 +390,24 @@ instance Spartan3e Spartan3eSimulator where
                            $ fmap (fmap (const ()))
                            $ ss
 
-                return ()
+                -- Now, the RX
+
+                Spartan3eSimulator $ lift $ do
+                        simState $ once (RS232_INIT port $ slowdown)
+
+                xs :: Stream (Maybe U8) <- Spartan3eSimulator $ lift $ do
+                        simInput (\ xs -> case [ u8 | RS232_RX port' u8 <- xs, port' == port ] of
+                                           []     -> Nothing
+                                           (u8:_) -> Just u8)
+
+                Spartan3eSimulator $ lift $ do
+                        simOutput
+                                $ fmap (fmap (RS232 RX port))
+                                $ count
+                                $ fmap (fmap (const ()))
+                                $ xs
+
+                latchBus (mkShallowS $ fmap pure xs)
 
         probe nm ss = do
                 Spartan3eSimulator $ lift $ do
@@ -510,8 +518,9 @@ socketDevice :: ([o] -> Maybe Int)      -- speed
              -> Device i o
 -}
 
-rs232 :: Device Input Output
-rs232 = let port = DCE
+rs232Device :: Device Input Output
+rs232Device =
+        let port = DCE
             speed xs = listToMaybe [ n | (RS232_INIT port' n) <- xs, port == port' ]
             name = serialName port
             rx xs = listToMaybe [ fromIntegral n | (RS232_TX port' n) <- xs, port == port' ]

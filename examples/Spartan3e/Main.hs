@@ -74,8 +74,9 @@ example = do
 
         BUS bus_tx bus_wtr_tx :: BUS Spartan3eClock U8 <- bus
 
-        bus_rx :: Bus Spartan3eClock U8 <- rs232rx DCE 9600
-        rs232tx DCE 9600 bus_tx
+        htz <- clkSpeed
+
+        bus_rx :: Bus Spartan3eClock U8 <- rs232 DCE (fromIntegral 1000000) bus_tx
 
         VAR u <- initially (0 :: U8)
 
@@ -116,7 +117,7 @@ simUseFabric opts fab = do
 --                <> traceOutputDevice
                 <> nice 100
                 <> initialDevice [TOGGLE 2]
-                <> rs232
+                <> rs232Device
 
 
 {-
