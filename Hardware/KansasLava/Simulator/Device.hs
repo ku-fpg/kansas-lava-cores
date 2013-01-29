@@ -223,9 +223,17 @@ ansiTick :: (Int,Int) -> Device i o
 ansiTick pos = device
         (return 0)
         (\ n -> return ([],n))
-        (\ n _ -> do showANSI $ PRINT (show (n `div` 2) ++ (if (n `mod` 2) == 0 then "^" else "$")) `AT` pos
-                     if n==10000 then error "DONE" else return ()
+        (\ n _ -> do -- showANSI $ PRINT (show (n `div` 2) ++ (if (n `mod` 2) == 0 then "^" else "$")) `AT` pos
                      return (n + 1))
+
+stopAt :: Integer -> Device i o
+stopAt n = device
+        (return n)
+        (\ n -> return ([],n-1))
+        (\ n _ -> do if n== 0 then error "STOP" else return ()
+                     return n)
+
+
 
 -- Slow down each clock cycle, to make the process friendly to
 -- other things. The number is the suggested maximum clock frequency.
