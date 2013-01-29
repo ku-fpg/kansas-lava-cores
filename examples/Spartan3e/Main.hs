@@ -79,7 +79,6 @@ example = do
 
         VAR u <- initially (0 :: U8)
 
-{-
         spark $ do
                 lab <- STEP
                 sequence_
@@ -87,7 +86,8 @@ example = do
                   | u <- [48..57]
                   ]
                 GOTO lab
--}
+
+
         spark $ do
                 sequence_
                   [ do takeBus bus_rx u $ STEP

@@ -381,12 +381,23 @@ instance Spartan3e Spartan3eSimulator where
                         -- insert pauses for speed /slowdown here
                         takeBus bus rs_in $ GOTO lab
 
+                let ss = id
+                       $ fmap join
+                       $ (shallowS rs_out :: Stream (Maybe (Enabled U8)))
+
+
                 -- Should really warn about invalid input to 232
                 Spartan3eSimulator $ lift $ do
                         simOutput
                            $ fmap (fmap (RS232_TX port))
-                           $ fmap join
-                           $ (shallowS rs_out :: Stream (Maybe (Enabled U8)))
+                           $ ss
+
+                Spartan3eSimulator $ lift $ do
+                        simOutput
+                           $ fmap (fmap (RS232 TX port))
+                           $ count
+                           $ fmap (fmap (const ()))
+                           $ ss
 
                 return ()
 
