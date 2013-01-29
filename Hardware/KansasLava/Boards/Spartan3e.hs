@@ -359,6 +359,13 @@ instance Spartan3e Spartan3eSimulator where
                                            []     -> Nothing
                                            (u8:_) -> Just u8)
 
+                Spartan3eSimulator $ lift $ do
+                        simOutput
+                                $ fmap (fmap (RS232 RX port))
+                                $ count
+                                $ fmap (fmap (const ()))
+                                $ xs
+
                 latchBus (mkShallowS $ fmap pure xs)
 
         rs232tx port baud bus = do

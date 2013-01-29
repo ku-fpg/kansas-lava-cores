@@ -1,3 +1,5 @@
+{-# LANGUAGE ScopedTypeVariables, GADTs, DeriveDataTypeable, DoRec, KindSignatures, TypeFamilies, BangPatterns #-}
+
 module Hardware.KansasLava.Simulator.Stream
         ( -- * Our streams
          Stream -- abstact
@@ -7,6 +9,7 @@ module Hardware.KansasLava.Simulator.Stream
         , flipper
         , tick
         , once
+        , count
         , doubleRate
         ) where
 
@@ -38,6 +41,14 @@ flipper =  loop False
 tick :: Bool -> Maybe ()
 tick True = Just ()
 tick False = Nothing
+
+-- This can be generalized, etc.
+count :: Stream (Maybe ()) -> Stream (Maybe Integer)
+count = loop 1
+  where
+          loop !n ss = case S.uncons ss of
+                         (Just (),ts) -> Just n `S.cons` loop (succ n) ts
+                         (Nothing,ts) -> Nothing `S.cons` loop n ts
 
 once :: a -> Stream (Maybe a)
 once a = Just a `S.cons` pure Nothing

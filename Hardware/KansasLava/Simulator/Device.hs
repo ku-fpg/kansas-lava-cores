@@ -292,7 +292,7 @@ data SocketInfo
    | SocketInfo
         { s_hd      :: Handle
         , s_speed   :: Int        -- how many cycles between word8's?
-        , s_tx_wait :: Maybe Int
+        , s_tx_wait :: Int
         , s_rx_wait :: Maybe Int
         }
    deriving Show
@@ -316,16 +316,18 @@ socketDevice speed rx tx name = device
                 case res of
                   Just s1 -> inputs s1
                   Nothing -> return ([],s0)
-        inputs s0@(SocketInfo h _ _ _) = do
+        inputs s0@(SocketInfo h speed 0 tx_wait) = do
                 opt_ok <- try (hReady h)
                 case opt_ok of
                   Right ok -> do
                      if ok then do
                              ch <- hGetChar h
-                             return (tx (fromIntegral(ord ch)),s0)
+                             return (tx (fromIntegral(ord ch)),s0 { s_tx_wait = s_speed s0})
                            else do
                              return ([],s0)
                   Left (e :: IOException) -> return ([],NoSocketInfo)
+        inputs s0@(SocketInfo h speed n tx_wait) = do
+                return ([], SocketInfo h speed (n - 1) tx_wait)
 
 
         outputs s xs = case speed xs of
@@ -339,7 +341,7 @@ socketDevice speed rx tx name = device
                                    sock <- listenOn $ UnixSocket name
                                    (h,_,_) <- accept sock
                                    hSetBuffering h NoBuffering
-                                   forkIO $ putMVar v (SocketInfo h n Nothing Nothing)
+                                   forkIO $ putMVar v (SocketInfo h n 0 Nothing)
                                    return ()
                                  -- If anything goes wrong, just do not connect
                                  -- This should go into some sort of log
