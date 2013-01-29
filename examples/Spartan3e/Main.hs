@@ -113,12 +113,13 @@ simUseFabric opts fab = do
         runDeviceSimulator devices (fab :: Spartan3eSimulator ())
   where
           devices = keyboard
-                <> ansi <> ansiTick (0,0)
+                <> ansi
+--                <> ansiTick (0,0)
 --                <> traceOutputDevice
-                <> nice 100
+--                <> nice 100
                 <> initialDevice [TOGGLE 2]
                 <> rs232Device
-
+                <> stopAt 10000
 
 {-
         P.runSimulator
