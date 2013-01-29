@@ -499,7 +499,7 @@ socketDevice :: ([o] -> Maybe Int)      -- speed
              -> String                  -- device filename
              -> Device i o
 -}
-
+{-
 rs232 :: Device Input Output
 rs232 = let port = DCE
             speed xs = listToMaybe [ n | (RS232_INIT port' n) <- xs, port == port' ]
@@ -508,7 +508,7 @@ rs232 = let port = DCE
             tx _ = []
         in
             socketDevice speed rx tx name
-
+-}
 
 
 

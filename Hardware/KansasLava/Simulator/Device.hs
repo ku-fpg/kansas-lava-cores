@@ -1,5 +1,5 @@
 {-# LANGUAGE ScopedTypeVariables, GADTs, DeriveDataTypeable, DoRec, KindSignatures, TypeFamilies, BangPatterns #-}
-
+{-# LANGUAGE FlexibleInstances, TypeOperators, LiberalTypeSynonyms #-}
 module Hardware.KansasLava.Simulator.Device where
 
 import qualified Language.KansasLava.Stream as S
@@ -20,15 +20,67 @@ import Network
 import System.Directory
 import qualified Control.Exception as E
 
+{-
 newtype Device i o = Device (Circuit [i] [o] -> Circuit [i] [o])
 
 instance Monoid (Device i o) where
         mempty = Device id
         mappend (Device a) (Device b) = Device $ a . b
+-}
+-----------------------------------------------------------------------
+-- Somewhere else??
+-----------------------------------------------------------------------
+
+type (f :: * -> *) $ (a :: *) = f a
+infixr 9 $      -- needs re-stated
 
 -----------------------------------------------------------------------
 -- Circuits
 -----------------------------------------------------------------------
+
+type Device' i o = Circuit [o] [i]
+
+type RECV a m = [a] -> m
+type SEND a m = ([a],m)
+
+newtype Device i o = Device (IO $ RECV o
+                           $ IO $ SEND i
+                           $ IO $ RECV o
+                           $ Device i o)
+
+instance Monoid (Device i o) where
+        mempty = Device $ return $ \ _os1 -> return ([], return $ \ _os2 -> mempty)
+        mappend (Device d1) (Device d2) = Device $ do
+                f1 <- d1
+                f2 <- d2
+                return $ \ os1 -> do
+                        (os11,rest11) <- f1 os1
+                        (os12,rest12) <- f2 os1
+                        return (os11 ++ os12, do
+                                f1' <- rest11
+                                f2' <- rest12
+                                return $ \ os2 -> mappend (f1' os2) (f2' os2))
+
+instance Monoid (Circuit [i] [o]) where
+        mempty = Circuit $ return ([],mempty)
+        mappend (Circuit c1) (Circuit c2) = Circuit $ do
+                (a1,n1) <- c1
+                (a2,n2) <- c2
+                return (a1 ++ a2,mappend n1 n2)
+
+instance Monoid (NeedInput [i] [o]) where
+        mempty = NeedInput $ return $ const mempty
+        mappend (NeedInput c1) (NeedInput c2) = NeedInput $ do
+                f1 <- c1
+                f2 <- c2
+                return $ \ os -> mappend (f1 os) (f2 os)
+
+instance Monoid (NowOutput [i] [o]) where
+        mempty = NowOutput $ return ([],mempty)
+        mappend (NowOutput c1) (NowOutput c2) = NowOutput $ do
+                (a1,n1) <- c1
+                (a2,n2) <- c2
+                return (a1 ++ a2,mappend n1 n2)
 
 newtype Circuit i o   = Circuit   (IO (o,NeedInput i o))
 
@@ -60,10 +112,54 @@ processorToCircuit f = Circuit $ do
 
         loop
 
+runDeviceAndCircuit :: Device i o -> (Stream [i] -> Stream [o]) -> IO ()
+runDeviceAndCircuit dev f = do
+        c_i <- newEmptyMVar
+        c_o <- newEmptyMVar
+
+        -- The one bit of uglyness; at least it is hidden
+        let input = unsafeInterleaveIO $ do
+                        x <- takeMVar c_i
+                        xs <- input
+                        return (x `S.cons` xs)
+        forkIO $ do
+                xs <- input
+                sequence_ [ putMVar c_o v | v <- S.toList $ f $ xs ]
+
+        let loop (Device m0) = do
+                f0 <- m0                -- step A
+                o0 <- takeMVar c_o
+                (i0,m1) <- f0 o0        -- step C
+                putMVar c_i i0
+                f1 <- m1                -- step C
+                o1 <- takeMVar c_o
+                loop (f1 o1)
+
+        loop dev
+
+        return ()
+--newtype Circuit i o   = Circuit   (IO (o,NeedInput i o))
+--newtype NeedInput i o = NeedInput (IO (i -> NowOutput i o))
+--newtype NowOutput i o = NowOutput (IO (o,Circuit i o))
+{-
+        let runDevice (Circuit m) = do
+                (is,rest) <- m
+                putMVar c_i is
+            runNeedInput (NeedInput m) = do
+
+                i <- takeMVar c_o
+                return (i, NeedInput $ do
+                        return $ \ a -> NowOutput $ do
+                          putMVar c_i a
+                          i <- takeMVar c_o
+                          return (i,Circuit $ loop))
+
+        loop
+-}
 -----------------------------------------------------------------------
 -- Device builders
 -----------------------------------------------------------------------
-
+{-
 device :: IO s
        -> (s -> IO ([i],s))
        -> (s -> [o] -> IO s)
@@ -85,6 +181,41 @@ device start input output = Device $ \ cir -> Circuit $ do
                 (a,rest) <- m
                 s' <- output s a
                 return (a,circuit s rest)
+-}
+device :: IO s
+       -> (s -> IO ([i],s))
+       -> (s -> [o] -> IO s)
+       -> Device i o
+device start input output = Device $ do
+        s <- start
+        loop s
+    where
+        loop !s0 = return $ \ os -> do
+                s1 <- output s0 os
+                (is,s2) <- input s1
+                return $ (is, return $ \ os' -> Device $ do
+                        s3 <- output s2 os'
+                        loop s3)
+
+device' :: IO s
+       -> (s -> IO ([i],s))
+       -> (s -> [o] -> IO s)
+       -> Device' i o
+device' start input output = Circuit $ do
+        s <- start
+        circuit s
+    where
+        circuit !s = do
+                (is,s') <- input s
+                return (is,NeedInput $ needInput s')
+        needInput !s = do
+                return $ \ os -> NowOutput $ do
+                        s' <- output s os
+                        nowOutput s'
+        nowOutput !s = do
+                (is,s') <- input s
+                return (is,Circuit $ circuit s')
+
 
 inputDevice :: IO [i] -> Device i o
 inputDevice i_fn = device
@@ -112,7 +243,7 @@ ansiTick pos = device
         (return 0)
         (\ n -> return ([],n))
         (\ n _ -> do showANSI $ PRINT (show (n `div` 2) ++ (if (n `mod` 2) == 0 then "^" else "$")) `AT` pos
-                     if n==1000 then error "DONE" else return ()
+                     if n==10000 then error "DONE" else return ()
                      return (n + 1))
 
 -- Slow down each clock cycle, to make the process friendly to
@@ -165,7 +296,7 @@ traceOutputDevice = device
 --        createDirectoryIfMissing True "dev"
 
 -- Utilties
-
+{-
 data Socket i o = Socket
         { socketSpeed :: [o] -> Maybe Int
         , rxWord8     :: [o] -> Maybe Word8
@@ -214,6 +345,7 @@ socketDevice speed rx tx name = device
 {-
 
                         putMVar sockDB $ (nm,h) : sock_map
+-}
 -}
 
 -----------------------------------------------------------------------

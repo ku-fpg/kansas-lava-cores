@@ -104,7 +104,7 @@ simUseFabric opts fab = do
 --                <> traceOutputDevice
                 <> nice 50
                 <> initialDevice [TOGGLE 2]
-                <> rs232
+--                <> rs232
 
 
 {-

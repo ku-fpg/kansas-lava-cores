@@ -96,8 +96,8 @@ class Simulation (m :: * -> *) where
         type SimulationOutput m :: *
         simulation :: m a -> Simulator (SimulationInput m) (SimulationOutput m) a
 
-runDeviceSimulator :: (Simulation sim) => Device (SimulationInput sim) (SimulationOutput sim) -> sim () -> IO ()
-runDeviceSimulator (Device fn) sim = do
+runDeviceSimulator :: forall sim . (Simulation sim) => Device (SimulationInput sim) (SimulationOutput sim) -> sim () -> IO ()
+runDeviceSimulator dev sim = do
 
         let simulator ss = rr
               where
@@ -114,6 +114,9 @@ runDeviceSimulator (Device fn) sim = do
                        $ outs0
 
 
+
+        runDeviceAndCircuit dev simulator
+{-
         let session = fn (processorToCircuit simulator)
 
         let circuit (Circuit m) = do
@@ -127,3 +130,4 @@ runDeviceSimulator (Device fn) sim = do
                 circuit rest
 
         circuit session
+-}
