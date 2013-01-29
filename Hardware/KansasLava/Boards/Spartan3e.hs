@@ -26,6 +26,7 @@ import Data.Array.IArray
 import GHC.TypeLits
 import Control.Monad.IO.Class
 import Data.Word
+import Control.Monad
 import Data.Boolean
 import Data.Monoid
 {-
@@ -360,10 +361,7 @@ instance Spartan3e Spartan3eSimulator where
 
                 latchBus (mkShallowS $ fmap pure xs)
 
-{-
         rs232tx port baud bus = do
-                let portname = show port
-                    tx = portname ++ "/tx"
 
                 htz <- clkSpeed
                 -- right now, we pay no attention to the speed
@@ -376,22 +374,15 @@ instance Spartan3e Spartan3eSimulator where
                         -- insert pauses for speed /slowdown here
                         takeBus bus rs_in $ GOTO lab
 
-
-                let ss = [ case s of
-                            Nothing -> Nothing
-                            Just Nothing -> Nothing
-                            Just (Just c) -> Just c
-                         | s <- fromS rs_out
-                         ]
-
+                -- Should really warn about invalid input to 232
                 Spartan3eSimulator $ lift $ do
-                        writeSocketSimulator
-                                ("dev/" ++ portname)
-                                tx
-                                ss
+                        simOutput
+                           $ fmap (fmap (RS232_TX port))
+                           $ fmap join
+                           $ (shallowS rs_out :: Stream (Maybe (Enabled U8)))
+
                 return ()
 
--}
         probe nm ss = do
                 Spartan3eSimulator $ lift $ do
                         simOutput $ fmap toUnit $ shallowS $ probeS nm ss
@@ -491,6 +482,7 @@ ansi = ansiOutput (do { CLEAR ; drawGraphic BOARD}) drawGraphic where
                    TX -> 2
  drawGraphic (PROBE) = return () -- perhaps flash a light?
  drawGraphic (RS232_INIT {}) = return ()
+ drawGraphic _ = return ()
 
 {-
 socketDevice :: ([o] -> Maybe Int)      -- speed
@@ -499,16 +491,15 @@ socketDevice :: ([o] -> Maybe Int)      -- speed
              -> String                  -- device filename
              -> Device i o
 -}
-{-
+
 rs232 :: Device Input Output
 rs232 = let port = DCE
             speed xs = listToMaybe [ n | (RS232_INIT port' n) <- xs, port == port' ]
             name = serialName port
-            rx _ = Nothing
-            tx _ = []
+            rx xs = listToMaybe [ fromIntegral n | (RS232_TX port' n) <- xs, port == port' ]
+            tx w8 = [RS232_RX port (fromIntegral w8)]
         in
             socketDevice speed rx tx name
--}
 
 
 

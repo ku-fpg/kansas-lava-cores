@@ -14,6 +14,7 @@ import Control.Monad
 import System.IO
 import Control.Concurrent
 import Data.IORef
+import Data.Char
 import Control.Applicative
 import Data.Word
 import Network
@@ -88,30 +89,6 @@ newtype NeedInput i o = NeedInput (IO (i -> NowOutput i o))
 
 newtype NowOutput i o = NowOutput (IO (o,Circuit i o))
 
-processorToCircuit :: (Stream i -> Stream o) -> Circuit i o
-processorToCircuit f = Circuit $ do
-        c_i <- newEmptyMVar
-        c_o <- newEmptyMVar
-
-        -- The one bit of uglyness; at least it is hidden
-        let input = unsafeInterleaveIO $ do
-                        x <- takeMVar c_i
-                        xs <- input
-                        return (x `S.cons` xs)
-        forkIO $ do
-                xs <- input
-                sequence_ [ putMVar c_o v | v <- S.toList $ f $ xs ]
-
-        let loop = do
-                i <- takeMVar c_o
-                return (i, NeedInput $ do
-                        return $ \ a -> NowOutput $ do
-                          putMVar c_i a
-                          i <- takeMVar c_o
-                          return (i,Circuit $ loop))
-
-        loop
-
 runDeviceAndCircuit :: Device i o -> (Stream [i] -> Stream [o]) -> IO ()
 runDeviceAndCircuit dev f = do
         c_i <- newEmptyMVar
@@ -122,9 +99,13 @@ runDeviceAndCircuit dev f = do
                         x <- takeMVar c_i
                         xs <- input
                         return (x `S.cons` xs)
-        forkIO $ do
-                xs <- input
-                sequence_ [ putMVar c_o v | v <- S.toList $ f $ xs ]
+        tid <- myThreadId
+
+        forkIO ((do
+            xs <- input
+            sequence_ [ putMVar c_o v | v <- S.toList $ f $ xs ])
+                                `E.catch` (\ (e :: E.SomeException) -> throwTo tid e))
+
 
         let loop (Device m0) = do
                 f0 <- m0                -- step A
@@ -282,7 +263,6 @@ initialDevice start = device
         (\ xs -> return (xs,[]))
         (\ xs os -> return xs)
 
-
 traceOutputDevice :: (Show o) => Device i o
 traceOutputDevice = device
         (return (0 :: Integer))
@@ -296,7 +276,7 @@ traceOutputDevice = device
 --        createDirectoryIfMissing True "dev"
 
 -- Utilties
-{-
+
 data Socket i o = Socket
         { socketSpeed :: [o] -> Maybe Int
         , rxWord8     :: [o] -> Maybe Word8
@@ -315,6 +295,9 @@ data SocketInfo
         , s_tx_wait :: Maybe Int
         , s_rx_wait :: Maybe Int
         }
+   deriving Show
+
+instance Show (MVar a) where show _ = "<MVAR>"
 
 socketDevice :: ([o] -> Maybe Int)      -- speed
              -> ([o] -> Maybe Word8)    -- char to circuit (RX)
@@ -323,30 +306,57 @@ socketDevice :: ([o] -> Maybe Int)      -- speed
              -> Device i o
 socketDevice speed rx tx name = device
         (return NoSocketInfo)
-        (\ xs -> return ([],xs))
+        inputs
         outputs
   where
+
+        inputs s0@NoSocketInfo = return ([],s0)
+        inputs s0@(BootingSocketInfo v) = do
+                res <- tryTakeMVar v
+                case res of
+                  Just s1 -> inputs s1
+                  Nothing -> return ([],s0)
+        inputs s0@(SocketInfo h _ _ _) = do
+                opt_ok <- try (hReady h)
+                case opt_ok of
+                  Right ok -> do
+                     if ok then do
+                             ch <- hGetChar h
+                             return (tx (fromIntegral(ord ch)),s0)
+                           else do
+                             return ([],s0)
+                  Left (e :: IOException) -> return ([],NoSocketInfo)
+
+
         outputs s xs = case speed xs of
-                         Just n -> do
-                            v <- newEmptyMVar
-                            forkIO $ finally
-                              ((do sock <- listenOn $ UnixSocket name
+                         Just n -> setup n
+                         Nothing -> case rx xs of
+                                      Just w8 -> send w8 s
+                                      Nothing -> return s
+        setup n = do v <- newEmptyMVar
+                     forkIO $ finally (do
+                                   removeFile name `E.catch` (\ (e :: E.SomeException) -> return ())
+                                   sock <- listenOn $ UnixSocket name
                                    (h,_,_) <- accept sock
                                    hSetBuffering h NoBuffering
-                                   putMVar v (SocketInfo h n Nothing Nothing))
+                                   forkIO $ putMVar v (SocketInfo h n Nothing Nothing)
+                                   return ()
                                  -- If anything goes wrong, just do not connect
                                  -- This should go into some sort of log
-                                `E.catch` (\ (e :: E.SomeException) -> return ()))
-                              (removeFile name)
-                            return $ BootingSocketInfo v
-
-                         Nothing -> return s
-
-{-
-
-                        putMVar sockDB $ (nm,h) : sock_map
--}
--}
+                                `E.catch` (\ (e :: E.SomeException) -> do
+                                                print ("EXCEPTION",e)
+                                                return ()))
+                                        (removeFile name)
+                     return $ BootingSocketInfo v
+        send w8 s0@(BootingSocketInfo v) = do
+                res <- tryTakeMVar v
+                case res of
+                  Just s1 -> send w8 s1
+                  Nothing -> return s0
+        send w8 s0@(SocketInfo hd _ _ _) = do
+                hPutChar hd (chr (fromIntegral w8))
+                hFlush hd
+                return s0
 
 -----------------------------------------------------------------------
 -- Steping version of hGetContent, never blocks, returning

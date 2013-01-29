@@ -72,14 +72,26 @@ example = do
 
         BUS lcd_bus lcd_wtr_bus :: BUS Spartan3eClock ((Fin 2,Fin 16),U8) <- bus
 
-        bus <- rs232rx DCE 9600
+        BUS bus_tx bus_wtr_tx :: BUS Spartan3eClock U8 <- bus
+
+        bus_rx :: Bus Spartan3eClock U8 <- rs232rx DCE 9600
+        rs232tx DCE 9600 bus_tx
 
         VAR u <- initially (0 :: U8)
 
+{-
+        spark $ do
+                lab <- STEP
+                sequence_
+                  [ do putBus bus_wtr_tx (pureS u) $ STEP
+                  | u <- [48..57]
+                  ]
+                GOTO lab
+-}
         spark $ do
                 sequence_
-                  [ do takeBus bus u $ STEP
-                       putBus lcd_wtr_bus (pureS ((x,y),99)) $ STEP
+                  [ do takeBus bus_rx u $ STEP
+                       putBus lcd_wtr_bus (pack (pureS ((x,y)),u)) $ STEP
                   | x <- [0,1], y <- [0..15]
                   ]
                 return ()
@@ -102,9 +114,9 @@ simUseFabric opts fab = do
           devices = keyboard
                 <> ansi <> ansiTick (0,0)
 --                <> traceOutputDevice
-                <> nice 50
+                <> nice 100
                 <> initialDevice [TOGGLE 2]
---                <> rs232
+                <> rs232
 
 
 {-
