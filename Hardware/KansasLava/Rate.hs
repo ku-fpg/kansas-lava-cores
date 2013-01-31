@@ -1,7 +1,7 @@
 {-# LANGUAGE RankNTypes, TypeFamilies, ScopedTypeVariables #-}
 -- | The 'Clock' module provides a utility function for simulating clock rate
 -- downsampling.
-module Hardware.KansasLava.Rate(rate, powerOfTwoRate, rateP, throttleP) where
+module Hardware.KansasLava.Rate(rate, powerOfTwoRate) where
 
 import Data.Ratio
 
@@ -24,7 +24,7 @@ rate sized n
   | step > 2^sz = error $ "bit-size " ++ show sz ++ " too small for punctuate Witness " ++ show n
   | n <= 0 = error "can not have rate less than or equal zero"
   | n > 1 = error $ "can not have rate greater than 1, requesting " ++ show n
-
+{-
     -- for power of two, a simple counter works
   | num == 1 && step == 2^sz = runRTL $ do
 	count <- newReg (0 :: (Unsigned x))
@@ -59,7 +59,7 @@ rate sized n
 
 	     ]
 	return  (reg count .==. 0)
-
+-}
    where sz :: Integer
          sz = fromNat sized
 	 num = numerator n
@@ -72,6 +72,7 @@ rate sized n
 powerOfTwoRate :: forall x clk . (Clock clk, SingI x) => TNat x -> Signal clk Bool
 powerOfTwoRate sized = rate sized (1/(2^(fromNat sized)))
 
+{-
 -- | 'rateP' takes a result from rate, and generates token, one per pulse, with
 -- unused tokens being discared.
 rateP :: forall c sig . (Clock c, sig ~ Signal c)
@@ -94,6 +95,7 @@ throttleP in_pred
 	top = outputP (packEnabled in_pred (pureS ())) $$
 	      enabledToAckBox
 
+-}
 {-
 -- Wrong, omit for this release.
 --
