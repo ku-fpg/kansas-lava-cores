@@ -223,7 +223,7 @@ ansiTick :: (Int,Int) -> Device i o
 ansiTick pos = device
         (return 0)
         (\ n -> return ([],n))
-        (\ n _ -> do -- showANSI $ PRINT (show (n `div` 2) ++ (if (n `mod` 2) == 0 then "^" else "$")) `AT` pos
+        (\ n _ -> do showANSI $ PRINT (show (n `div` 2) ++ (if (n `mod` 2) == 0 then "^" else "$")) `AT` pos
                      return (n + 1))
 
 stopAt :: Integer -> Device i o
