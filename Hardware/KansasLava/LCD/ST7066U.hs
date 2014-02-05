@@ -160,7 +160,7 @@ phy_4bit_LCD ~(inp,_) = (toAck inAck,out)
 -}
 		return (commentS "ack" (var ack),pack (reg rs,reg sf_d,commentS "lcd_e" $ reg lcd_e))
 
-waitFor :: (Rep b, Num b) => Reg s c b -> Signal c b -> RTL s c () -> RTL s c ()
+waitFor :: (Rep b, Eq b, Num b) => Reg s c b -> Signal c b -> RTL s c () -> RTL s c ()
 waitFor counter count nextOp = do
 	CASE [ IF (reg counter ./=. count) $ do
 			counter := reg counter + 1
