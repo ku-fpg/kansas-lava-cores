@@ -43,7 +43,8 @@ Library
         data-default,
         directory,
         bytestring,
-        network
+        network,
+        filepath
 
   Exposed-modules:
         Hardware.KansasLava.FIFO
@@ -78,7 +79,8 @@ Executable spartan3e-demo
         bytestring,
         network,
         random,
-        cmdargs
+        cmdargs,
+        filepath
       buildable: True
    else
       Build-depends: base
@@ -100,7 +102,8 @@ Executable kansas-lava-cores-tests
         directory,
         bytestring,
         network,
-        random
+        random,
+        filepath
       buildable: True
       Other-modules:
          Chunker

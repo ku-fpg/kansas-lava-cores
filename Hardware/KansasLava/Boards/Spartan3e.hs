@@ -115,7 +115,7 @@ clockRate = 50 * 1000 * 1000
 
 -- | show out a suggested UCF file for Spartan3e, for a specific circuit.
 writeUCF :: FilePath -> KLEG -> IO ()
-writeUCF = copyUCF "Spartan3e.ucf"
+writeUCF = copyUCF "Spartan3e.ucf" (Just "CLK_50MHZ")
 
 ------------------------------------------------------------
 -- instance
