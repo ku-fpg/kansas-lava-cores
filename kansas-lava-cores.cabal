@@ -1,5 +1,5 @@
 Name:               kansas-lava-cores
-Version:            0.1.2
+Version:            0.1.2.1
 Synopsis:           FPGA Cores Written in Kansas Lava.
 Description:
          Kansas Lava Cores is a collection of libraries, written in Kansas Lava,
@@ -37,7 +37,7 @@ Flag spartan3e
 Library
   Build-Depends: 
         base >= 4 && < 5,
-        kansas-lava == 0.2.4,
+        kansas-lava >= 0.2.4.1 && < 0.2.5,
         sized-types >= 0.3.4,
         ansi-terminal >= 0.5.5,
         data-default,
@@ -70,7 +70,7 @@ Executable spartan3e-demo
     if flag(spartan3e) || flag(all)
       Build-Depends: 
         base >= 4 && < 5,
-        kansas-lava == 0.2.4,
+        kansas-lava >= 0.2.4.1 && < 0.2.5 ,
         sized-types >= 0.3.4 && < 0.4,
         ansi-terminal >= 0.5.5,
         data-default,
@@ -93,7 +93,7 @@ Executable kansas-lava-cores-tests
     if flag(unit) || flag(all)
       Build-Depends: 
         base >= 4 && < 5,
-        kansas-lava == 0.2.4,
+        kansas-lava >= 0.2.4.1 && < 0.2.5,
         sized-types >= 0.3.4,
         ansi-terminal >= 0.5.5,
         data-default,
