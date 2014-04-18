@@ -206,7 +206,7 @@ rs232in baudRate clkRate ~(in_val0,()) = ((),out)
 				-- This should be the stop bit
 				outVal := enabledS
 					$ findByte [ reg (theByte (fromIntegral i))
-						   | i <- [1..8]
+						   | i <- [1..8] :: [Int]
 						   ]
                                 -- start looking for the start bit now
                                 counter := 0
