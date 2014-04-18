@@ -30,6 +30,7 @@ import System.IO
 import Data.Typeable
 import Control.Exception
 import Control.Concurrent
+import Control.Applicative
 import Control.Monad
 import Data.Char
 import Control.Monad.Fix
@@ -57,9 +58,20 @@ data Polyester a = Polyester ([Maybe Char]
                                -> PolyesterEnv 
                                -> IO (a,[Stepper]))
 
+instance Functor Polyester where
+        fmap f (Polyester p) = Polyester $ \ inp st -> do
+            (x, s) <- p inp st
+            return (f x, s)
+
+instance Applicative Polyester where
+        pure x = Polyester $ \ _ _ -> return (x, [])
+        (Polyester pf) <*> (Polyester px) = Polyester $ \ inp st -> do
+            (f, s1) <- pf inp st
+            (x, s2) <- px inp st
+            return (f x, s1 ++ s2)
 
 instance Monad Polyester where
-        return a = Polyester $ \ _ _ -> return (a,[])
+        return = pure
         (Polyester f) >>= k = Polyester $ \ inp st -> do
                                 (a,s1)  <- f inp st
                                 let Polyester g = k a
@@ -299,10 +311,19 @@ data ANSI a where
         AT      :: ANSI () -> (Int,Int)    -> ANSI ()
         BIND    :: ANSI b -> (b -> ANSI a) -> ANSI a
         RETURN  :: a                       -> ANSI a
-        
+
+instance Functor ANSI where
+        fmap f m = m `BIND` (RETURN . f)
+
+instance Applicative ANSI where
+        pure = RETURN
+        mf <*> mx = BIND mf $ \f ->
+                    BIND mx $ \x ->
+                    RETURN (f x)
+
 instance Monad ANSI where
-        return a = RETURN a
-        m >>= k  = BIND m k
+        return = pure
+        (>>=) = BIND
 
 showANSI :: ANSI a -> IO a
 showANSI (REVERSE ascii) = do
