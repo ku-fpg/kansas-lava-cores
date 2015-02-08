@@ -125,3 +125,9 @@ Executable kansas-lava-cores-tests
 source-repository head
   type:     git
   location: git://github.com/ku-fpg/kansas-lava-cores.git
+
+source-repository this
+  type:     git
+  location: git://github.com/ku-fpg/kansas-lava-cores.git
+  branch:   kansas-lava-cores-0.1.2
+  tag:      0.1.2.1
