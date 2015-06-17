@@ -64,7 +64,7 @@ Library
 
 --  Hs-Source-Dirs: ., ../kansas-lava
   Other-modules:
-  Ghc-Options: -fcontext-stack=100
+  Ghc-Options: -fno-warn-tabs -fcontext-stack=100
   default-language:    Haskell2010
 
 Executable spartan3e-demo
@@ -87,7 +87,7 @@ Executable spartan3e-demo
       buildable: False
    Main-Is: Main.hs
    Hs-Source-Dirs: ., examples/Spartan3e
-   Ghc-Options: -fcontext-stack=100
+   Ghc-Options: -fno-warn-tabs -fcontext-stack=100
           -threaded -rtsopts
   default-language:    Haskell2010
 
@@ -117,7 +117,7 @@ Executable kansas-lava-cores-tests
       buildable: False
     Main-Is:        Main.hs
     Hs-Source-Dirs: ., tests
-    Ghc-Options: -fcontext-stack=100
+    Ghc-Options: -fno-warn-tabs -fcontext-stack=100
           -threaded -rtsopts
 --        -Wall  -Werror 
     default-language:    Haskell2010

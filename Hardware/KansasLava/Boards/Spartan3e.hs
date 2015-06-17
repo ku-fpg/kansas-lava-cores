@@ -1,4 +1,4 @@
-{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE ScopedTypeVariables, TypeFamilies #-}
 
 module Hardware.KansasLava.Boards.Spartan3e (
         -- * Class for the methods of the Spartan3e
