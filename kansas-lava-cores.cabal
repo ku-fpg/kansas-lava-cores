@@ -1,5 +1,5 @@
 Name:               kansas-lava-cores
-Version:            0.1.2.1
+Version:            0.1.2.2
 Synopsis:           FPGA Cores Written in Kansas Lava.
 Description:
          Kansas Lava Cores is a collection of libraries, written in Kansas Lava,
@@ -130,4 +130,4 @@ source-repository this
   type:     git
   location: git://github.com/ku-fpg/kansas-lava-cores.git
   branch:   kansas-lava-cores-0.1.2
-  tag:      0.1.2.1
+  tag:      0.1.2.2
