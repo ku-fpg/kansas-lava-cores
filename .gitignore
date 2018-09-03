@@ -9,3 +9,4 @@ dist/
 *.html
 dist/
 tests/sims/
+.stack-work/
